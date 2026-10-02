@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The only permission :background adds. No exact alarms, no battery-optimization exemption, no wake lock,
+         no foreground service (docs/ARCHITECTURE.md §13, §14). -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application>
+        <!-- Protected system broadcasts reach non-exported receivers (R02 §5.2); exported=false so no other app can
+             wake Agentle with an explicit broadcast (oauth-security-12). onReceive dispatches through an allow-list. -->
+        <receiver
+            android:name="dev.agentle.background.receiver.SystemEventReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.LOCALE_CHANGED" />
+                <!-- API 37+ only; delivery to a manifest receiver is UNVERIFIED. Below 37 the timer worker compares
+                     zone offsets on each run instead. -->
+                <action android:name="android.intent.action.TIMEZONE_OFFSET_CHANGED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
