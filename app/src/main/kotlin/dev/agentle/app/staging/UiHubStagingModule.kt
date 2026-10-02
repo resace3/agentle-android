@@ -8,10 +8,6 @@ import dagger.hilt.components.SingletonComponent
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.feature.hub.port.CapabilityItem
-import dev.agentle.feature.hub.port.DashboardData
-import dev.agentle.feature.hub.port.DashboardPort
-import dev.agentle.feature.hub.port.DataSourceItem
-import dev.agentle.feature.hub.port.DataSourcesPort
 import dev.agentle.feature.hub.port.PermissionCenterPort
 import dev.agentle.feature.onboarding.port.OnboardingPort
 import dev.agentle.feature.onboarding.port.OnboardingProgress
@@ -26,12 +22,6 @@ import kotlinx.coroutines.flow.flowOf
 internal object UiHubStagingModule {
     @Provides
     fun onboardingPort(): OnboardingPort = UnavailableOnboardingPort
-
-    @Provides
-    fun dashboardPort(): DashboardPort = UnavailableDashboardPort
-
-    @Provides
-    fun dataSourcesPort(): DataSourcesPort = UnavailableDataSourcesPort
 
     @Provides
     fun permissionCenterPort(): PermissionCenterPort = UnavailablePermissionCenterPort
@@ -54,24 +44,6 @@ internal object UnavailableOnboardingPort : OnboardingPort {
     ): Outcome<Unit> = unavailable("onboarding")
 
     override suspend fun complete(): Outcome<Unit> = unavailable("onboarding")
-}
-
-internal object UnavailableDashboardPort : DashboardPort {
-    override val dashboard: Flow<DashboardData> = flowOf(DashboardData())
-
-    override suspend fun snooze(decisionKey: String): Outcome<Unit> = unavailable("dashboard")
-
-    override suspend fun notNow(decisionKey: String): Outcome<Unit> = unavailable("dashboard")
-
-    override suspend fun stopJitai(jitaiId: String): Outcome<Unit> = unavailable("dashboard")
-}
-
-internal object UnavailableDataSourcesPort : DataSourcesPort {
-    override val sources: Flow<List<DataSourceItem>> = flowOf(emptyList())
-
-    override suspend fun setEnabled(connectorId: String, enabled: Boolean): Outcome<Unit> = unavailable("data_sources")
-
-    override suspend fun syncNow(connectorId: String): Outcome<Unit> = unavailable("data_sources")
 }
 
 internal object UnavailablePermissionCenterPort : PermissionCenterPort {

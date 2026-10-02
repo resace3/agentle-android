@@ -8,6 +8,8 @@ import dagger.hilt.components.SingletonComponent
 import dev.agentle.background.port.Collectors
 import dev.agentle.background.port.Maintenance
 import dev.agentle.core.time.AgentleClock
+import dev.agentle.feature.hub.port.DashboardPort
+import dev.agentle.feature.hub.port.DataSourcesPort
 import dev.agentle.feature.hub.port.HubClockPort
 import dev.agentle.feature.hub.port.TimelinePort
 import dev.agentle.feature.settings.port.UserTimeZonePort
@@ -19,6 +21,12 @@ import javax.inject.Singleton
 internal interface WiringModule {
     @Binds @Singleton
     fun timeline(impl: RoomTimelinePort): TimelinePort
+
+    @Binds @Singleton
+    fun dashboard(impl: DraftDashboardPort): DashboardPort
+
+    @Binds @Singleton
+    fun dataSources(impl: GraphDataSourcesPort): DataSourcesPort
 
     @Binds @Singleton
     fun collectors(impl: GraphCollectors): Collectors
