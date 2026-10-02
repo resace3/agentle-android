@@ -43,6 +43,11 @@ public enum class DeliveryState { DELIVERED, DELIVERY_UNCERTAIN }
  * @property bootCount `Settings.Global.BOOT_COUNT` at [at]; null when not recorded.
  * @property engineDay the engine day the decision was counted in, as stored on the row.
  * @property jitaiCategory the JITAI's category (`PHYSICAL_ACTIVITY`, `DIGITAL_WELLBEING`, ...).
+ * @property response the stored response; [InterventionResponse.NONE] while the delivery waits for one (its outcome
+ *   window is open), and for a `DELIVERY_UNCERTAIN` row nobody responded to (the engine never marks those `IGNORED`).
+ * @property positiveOutcome the delivery's proximal outcome is positive (the engine's outcome positivity,
+ *   jitai-correctness-14): a `DISMISSED` delivery with a positive outcome does not extend `consecutive_ignored`, as in
+ *   the engine's backoff (R10 §9.6). False when no outcome is known.
  */
 public data class DeliveryRecord(
     val decisionKey: String,
@@ -54,6 +59,7 @@ public data class DeliveryRecord(
     val elapsedRealtime: Duration? = null,
     val bootCount: Int? = null,
     val response: InterventionResponse = InterventionResponse.NONE,
+    val positiveOutcome: Boolean = false,
 )
 
 /** Which JITAIs a history feature looks at: the parsed `jitai` arg (R10 §4.5, §5.4 I). */

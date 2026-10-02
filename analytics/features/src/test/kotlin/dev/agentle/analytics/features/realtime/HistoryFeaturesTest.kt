@@ -11,8 +11,11 @@ import dev.agentle.core.common.AppError
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -36,8 +39,10 @@ class HistoryFeaturesTest {
         elapsed: Duration? = clock.elapsed() - (now - at),
         boot: Int? = inputs.live.state.bootCount,
         engineDay: LocalDate = LocalTimeRules.engineDay(at, zone, config.engineDayRollover),
+        positiveOutcome: Boolean = false,
     ) {
-        inputs.history.rows += DeliveryRecord("v1|$jitai|${keys++}", jitai, category, state, at, engineDay, elapsed, boot, response)
+        inputs.history.rows +=
+            DeliveryRecord("v1|$jitai|${keys++}", jitai, category, state, at, engineDay, elapsed, boot, response, positiveOutcome)
     }
 
     @Test
@@ -88,14 +93,95 @@ class HistoryFeaturesTest {
         assertThat(f.resolve(ref("last_response"))).isEqualTo(FeatureValue.Known(FeatureScalar.EnumValue("IGNORED"), f.now))
     }
 
+    // ------------------------------------------------------------------ settled responses (REALTIME-FEATURES-R1-3)
+
+    /** R1 delivered at 19:00, 20:00 and 21:00, each IGNORED, and once more at 22:00 without a response yet. */
+    private fun RealtimeFixture.threeIgnoredThenOneWithoutResponse(fourth: DeliveryState) {
+        for (hour in 19..21) delivery(at = local("2026-10-01T$hour:00"), response = InterventionResponse.IGNORED)
+        delivery(at = local("2026-10-01T22:00"), state = fourth)
+    }
+
     @Test
-    fun `a pending newest delivery breaks the streak and has no response yet`() = runTest {
+    fun `R1-3 probe A a delivery still in its outcome window is skipped`() = runTest {
+        val f = RealtimeFixture(start = "2026-10-01T18:00")
+        f.threeIgnoredThenOneWithoutResponse(DeliveryState.DELIVERED)
+        f.advanceTo("2026-10-01T22:30")
+
+        assertThat(f.resolve(ref("last_response"))).isEqualTo(FeatureValue.Known(FeatureScalar.EnumValue("IGNORED"), f.now))
+        assertThat(f.resolve(ref("consecutive_ignored"))).isEqualTo(knownInt(3, f.now))
+        // The pending delivery is still the latest delivery for spacing.
+        assertThat(f.resolve(ref("minutes_since_last_delivery"))).isEqualTo(knownInt(30, f.now))
+    }
+
+    @Test
+    fun `R1-3 probe I a DELIVERY_UNCERTAIN head is skipped for good`() = runTest {
+        val f = RealtimeFixture(start = "2026-10-01T18:00")
+        f.threeIgnoredThenOneWithoutResponse(DeliveryState.DELIVERY_UNCERTAIN)
+        f.advanceTo("2026-10-03T12:00")
+
+        assertThat(f.resolve(ref("last_response"))).isEqualTo(FeatureValue.Known(FeatureScalar.EnumValue("IGNORED"), f.now))
+        assertThat(f.resolve(ref("consecutive_ignored"))).isEqualTo(knownInt(3, f.now))
+    }
+
+    @Test
+    fun `R1-3 a delivery that is only pending has no settled response yet`() = runTest {
+        val f = RealtimeFixture()
+        f.delivery(at = f.now - 10.minutes)
+
+        assertThat(f.resolve(ref("last_response"))).isEqualTo(missing(MissingReason.NOT_YET_AVAILABLE))
+        assertThat(f.resolve(ref("consecutive_ignored"))).isEqualTo(knownInt(0, f.now))
+        assertThat(f.resolve(ref("minutes_since_last_delivery"))).isEqualTo(knownInt(10, f.now))
+        // NONE stays "never delivered" for this rule (R10 §5.4 I).
+        assertThat(f.resolve(ref("last_response", r3))).isEqualTo(FeatureValue.Known(FeatureScalar.EnumValue("NONE"), f.now))
+    }
+
+    @Test
+    fun `R1-3 an uncertain delivery the user responded to is a settled response`() = runTest {
         val f = RealtimeFixture()
         f.delivery(at = f.now - 2.days, response = InterventionResponse.IGNORED)
-        f.delivery(at = f.now - 10.minutes, response = InterventionResponse.NONE)
+        f.delivery(at = f.now - 1.days, state = DeliveryState.DELIVERY_UNCERTAIN, response = InterventionResponse.OPENED)
 
-        assertThat(f.resolve(ref("consecutive_ignored"))).isEqualTo(knownInt(0, f.now))
-        assertThat(f.resolve(ref("last_response")).knownScalar).isEqualTo(FeatureScalar.EnumValue("NONE"))
+        assertThat(f.resolve(ref("last_response"))).isEqualTo(FeatureValue.Known(FeatureScalar.EnumValue("OPENED"), f.now))
+        // The backoff counts DELIVERED rows only, as the engine does.
+        assertThat(f.resolve(ref("consecutive_ignored"))).isEqualTo(knownInt(1, f.now))
+    }
+
+    /**
+     * Test vectors of the engine's `EngagementBackoff.consecutiveIgnored` (origin/team/jitai-engine, Responses.kt),
+     * oldest to newest: `I` IGNORED, `D` DISMISSED, `d` DISMISSED with a positive outcome, `O` OPENED, `H` HELPFUL,
+     * `S` SNOOZED, `-` DELIVERED without a response yet, `u` DELIVERY_UNCERTAIN without a response, `U` uncertain OPENED.
+     */
+    @ParameterizedTest(name = "{0} -> {1}")
+    @CsvSource(
+        "IDI, 3",
+        "OIDI, 3",
+        "IIdI, 1",
+        "IIDI-, 4",
+        "III--, 3",
+        "II-I, 1",
+        "IIuI, 3",
+        "IIUI, 3",
+        "IIIu, 3",
+        "IIH, 0",
+        "IIS, 0",
+        "IIO-, 0",
+        "'-', 0",
+        "u, 0",
+    )
+    fun `R1-3 consecutive_ignored matches the engine's backoff vectors`(history: String, expected: Long) = runTest {
+        val f = RealtimeFixture()
+        history.forEachIndexed { i, code ->
+            val at = f.now - (history.length - i).hours
+            when (code) {
+                '-' -> f.delivery(at = at)
+                'u' -> f.delivery(at = at, state = DeliveryState.DELIVERY_UNCERTAIN)
+                'U' -> f.delivery(at = at, state = DeliveryState.DELIVERY_UNCERTAIN, response = InterventionResponse.OPENED)
+                'd' -> f.delivery(at = at, response = InterventionResponse.DISMISSED, positiveOutcome = true)
+                else -> f.delivery(at = at, response = RESPONSES.getValue(code))
+            }
+        }
+
+        assertThat(f.resolve(ref("consecutive_ignored"))).isEqualTo(knownInt(expected, f.now))
     }
 
     @Test
@@ -238,5 +324,15 @@ class HistoryFeaturesTest {
         val any = FeatureRef("minutes_since_last_delivery", mapOf("jitai" to JitaiArgs.ANY))
         assertThat(any.bindSelf(r1)).isEqualTo(any)
         assertThat(FeatureRef("local_time").bindSelf(r1)).isEqualTo(FeatureRef("local_time"))
+    }
+
+    private companion object {
+        val RESPONSES = mapOf(
+            'I' to InterventionResponse.IGNORED,
+            'D' to InterventionResponse.DISMISSED,
+            'O' to InterventionResponse.OPENED,
+            'H' to InterventionResponse.HELPFUL,
+            'S' to InterventionResponse.SNOOZED,
+        )
     }
 }
