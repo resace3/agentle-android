@@ -71,8 +71,10 @@ class PrivacyCaptureTest {
         assertThat(purged).containsExactly("sms.a")
 
         defaults = setOf("sms.b")
+        // Cached until a package change or the sweep forces a re-resolution.
+        collector.invalidateHandlers()
         collector.refreshHandlers()
-        collector.refreshHandlers()
+        collector.refreshHandlers(force = true)
         collector.onPosted(snapshot("sms.b", "k3", "secret"))
         runCurrent()
         collector.flush()

@@ -66,6 +66,10 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
         private var refilledAt: Duration? = null
         internal var gapOpen: Boolean = false
         internal var droppedSinceCheck: Boolean = false
+
+        /** A RATE_LIMITED gap is open; [reopenPending] once a row was accepted after it. */
+        internal var rateGap: Boolean = false
+        internal var reopenPending: Boolean = false
         internal var lastHeartbeat: Duration? = null
 
         /** Rows dropped by the rate limit so far. */
@@ -94,6 +98,7 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
                 return false
             }
             tokens -= 1.0
+            if (rateGap) reopenPending = true
             return true
         }
     }
@@ -130,7 +135,9 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
         val newGap = lock.withLock {
             val dropped = channel.droppedSinceCheck
             channel.droppedSinceCheck = false
-            dropped && channel.coverageIds.isNotEmpty() && !channel.gapOpen.also { if (dropped) channel.gapOpen = true }
+            val opens = dropped && channel.coverageIds.isNotEmpty() && !channel.rateGap
+            if (opens) channel.rateGap = true
+            opens
         }
         if (newGap) runtime.coverage.close(channel.coverageIds, runtime.clock.now(), CoverageEndCause.RATE_LIMITED)
     }
@@ -214,12 +221,17 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
         val elapsed = runtime.clock.elapsed()
         channels.filter { it.coverageIds.isNotEmpty() }.forEach { channel ->
             when (result) {
-                is WriteResult.Committed -> if (channel.gapOpen) {
-                    channel.gapOpen = false
-                    runtime.coverage.open(channel.coverageIds, now)
-                } else if (channel.lastHeartbeat.let { it == null || elapsed - it >= HEARTBEAT_INTERVAL }) {
-                    channel.lastHeartbeat = elapsed
-                    runtime.coverage.heartbeat(channel.coverageIds, now)
+                is WriteResult.Committed -> {
+                    val gap = channel.rateGap || channel.gapOpen
+                    if (gap && (!channel.rateGap || channel.reopenPending)) {
+                        channel.rateGap = false
+                        channel.reopenPending = false
+                        channel.gapOpen = false
+                        runtime.coverage.open(channel.coverageIds, now)
+                    } else if (!gap && channel.lastHeartbeat.let { it == null || elapsed - it >= HEARTBEAT_INTERVAL }) {
+                        channel.lastHeartbeat = elapsed
+                        runtime.coverage.heartbeat(channel.coverageIds, now)
+                    }
                 }
 
                 is WriteResult.Unavailable -> if (!channel.gapOpen) {
