@@ -60,6 +60,10 @@ public object RuleCodec {
 
     public fun decodeDefinition(text: String): Outcome<JitaiDefinition> = decode(text, Schemas.definition, JitaiDefinition.serializer())
 
+    /** [decodeDefinition] with an explicit alias table (tests of a catalog rename). */
+    internal fun decodeDefinition(text: String, aliases: Map<String, String>): Outcome<JitaiDefinition> =
+        decode(text, Schemas.definition, JitaiDefinition.serializer(), aliases)
+
     /** A condition tree in the stored form (sparse `args`, no `appLabel`). */
     public fun encodeCondition(condition: Condition): String = json.encodeToString(Condition.serializer(), condition)
 
@@ -106,9 +110,14 @@ public object RuleCodec {
     private const val NIBBLE_MASK = 0x0f
     private const val NIBBLE_BITS = 4
 
-    private fun <T> decode(text: String, spec: Spec, serializer: KSerializer<T>): Outcome<T> {
+    private fun <T> decode(
+        text: String,
+        spec: Spec,
+        serializer: KSerializer<T>,
+        aliases: Map<String, String> = FeatureAliases.ALIASES,
+    ): Outcome<T> {
         val sink = IssueSink()
-        val value = decodeInto(text, spec, serializer, sink, Stage.S4)
+        val value = decodeInto(text, spec, serializer, sink, Stage.S4, aliases)
         return if (value != null && !sink.hasErrors) {
             Outcome.success(value)
         } else {
@@ -119,9 +128,16 @@ public object RuleCodec {
     }
 
     /** S1-S5 for [text]: size, strict read, schema walk, decode. Findings go to [sink]; returns the value or null. */
-    internal fun <T> decodeInto(text: String, spec: Spec, serializer: KSerializer<T>, sink: IssueSink, walkStage: Stage): T? {
+    internal fun <T> decodeInto(
+        text: String,
+        spec: Spec,
+        serializer: KSerializer<T>,
+        sink: IssueSink,
+        walkStage: Stage,
+        aliases: Map<String, String> = FeatureAliases.ALIASES,
+    ): T? {
         val element = readStrict(text, sink) ?: return null
-        return decodeElement(element, spec, serializer, sink, walkStage)
+        return decodeElement(element, spec, serializer, sink, walkStage, aliases)
     }
 
     /** S1-S3: size limit, strict read. */
@@ -158,13 +174,23 @@ public object RuleCodec {
     }
 
     /** S4 walk then S5 decode; a decode failure after a clean walk is a validator bug (E099), never thrown. */
-    internal fun <T> decodeElement(element: JsonElement, spec: Spec, serializer: KSerializer<T>, sink: IssueSink, walkStage: Stage): T? {
+    internal fun <T> decodeElement(
+        element: JsonElement,
+        spec: Spec,
+        serializer: KSerializer<T>,
+        sink: IssueSink,
+        walkStage: Stage,
+        aliases: Map<String, String> = FeatureAliases.ALIASES,
+    ): T? {
+        // Stored documents may use renamed feature ids (FeatureAliases); model output never does.
+        val stored = spec === Schemas.definition || spec === Schemas.storedCondition
+        val input = if (stored) FeatureAliases.migrate(element, aliases) else element
         val walk = IssueSink()
-        SchemaWalker(walk, walkStage).walk(element, spec, "")
+        SchemaWalker(walk, walkStage).walk(input, spec, "")
         sink.addAll(walk)
         if (walk.hasErrors) return null
         return try {
-            json.decodeFromJsonElement(serializer, element)
+            json.decodeFromJsonElement(serializer, input)
         } catch (e: CancellationException) {
             throw e
         } catch (@Suppress("TooGenericExceptionCaught") ignored: Exception) {
