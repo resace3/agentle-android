@@ -1,0 +1,22 @@
+{
+    "decisionKey": "v1|R1|I|2026-10-01|10",
+    "jitaiId": "R1",
+    "jitaiName": "Rule R1",
+    "category": "DIGITAL_WELLBEING",
+    "channel": "NOTIFICATION",
+    "decidedChannel": "NOTIFICATION",
+    "title": "Time for a break",
+    "body": "You have been on your phone a while.",
+    "postedTitle": "Agentle",
+    "postedBody": "You have a new check-in. Open Agentle to see it.",
+    "detailed": false,
+    "localOnly": true,
+    "assetId": null,
+    "contentRef": "static",
+    "nonce": "f5008c5f5db4e0d206967259f3e133a2",
+    "timeoutMinutes": null,
+    "snoozeOptions": [
+        "MINUTES_60",
+        "UNTIL_TOMORROW"
+    ]
+}

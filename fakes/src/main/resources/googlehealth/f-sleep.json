@@ -1,0 +1,77 @@
+{
+  "dataPoints": [
+    {
+      "name": "users/1234567890/dataTypes/sleep/dataPoints/7821966286120953002",
+      "dataSource": {"recordingMethod": "DERIVED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+      "sleep": {
+        "interval": {
+          "startTime": "2026-09-30T18:10:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T18:35:00Z",
+          "endUtcOffset": "-14400s"
+        },
+        "type": "CLASSIC",
+        "stages": [
+          {"startTime": "2026-09-30T18:10:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T18:20:00Z", "endUtcOffset": "-14400s", "type": "ASLEEP"},
+          {"startTime": "2026-09-30T18:20:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T18:23:00Z", "endUtcOffset": "-14400s", "type": "RESTLESS"},
+          {"startTime": "2026-09-30T18:23:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T18:35:00Z", "endUtcOffset": "-14400s", "type": "ASLEEP"}
+        ],
+        "metadata": {"stagesStatus": "REJECTED_NAP", "processed": true, "nap": true},
+        "summary": {
+          "minutesInSleepPeriod": "25",
+          "minutesAfterWakeUp": "0",
+          "minutesToFallAsleep": "0",
+          "minutesAsleep": "22",
+          "minutesAwake": "3",
+          "stagesSummary": [{"type": "ASLEEP", "minutes": "22", "count": "2"}, {"type": "RESTLESS", "minutes": "3", "count": "1"}]
+        },
+        "createTime": "2026-09-30T18:47:12.310577Z",
+        "updateTime": "2026-09-30T18:47:12.310577Z"
+      }
+    },
+    {
+      "name": "users/1234567890/dataTypes/sleep/dataPoints/7821966286120953001",
+      "dataSource": {"recordingMethod": "DERIVED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+      "sleep": {
+        "interval": {
+          "startTime": "2026-09-30T02:40:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T10:52:00Z",
+          "endUtcOffset": "-14400s"
+        },
+        "type": "STAGES",
+        "stages": [
+          {"startTime": "2026-09-30T02:40:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T02:45:00Z", "endUtcOffset": "-14400s", "type": "AWAKE"},
+          {"startTime": "2026-09-30T02:45:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T03:30:00Z", "endUtcOffset": "-14400s", "type": "LIGHT"},
+          {"startTime": "2026-09-30T03:30:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T04:20:00Z", "endUtcOffset": "-14400s", "type": "DEEP"},
+          {"startTime": "2026-09-30T04:20:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T05:00:00Z", "endUtcOffset": "-14400s", "type": "REM"},
+          {"startTime": "2026-09-30T05:00:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T07:30:00Z", "endUtcOffset": "-14400s", "type": "LIGHT"},
+          {"startTime": "2026-09-30T07:30:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T08:00:00Z", "endUtcOffset": "-14400s", "type": "DEEP"},
+          {"startTime": "2026-09-30T08:00:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T09:10:00Z", "endUtcOffset": "-14400s", "type": "REM"},
+          {"startTime": "2026-09-30T09:10:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T10:40:00Z", "endUtcOffset": "-14400s", "type": "LIGHT"},
+          {"startTime": "2026-09-30T10:40:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T10:52:00Z", "endUtcOffset": "-14400s", "type": "AWAKE"}
+        ],
+        "metadata": {"stagesStatus": "SUCCEEDED", "processed": true, "mainSleep": true},
+        "summary": {
+          "minutesInSleepPeriod": "492",
+          "minutesAfterWakeUp": "0",
+          "minutesToFallAsleep": "0",
+          "minutesAsleep": "475",
+          "minutesAwake": "17",
+          "stagesSummary": [
+            {"type": "AWAKE", "minutes": "17", "count": "2"},
+            {"type": "LIGHT", "minutes": "285", "count": "3"},
+            {"type": "DEEP", "minutes": "80", "count": "2"},
+            {"type": "REM", "minutes": "110", "count": "2"}
+          ]
+        },
+        "createTime": "2026-09-30T11:02:10.123456Z",
+        "updateTime": "2026-09-30T11:35:44.654321Z",
+        "shortAwakenings": [
+          {"startTime": "2026-09-30T05:31:00Z", "startUtcOffset": "-14400s", "endTime": "2026-09-30T05:31:30Z", "endUtcOffset": "-14400s", "type": "AWAKE"}
+        ]
+      }
+    }
+  ],
+  "nextPageToken": ""
+}

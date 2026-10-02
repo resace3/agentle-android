@@ -1,0 +1,15 @@
+{
+  "error": {
+    "code": 400,
+    "message": "Filter cannot contain both physical and civil time ranges",
+    "status": "INVALID_ARGUMENT",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "INVALID_DATA_POINT_FILTER",
+        "domain": "health.googleapis.com",
+        "metadata": {"detailedReasons": "INVALID_DATA_POINT_FILTER_MIXED_TIME_RESTRICTIONS"}
+      }
+    ]
+  }
+}
