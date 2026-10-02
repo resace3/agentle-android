@@ -135,17 +135,20 @@ jobs:
       - name: Robolectric version
         id: robolectric
         shell: bash
+        env:
+          SDKS: ${{ steps.mode.outputs.sdks }}
         run: |
           v=$(sed -nE 's/^robolectric[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' gradle/libs.versions.toml)
           if [ -z "$v" ]; then echo "::error::robolectric version not found in gradle/libs.versions.toml"; exit 1; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "sdks=$(echo "$SDKS" | tr ',' '-')" >> "$GITHUB_OUTPUT"
       # Robolectric 4.17 downloads android-all-instrumented jars at test time into ~/.m2/repository (its
       # MavenDependencyResolver) and reuses any jar found there. Saved only when the job succeeds.
       - name: Cache Robolectric android-all jars
         uses: actions/cache@v6
         with:
           path: ~/.m2/repository/org/robolectric
-          key: robolectric-${{ runner.os }}-${{ steps.robolectric.outputs.version }}-sdk${{ steps.mode.outputs.sdks }}
+          key: robolectric-${{ runner.os }}-${{ steps.robolectric.outputs.version }}-sdk${{ steps.robolectric.outputs.sdks }}
           restore-keys: robolectric-${{ runner.os }}-${{ steps.robolectric.outputs.version }}-
       - name: Accept SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
