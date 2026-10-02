@@ -294,7 +294,11 @@ public class CommitResolver(private val nonces: NonceSource) {
             log += logEntry(retry.evaluation, EvalOutcome.RETRY, null)
         }
 
-        /** G16 and step 7: the best contender is DECIDED (or NOT_RANDOMIZED), the others lose arbitration. */
+        /**
+         * G16 and step 7: the best contender is DECIDED (or NOT_RANDOMIZED), the others lose arbitration. R10 §8.1 runs
+         * arbitration (step 6) before micro-randomization (step 7), so the losers lose whatever the winner draws: a
+         * NOT_RANDOMIZED winner does not free the pass's one delivery, and losers defer or end as LOST_ARBITRATION as usual.
+         */
         private fun arbitrate(contenders: List<Contender>) {
             if (contenders.isEmpty()) return
             val byId = contenders.associateBy { it.evaluation.point.definition.id }

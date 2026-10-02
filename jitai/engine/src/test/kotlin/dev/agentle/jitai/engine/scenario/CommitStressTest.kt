@@ -8,6 +8,8 @@ import dev.agentle.jitai.engine.F0
 import dev.agentle.jitai.engine.Leaves
 import dev.agentle.jitai.engine.Rules
 import dev.agentle.jitai.engine.bool
+import dev.agentle.jitai.engine.decision.DecisionState
+import dev.agentle.jitai.engine.decision.ReasonCode
 import dev.agentle.jitai.engine.int
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -48,9 +50,12 @@ class CommitStressTest {
             val rows = harness.store.rows()
             val counted = rows.filter { it.state.counted && it.state.countsGlobally }
             assertWithMessage("rep $rep keys").that(rows.map { it.decisionKey }).containsNoDuplicates()
-            // Every candidate is due at 22:30 and the global gap is 30 min: at most one counted delivery.
-            assertWithMessage("rep $rep counted").that(counted.size).isAtMost(1)
-            assertWithMessage("rep $rep posts").that(harness.delivery.posts.size).isAtMost(1)
+            // Every candidate is due at 22:30 and the global gap is 30 min: exactly one counted delivery.
+            assertWithMessage("rep $rep counted").that(counted.size).isEqualTo(1)
+            assertWithMessage("rep $rep posts").that(harness.delivery.posts.size).isEqualTo(1)
+            val losers = rows.filter { it.state != DecisionState.MISSED && it.decisionKey != counted.single().decisionKey }
+            assertWithMessage("rep $rep loser reasons").that(LOSER_REASONS).containsAtLeastElementsIn(losers.map { it.reason }.toSet())
+            assertWithMessage("rep $rep loser states").that(losers.all { it.state == DecisionState.SUPPRESSED }).isTrue()
             assertWithMessage("rep $rep alerts").that(harness.delivery.alerts).isEqualTo(harness.delivery.posts.size)
         }
     }
@@ -58,5 +63,8 @@ class CommitStressTest {
     private companion object {
         const val REPETITIONS = 1_000
         const val WORKERS = 4
+
+        /** Losers lose to arbitration in one pass or to the global gap of the other worker's delivery. */
+        val LOSER_REASONS: Set<ReasonCode?> = setOf(ReasonCode.LOST_ARBITRATION, ReasonCode.GLOBAL_MIN_GAP)
     }
 }

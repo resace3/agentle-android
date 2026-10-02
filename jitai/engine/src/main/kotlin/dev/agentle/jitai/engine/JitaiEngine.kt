@@ -203,6 +203,9 @@ public class JitaiEngine(
 
             !Nonces.matches(record.nonce, nonce) -> ResponseReport(ResponseStatus.REJECTED)
 
+            record.state == DecisionState.DECIDED || record.state == DecisionState.CARD_PENDING ->
+                ResponseReport(ResponseStatus.NOT_DISPLAYED)
+
             else -> {
                 val context = context()
                 val definition = context.byId[record.jitaiId]

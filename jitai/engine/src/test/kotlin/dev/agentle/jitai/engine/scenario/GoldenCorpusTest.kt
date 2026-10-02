@@ -9,6 +9,8 @@ import dev.agentle.jitai.engine.F0
 import dev.agentle.jitai.engine.Leaves
 import dev.agentle.jitai.engine.Rules
 import dev.agentle.jitai.engine.content.RenderedIntervention
+import dev.agentle.jitai.engine.decision.DecisionState
+import dev.agentle.jitai.engine.decision.ReasonCode
 import dev.agentle.jitai.engine.int
 import dev.agentle.jitai.engine.pipeline.TraceCodec
 import dev.agentle.jitai.engine.row
@@ -26,7 +28,13 @@ import java.io.File
  * reviewed diff. Regenerate with `AGENTLE_GOLDEN_UPDATE=true`.
  */
 class GoldenCorpusTest {
-    class Case(val name: String, val key: String, val build: suspend () -> EngineHarness) {
+    class Case(
+        val name: String,
+        val key: String,
+        val state: DecisionState,
+        val reason: ReasonCode?,
+        val build: suspend () -> EngineHarness,
+    ) {
         override fun toString(): String = name
     }
 
@@ -38,17 +46,27 @@ class GoldenCorpusTest {
         val rendered = harness.delivery.posts.firstOrNull {
             it.decisionKey == case.key
         }?.let { JSON.encodeToString(RenderedIntervention.serializer(), it) }
+        val row = harness.row(case.key)
+        assertWithMessage("${case.name} state").that(row.state).isEqualTo(case.state)
+        assertWithMessage("${case.name} reason").that(row.reason).isEqualTo(case.reason)
         if (UPDATE) {
             File(DIR, "${case.name}.trace.json").apply { parentFile.mkdirs() }.writeText(trace + "\n")
             rendered?.let { File(DIR, "${case.name}.rendered.json").writeText(it + "\n") }
+            return@runTest
         }
 
         val storedTrace = resource("${case.name}.trace.json")
-        assertWithMessage(case.name).that(TraceCodec.decode(storedTrace)).isNotNull()
-        assertWithMessage(case.name).that(TraceCodec.decode(storedTrace)).isEqualTo(TraceCodec.decode(trace))
+        val decoded = checkNotNull(TraceCodec.decode(storedTrace)) { "${case.name} does not decode" }
+        // The stored text must be exactly what the current code writes for the decoded trace (format stability).
+        assertWithMessage("${case.name} raw").that(storedTrace).isEqualTo(TraceCodec.encode(decoded))
+        assertWithMessage("${case.name} raw current").that(storedTrace).isEqualTo(trace)
         if (rendered != null) {
-            val stored = JSON.decodeFromString(RenderedIntervention.serializer(), resource("${case.name}.rendered.json"))
-            assertWithMessage(case.name).that(stored).isEqualTo(JSON.decodeFromString(RenderedIntervention.serializer(), rendered))
+            val raw = resource("${case.name}.rendered.json")
+            val stored = JSON.decodeFromString(RenderedIntervention.serializer(), raw)
+            assertWithMessage(
+                "${case.name} rendering raw",
+            ).that(raw).isEqualTo(JSON.encodeToString(RenderedIntervention.serializer(), stored))
+            assertWithMessage("${case.name} rendering").that(raw).isEqualTo(rendered)
         }
     }
 
@@ -70,9 +88,9 @@ class GoldenCorpusTest {
 
         @JvmStatic
         fun cases(): List<Case> = listOf(
-            Case("r1-delivered", "v1|R1|I|2026-10-01|10") { r1(screen = true) },
-            Case("r1-unknown", "v1|R1|I|2026-10-01|10") { r1(screen = false) },
-            Case("r1-suppressed-by-rule", "v1|R1|I|2026-10-01|10") {
+            Case("r1-delivered", "v1|R1|I|2026-10-01|10", DecisionState.DELIVERED, null) { r1(screen = true) },
+            Case("r1-unknown", "v1|R1|I|2026-10-01|10", DecisionState.UNKNOWN, null) { r1(screen = false) },
+            Case("r1-suppressed-by-rule", "v1|R1|I|2026-10-01|10", DecisionState.SUPPRESSED, ReasonCode.SUPPRESSED_BY_RULE) {
                 val s = Rules.suppression(
                     "S",
                     ActiveWindow("22:00", "23:00"),
@@ -85,7 +103,7 @@ class GoldenCorpusTest {
                 harness.timer()
                 harness
             },
-            Case("r2-template", "v1|R2|D|2026-10-01|17:00") {
+            Case("r2-template", "v1|R2|D|2026-10-01|17:00", DecisionState.DELIVERED, null) {
                 val harness = F0.harness(F0.local("2026-10-01T17:00"), Rules.R2)
                 harness.features.set(Leaves.STEPS, int(2_000, F0.local("2026-10-01T16:50")))
                 harness.timer()

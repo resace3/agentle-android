@@ -221,9 +221,21 @@ public class DeliveryCoordinator(
             return DeliveryResult.Error(key, "engine_state_unreadable")
         }
         val now = clock.now()
-        // The claim always completes, so the worker knows whether it owns the row (jitai-correctness-12).
-        val result = withContext(NonCancellable) {
-            ports.store.commit(generation) { tx -> claim(tx, record, definition, env, prepared, live, now) }
+        // The claim always completes, so the worker knows whether it owns the row (jitai-correctness-12). Leaving the
+        // NonCancellable block in a cancelled worker throws: a claim it made is then reverted to DECIDED.
+        var committed: Outcome<Claim>? = null
+        val result = try {
+            withContext(NonCancellable) {
+                ports.store.commit(generation) { tx -> claim(tx, record, definition, env, prepared, live, now) }
+                    .also { committed = it }
+            }
+        } catch (e: CancellationException) {
+            val claimed = ((committed as? Outcome.Success)?.value as? Claim.Claimed)?.row
+            withContext(NonCancellable) {
+                if (claimed != null) revert(record)
+                discard(prepared)
+            }
+            throw e
         }
         val claim = when (result) {
             is Outcome.Failure -> {
@@ -370,10 +382,10 @@ public class DeliveryCoordinator(
             is Outcome.Failure -> DeliveryResult.Error(claimed.decisionKey, update.error.code)
 
             is Outcome.Success -> {
-                (intervention.contentRef as? ContentRef.AiPooled)?.let { ref ->
-                    ports.aiTexts.markUsed(ref.itemId, claimed.decisionKey).onFailureLog("mark_used")
-                }
                 if (update.value) {
+                    (intervention.contentRef as? ContentRef.AiPooled)?.let { ref ->
+                        ports.aiTexts.markUsed(ref.itemId, claimed.decisionKey).onFailureLog("mark_used")
+                    }
                     DeliveryResult.Delivered(claimed.decisionKey, recovered = false, downgradeReason = intervention.downgradeReason)
                 } else {
                     DeliveryResult.Skipped(claimed.decisionKey, ports.store.decision(claimed.decisionKey).getOrNull()?.state)
@@ -411,11 +423,20 @@ public class DeliveryCoordinator(
             is Outcome.Failure -> return DeliveryResult.Error(row.decisionKey, active.error.detail ?: active.error.code)
             is Outcome.Success -> active.value
         }
-        if (!isActive) return finish(row, DecisionState.DELIVERY_UNCERTAIN, ReasonCode.NOT_FOUND_AFTER_LEASE, null)
+        if (!isActive) {
+            // The text may have been shown before the notification went away: never offer it again.
+            return finish(row, DecisionState.DELIVERY_UNCERTAIN, ReasonCode.NOT_FOUND_AFTER_LEASE, null).also { markUsed(row) }
+        }
         val recovered = row.copy(state = DecisionState.DELIVERED, delivered = row.claimed ?: now, recovered = true)
         return when (val update = ports.store.compareAndSet(DecisionState.DELIVERING, recovered)) {
             is Outcome.Failure -> DeliveryResult.Error(row.decisionKey, update.error.code)
-            is Outcome.Success -> if (update.value) DeliveryResult.Delivered(row.decisionKey, recovered = true) else skipped(row)
+
+            is Outcome.Success -> if (update.value) {
+                markUsed(row)
+                DeliveryResult.Delivered(row.decisionKey, recovered = true)
+            } else {
+                skipped(row)
+            }
         }
     }
 
@@ -450,9 +471,12 @@ public class DeliveryCoordinator(
         if (row.state != DecisionState.CARD_PENDING) return DeliveryResult.Skipped(key, row.state)
         val now = clock.now()
         val definition = env.definitions[row.jitaiId]
-        if (definition != null && !isBefore(now, cardExpiry(row, definition, env))) {
-            return end(row, DecisionState.EXPIRED, ReasonCode.CARD_NOT_DISPLAYED, now)
+        val ended = when {
+            definition == null -> DecisionState.CANCELLED to ReasonCode.JITAI_DISABLED
+            !isBefore(now, cardExpiry(row, definition, env)) -> DecisionState.EXPIRED to ReasonCode.CARD_NOT_DISPLAYED
+            else -> null
         }
+        if (ended != null) return end(row, ended.first, ended.second, now)
         val shown = row.copy(state = DecisionState.DELIVERED, delivered = now)
         return when (val update = ports.store.compareAndSet(DecisionState.CARD_PENDING, shown)) {
             is Outcome.Failure -> DeliveryResult.Error(key, update.error.code)
@@ -600,6 +624,12 @@ public class DeliveryCoordinator(
     private suspend fun discard(prepared: PreparedDelivery) {
         outcomeOf(mapError = { AppError.Unexpected("discard:${it::class.simpleName}") }) { ports.delivery.discard(prepared) }
             .onFailureLog("discard")
+    }
+
+    /** Marks the AI pool item of [row]'s stored content ref used, if it has one. */
+    private suspend fun markUsed(row: DecisionRecord) {
+        val ref = row.content.contentRef?.let(ContentRef::parse) as? ContentRef.AiPooled ?: return
+        ports.aiTexts.markUsed(ref.itemId, row.decisionKey).onFailureLog("mark_used")
     }
 
     private suspend fun keepAsCard(prepared: PreparedDelivery) {
