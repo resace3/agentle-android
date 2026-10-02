@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shown by the system on the notification-access screen (Settings > Notification read, reply & control). -->
+    <string name="collectors_notification_listener_label">Agentle</string>
+</resources>

@@ -50,6 +50,8 @@ espresso = "3.7.0"                   # [AX:test]
 playServicesAuth = "22.0.0"          # [AUTHZ] official authorization guide snippet; doc 05 cites GMS release notes
                                      # (2026-08-26). Latest-ness UNVERIFIED (Google Maven metadata unreachable).
 playServicesLocation = "21.4.0"      # UNVERIFIED as latest: seen in Google's platform-samples catalog [PS]
+playServicesFitness = "21.2.0"       # Recording API (LocalRecordingClient), the version the official Recording API
+                                     # guide names. Latest-ness UNVERIFIED (Google Maven metadata unreachable).
 desugarJdkLibs = "2.1.5"             # [DESUGAR-CL] OPTIONAL: only if coreLibraryDesugaring is enabled (not needed
                                      # for java.time with minSdk >= 26)
 # googleid (com.google.android.libraries.identity.googleid): UNVERIFIED, the official page says "<latest version>";
@@ -157,6 +159,7 @@ androidx-credentials = { module = "androidx.credentials:credentials", version.re
 androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
 play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
+play-services-fitness = { module = "com.google.android.gms:play-services-fitness", version.ref = "playServicesFitness" }
 android-desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
 
 # ---------------------------------------------------------------- Kotlin libraries

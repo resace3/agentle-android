@@ -55,7 +55,8 @@ class HealthPayloadsTest {
         val connector = ConnectorMetadata("googlehealth", "Google Health", true, ConnectionStatus.CONNECTED, PermissionState.ALLOWED)
         assertThat(connector.streamPermissions).isEmpty()
         assertThat(connector.coverageThrough).isEmpty()
-        assertThat(EventType.entries.last()).isEqualTo(EventType.DAILY_TOTAL)
+        // Appended right after the v1 types; later appends (device-state types) follow it, never precede it.
+        assertThat(EventType.entries.indexOf(EventType.DAILY_TOTAL)).isEqualTo(EventType.entries.indexOf(EventType.VIDEO_GENERATED) + 1)
         assertThat(EventType.DAILY_TOTAL.category).isEqualTo(DataCategory.ACTIVITY)
     }
 }

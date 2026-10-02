@@ -370,6 +370,24 @@ public data class InsightEventPayload(val insightId: String, val kind: String) :
 public data class GeneratedMediaPayload(val artifactId: String, val mimeType: String, val sizeBytes: Long, val method: String) :
     EventPayload
 
+/** The next alarm clock the user set ([triggerAtEpochMs] null: none set). The alarm's app is not recorded. */
+@Serializable
+@SerialName("next_alarm")
+public data class NextAlarmPayload(val triggerAtEpochMs: Long? = null) : EventPayload
+
+/**
+ * An app standby bucket (`UsageStatsManager.STANDBY_BUCKET_*`, e.g. 10 active, 45 restricted) for [packageName]; a
+ * null package means Agentle itself.
+ */
+@Serializable
+@SerialName("standby_bucket")
+public data class StandbyBucketPayload(val bucket: Int, val packageName: String? = null) : EventPayload
+
+/** Free and total bytes of the device's primary storage. */
+@Serializable
+@SerialName("storage")
+public data class StoragePayload(val freeBytes: Long, val totalBytes: Long) : EventPayload
+
 /** A payload written by a newer schema that this version cannot decode. Preserved verbatim. */
 @Serializable
 @SerialName("unknown")
