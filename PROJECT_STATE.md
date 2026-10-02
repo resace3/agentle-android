@@ -5,7 +5,7 @@ Updated 2026-10-02 19:50 UTC. Draft mode (Nick, 18:28): one agent, no reviewers;
 ## Where things are
 - main a24a978: every team branch is merged (SIWC, analytics, realtime features, JITAI DSL and engine, AI context, Google Health API connector, test infra, data, collectors, background, interventions, and all UI screens).
 - JVM modules: 3,603/3,603 tests pass on CI (run 37050667319).
-- Android modules: NOT yet compiled after the merges. Every CI run since 58f44ed was cancelled or never started. Run 37053838903 did not start because GitHub Actions billing failed ("recent account payments have failed or your spending limit needs to be increased"). The Android build only runs on GitHub Actions, because Google Maven is blocked in the cloud container.
+- Android: the draft app builds on CI. Run 37065175047 uploads the `apks` artifact (fakeDebug, prodDebug, prodRelease). Android tests: 789/790 pass; the 1 failure is PermissionCenterJourneyTest (issue #4). The prodDebug APK scan found no test code. The repo is public since 2026-10-02, so Actions runs without billing.
 - Open review findings are filed as GitHub issues #1 to #5.
 
 ## App wiring (app/src/main/kotlin/dev/agentle/app/wiring)
@@ -20,7 +20,7 @@ Updated 2026-10-02 19:50 UTC. Draft mode (Nick, 18:28): one agent, no reviewers;
 - Still staging (app/.../staging): onboarding, permission center, insights/JITAI screens, interventions, connections (wearable, ChatGPT, AI sharing), settings ports other than the time zone, the JITAI runner, wearable sync, feature refresh.
 
 ## Next
-1. Restore GitHub Actions (billing), then fix whatever the first Android compile reports.
+1. Fix PermissionCenterJourneyTest (issue #4) so CI goes green.
 2. Wire the remaining staging ports (permission center and onboarding next, then JITAI screens over JitaiDefinitionStore, then settings deletion and retention).
 3. Reviews, issues #1 to #5, the 36-step scenario and the final report, when the budget allows.
 
