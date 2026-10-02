@@ -15,6 +15,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Instant
 
 /**
@@ -114,20 +115,23 @@ class StepsPropertyTest {
                 val lo = maxOf(minute, start)
                 val hi = minOf(minuteEnd, t)
                 observed += hi - lo
+                val pieces = mutableListOf<Piece>()
                 for (interval in sources[owner].intervals) {
                     if (interval.start == interval.end) {
                         if (interval.start >= lo && interval.start < hi) {
-                            sum = sum.plus(interval.count, 1, 1)
-                            hasData = true
+                            pieces += Piece(interval.start, interval.start + 1.nanoseconds, Fraction.ZERO.plus(interval.count, 1, 1))
                         }
                     } else {
-                        val overlap = minOf(interval.end, hi) - maxOf(interval.start, lo)
-                        if (overlap.isPositive()) {
-                            sum = sum.plus(interval.count, overlap.inWholeNanoseconds, (interval.end - interval.start).inWholeNanoseconds)
-                            hasData = true
+                        val from = maxOf(interval.start, lo)
+                        val until = minOf(interval.end, hi)
+                        if (until > from) {
+                            val whole = (interval.end - interval.start).inWholeNanoseconds
+                            pieces += Piece(from, until, Fraction.ZERO.plus(interval.count, (until - from).inWholeNanoseconds, whole))
                         }
                     }
                 }
+                if (pieces.isNotEmpty()) hasData = true
+                sum = sum.plus(bestIndependent(pieces, 0, emptyList()))
             }
             minute = minuteEnd
         }
@@ -141,6 +145,18 @@ class StepsPropertyTest {
         } else {
             FeatureValue.Stale(value, through, MissingReason.NOT_SYNCED)
         }
+    }
+
+    private class Piece(val from: Instant, val until: Instant, val steps: Fraction)
+
+    /** Brute force over every set of pieces that pairwise do not overlap (R1-4): the largest total. */
+    private fun bestIndependent(pieces: List<Piece>, i: Int, chosen: List<Piece>): Fraction {
+        if (i == pieces.size) return chosen.fold(Fraction.ZERO) { acc, p -> acc.plus(p.steps) }
+        val skip = bestIndependent(pieces, i + 1, chosen)
+        val p = pieces[i]
+        if (chosen.any { it.from < p.until && p.from < it.until }) return skip
+        val take = bestIndependent(pieces, i + 1, chosen + p)
+        return if (take > skip) take else skip
     }
 
     private fun touches(interval: StepInterval, from: Instant, until: Instant): Boolean = if (interval.start == interval.end) {
@@ -159,6 +175,15 @@ class StepsPropertyTest {
             val g = n.gcd(d)
             return Fraction(n / g, d / g)
         }
+
+        fun plus(other: Fraction): Fraction {
+            val n = numerator * other.denominator + other.numerator * denominator
+            val d = denominator * other.denominator
+            val g = n.gcd(d)
+            return Fraction(n / g, d / g)
+        }
+
+        operator fun compareTo(other: Fraction): Int = (numerator * other.denominator).compareTo(other.numerator * denominator)
 
         fun floor(): Long = (numerator / denominator).toLong()
 

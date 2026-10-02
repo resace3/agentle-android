@@ -3,17 +3,20 @@ package dev.agentle.analytics.features.realtime
 import dev.agentle.core.time.ClosedOpenRange
 import java.math.BigInteger
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.nanoseconds
 import kotlin.time.Instant
 
 /** An exact, non-negative number of steps as a reduced fraction (R10 §5.4 F: exact proration, one floor at the end). */
-internal class StepSum private constructor(private val num: BigInteger, private val den: BigInteger) {
+internal class StepSum private constructor(private val num: BigInteger, private val den: BigInteger) : Comparable<StepSum> {
     /** Adds `count * part / whole`. */
     fun plus(count: Long, part: Long, whole: Long): StepSum {
-        val n = num * BigInteger.valueOf(whole) + BigInteger.valueOf(count) * BigInteger.valueOf(part) * den
-        val d = den * BigInteger.valueOf(whole)
-        val g = n.gcd(d) // d > 0, so g >= 1
-        return StepSum(n / g, d / g)
+        val share = BigInteger.valueOf(count) * BigInteger.valueOf(part)
+        return reduced(num * BigInteger.valueOf(whole) + share * den, den * BigInteger.valueOf(whole))
     }
+
+    operator fun plus(other: StepSum): StepSum = reduced(num * other.den + other.num * den, den * other.den)
+
+    override fun compareTo(other: StepSum): Int = (num * other.den).compareTo(other.num * den)
 
     fun floor(): Long = (num / den).toLong()
 
@@ -22,13 +25,24 @@ internal class StepSum private constructor(private val num: BigInteger, private 
 
     companion object {
         val ZERO: StepSum = StepSum(BigInteger.ZERO, BigInteger.ONE)
+
+        /** `count * part / whole`. */
+        fun of(count: Long, part: Long, whole: Long): StepSum = ZERO.plus(count, part, whole)
+
+        private fun reduced(n: BigInteger, d: BigInteger): StepSum {
+            val g = n.gcd(d) // d > 0, so g >= 1
+            return StepSum(n / g, d / g)
+        }
     }
 }
 
 /** The activity-level inputs of one 30-minute window (R10 §5.4 F). */
 internal data class CadenceWindow(val observedMinutes: Int, val activeMinutes: Int, val steps: Long)
 
-/** Step arithmetic of R10 §5.4 F over a fused series (each minute from one source only). */
+/**
+ * Step arithmetic of R10 §5.4 F over a fused series: each minute from one source only, and inside that source the
+ * intervals that overlap one another are never summed (one walk uploaded by two devices, REALTIME-FEATURES-R1-4).
+ */
 internal object StepMath {
     const val CADENCE_STEPS_PER_MINUTE: Long = 100
     const val ACTIVE_MINUTES_FOR_MVPA: Int = 10
@@ -39,6 +53,7 @@ internal object StepMath {
     /** The observed share a windowed step feature needs: 4/5, the 24 of 30 minutes of R10 §5.4 F. */
     private const val OBSERVED_NUMERATOR = 4L
     private const val OBSERVED_DENOMINATOR = 5L
+    private const val SECONDS_PER_MINUTE = 60L
 
     /**
      * True if at least 80 % of [window] lies in fused segments, so some source observed it (R10 §5.4 F: 24 of 30
@@ -55,10 +70,16 @@ internal object StepMath {
         part != null && segment.intervals.any { overlapNanos(it, part) != null }
     }
 
-    /** Exact steps in [window]: in each segment, every overlapping interval adds `count * overlap / length`. */
+    /**
+     * Exact steps in [window], minute by minute. An interval adds `count * overlap / length` to each minute it meets,
+     * a point record its count to its minute. In each minute, the owning source's intervals that overlap one another
+     * are not summed: the minute counts the largest total of intervals that do not overlap one another, which is the
+     * largest share when they all overlap and the plain sum when none do (REALTIME-FEATURES-R1-4). The result is never
+     * more than the sum of the intervals and never less than any one device's records alone.
+     */
     fun prorated(series: FusedStepSeries, window: ClosedOpenRange): StepSum = series.segments.fold(StepSum.ZERO) { sum, segment ->
         val part = segment.range.intersect(window)
-        if (part == null) sum else segment.intervals.fold(sum) { acc, interval -> addProrated(acc, interval, part) }
+        if (part == null) sum else sum + segmentSteps(segment.intervals, part)
     }
 
     /**
@@ -92,12 +113,58 @@ internal object StepMath {
         return if (end > start) (end - start).inWholeNanoseconds else null
     }
 
-    private fun addProrated(sum: StepSum, interval: StepInterval, window: ClosedOpenRange): StepSum {
-        val overlap = overlapNanos(interval, window) ?: return sum
-        return if (interval.end == interval.start) {
-            sum.plus(interval.count, 1, 1)
-        } else {
-            sum.plus(interval.count, overlap, (interval.end - interval.start).inWholeNanoseconds)
+    /** Steps of one source's [intervals] in [part], one minute (or the part of it inside [part]) at a time. */
+    private fun segmentSteps(intervals: List<StepInterval>, part: ClosedOpenRange): StepSum {
+        val byStart = intervals.sortedBy { it.start }
+        val active = mutableListOf<StepInterval>()
+        var next = 0
+        var sum = StepSum.ZERO
+        var from = part.start
+        while (from < part.end) {
+            val until = minOf(nextMinute(from), part.end)
+            while (next < byStart.size && byStart[next].start < until) active += byStart[next++]
+            active.removeAll { it.end < from || (it.end == from && it.end > it.start) }
+            sum += minuteSteps(active, ClosedOpenRange(from, until))
+            from = until
+        }
+        return sum
+    }
+
+    /** One interval's part of a minute: its clipped range (a point record occupies 1 ns) and its prorated steps. */
+    private class Share(val start: Instant, val end: Instant, val steps: StepSum)
+
+    private fun minuteSteps(candidates: List<StepInterval>, minute: ClosedOpenRange): StepSum {
+        val shares = candidates.mapNotNull { interval ->
+            overlapNanos(interval, minute)?.let { overlap ->
+                if (interval.end == interval.start) {
+                    Share(interval.start, interval.start + 1.nanoseconds, StepSum.of(interval.count, 1, 1))
+                } else {
+                    val whole = (interval.end - interval.start).inWholeNanoseconds
+                    Share(maxOf(interval.start, minute.start), minOf(interval.end, minute.end), StepSum.of(interval.count, overlap, whole))
+                }
+            }
+        }
+        return when (shares.size) {
+            0 -> StepSum.ZERO
+            1 -> shares[0].steps
+            else -> largestDisjointTotal(shares)
         }
     }
+
+    /** Weighted interval scheduling: the largest total of shares whose ranges do not overlap one another. */
+    private fun largestDisjointTotal(shares: List<Share>): StepSum {
+        val byEnd = shares.sortedBy { it.end }
+        val best = ArrayList<StepSum>(byEnd.size + 1)
+        best += StepSum.ZERO
+        for (i in byEnd.indices) {
+            val share = byEnd[i]
+            // Ends are sorted, so the shares that end by this one's start are a prefix of the list.
+            val compatible = byEnd.subList(0, i).indexOfLast { it.end <= share.start } + 1
+            best += maxOf(best[i], share.steps + best[compatible])
+        }
+        return best.last()
+    }
+
+    private fun nextMinute(at: Instant): Instant =
+        Instant.fromEpochSeconds((Math.floorDiv(at.epochSeconds, SECONDS_PER_MINUTE) + 1) * SECONDS_PER_MINUTE)
 }

@@ -24,7 +24,8 @@ public data class StepInterval(val start: Instant, val end: Instant, val count: 
 
 /**
  * A run of whole minutes [range] whose steps come from [source] alone, with that source's intervals that overlap the
- * run (an interval may extend beyond it; only its prorated share inside the run counts).
+ * run (an interval may extend beyond it; only its prorated share inside the run counts). The intervals may overlap one
+ * another (several devices' records of one source); they are never summed where they overlap.
  *
  * @property provisional the run lies after the canonical source's `coverageThrough` and a local copy fills it
  *   (jitai-correctness-03): the canonical source replaces these minutes once it syncs them.
@@ -44,6 +45,13 @@ public data class FusedStepSegment(
  *
  * A source has coverage for a minute when it reported a value for it (a true zero counts) or, for a source that omits
  * zero minutes (Health Connect on-device steps), when the minute ends at or before that source's `coverageThrough`.
+ *
+ * One source's intervals may overlap when its connector delivers several devices' records: the Google Health list
+ * returns the records of all data sources without deduplication (R05 §5.3), so a watch and the phone that both
+ * recorded one walk give two overlapping records of `googlehealth.steps`. They are never summed where they overlap
+ * (REALTIME-FEATURES-R1-4): per minute, the source counts the largest total of its intervals that do not overlap one
+ * another, so overlapping records of one walk give the larger device's share, not both. A repository that can tell
+ * the devices apart may instead split them into sources of their own, fused by priority like any other source.
  *
  * Wearable users whose API source syncs rarely (jitai-correctness-03): minutes after the canonical source's
  * `coverageThrough` are filled by the freshest local copy (Health Connect Fitbit-origin steps, on-device steps) as

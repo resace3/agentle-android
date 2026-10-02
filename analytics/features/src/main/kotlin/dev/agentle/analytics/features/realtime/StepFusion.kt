@@ -17,6 +17,10 @@ public object StepFusion {
      * @property reportsTrueZeros the source writes an explicit 0 for every worn minute without steps (the Google Health
      *   API, R05 §5.4), so only its reported minutes are covered; a source that omits zero minutes (Health Connect
      *   on-device steps) also covers every minute that ends at or before its [coverageThrough].
+     * @property intervals the source's records as stored. They may overlap one another when a connector delivers
+     *   several devices' records under one source: the Google Health list returns the records of every data source
+     *   without deduplication (R05 §5.3), so a walk recorded by a watch and by the phone arrives twice. Fusion keeps
+     *   them; the step arithmetic never sums intervals of one source where they overlap (REALTIME-FEATURES-R1-4).
      */
     public data class Source(
         val id: String,

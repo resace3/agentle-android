@@ -303,15 +303,29 @@ class StepsFeaturesTest {
     @Test
     fun `step proration is exact and floors once`() = runTest {
         val f = RealtimeFixture(start = "2026-10-01T17:30").apply { onlyStepSource(watch) }
-        val windowStart = f.local("2026-10-01T17:00")
-        // Ten intervals straddle the window start, each with 1/10 of its length inside: exactly 1 step in total.
-        for (u in 1..10) f.inputs.steps.add(watch, StepInterval(windowStart - (9 * u).seconds, windowStart + u.seconds, 1))
-        f.stepMinutes(watch, "2026-10-01T17:01", minutes = 29, count = 0)
+        // One step over seven minutes: each minute holds exactly 1/7 of it, and the seven shares add up to 1.
+        f.stepMinutes(watch, "2026-10-01T17:00", minutes = 1, count = 0)
+        f.steps(watch, "2026-10-01T17:01", "2026-10-01T17:08", 1)
+        f.stepMinutes(watch, "2026-10-01T17:08", minutes = 22, count = 0)
         f.stepsCoverage(watch, "2026-10-01T17:30")
 
         assertThat(f.value("steps_last_30m").knownLong).isEqualTo(1)
         // Summing the shares as doubles would floor to 0.
-        assertThat(kotlin.math.floor((1..10).fold(0.0) { acc, u -> acc + u.toDouble() / (10 * u) })).isEqualTo(0.0)
+        assertThat(kotlin.math.floor((1..7).fold(0.0) { acc, _ -> acc + 1.0 / 7 })).isEqualTo(0.0)
+    }
+
+    @Test
+    fun `an interval straddling the window start counts its exact share`() = runTest {
+        val f = RealtimeFixture(start = "2026-10-01T17:30").apply { onlyStepSource(watch) }
+        val windowStart = f.local("2026-10-01T17:00")
+        // 1/10 of the interval lies inside the window: 0.7 of 7 steps.
+        f.inputs.steps.add(watch, StepInterval(windowStart - 9.seconds, windowStart + 1.seconds, 7))
+        f.inputs.steps.add(watch, StepInterval(windowStart + 1.seconds, windowStart + 31.seconds, 3))
+        f.stepMinutes(watch, "2026-10-01T17:01", minutes = 29, count = 0)
+        f.stepsCoverage(watch, "2026-10-01T17:30")
+
+        // 0.7 + 3 = 3.7, floored once.
+        assertThat(f.value("steps_last_30m").knownLong).isEqualTo(3)
     }
 
     // ------------------------------------------------------------------ fusion (database-sync-02, jitai-correctness-03)
@@ -343,6 +357,64 @@ class StepsFeaturesTest {
 
         // Off-wrist 09:30-10:00 before the watch's coverage: the phone's minutes are the final value.
         assertThat(f.value("steps_today")).isEqualTo(knownInt(3_000 + 30 * 90, f.now))
+    }
+
+    // ------------------------------------------------------------------ overlapping records of one source (R1-4)
+
+    @Test
+    fun `R1-4 one walk uploaded by a watch and the phone to Google Health is not counted twice`() = runTest {
+        // Both devices recorded 16:10-16:40: 3,000 and 2,800 steps, under the one source googlehealth.steps.
+        val f = d()
+        f.steps(watch, "2026-10-01T16:10", "2026-10-01T16:40", 3_000)
+        f.steps(watch, "2026-10-01T16:10", "2026-10-01T16:40", 2_800)
+        f.stepsCoverage(watch, "2026-10-01T17:00")
+
+        assertWithMessage("never sum one walk twice").that(f.value("steps_today")).isEqualTo(knownInt(3_000, f.now))
+        // The reviewer's window has 30 of 60 minutes observed: a coverage gap since R1-1, and never 5,800.
+        assertThat(f.value("steps_last_60m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+
+        // With the rest of the hour worn (true zeros), the hour is observed and holds the larger record.
+        f.stepMinutes(watch, "2026-10-01T16:00", minutes = 10, count = 0)
+        f.stepMinutes(watch, "2026-10-01T16:40", minutes = 20, count = 0)
+        assertThat(f.value("steps_last_60m")).isEqualTo(knownInt(3_000, f.now))
+        // 16:30-16:40 of the walk: 10 minutes of max(100, 93.3) steps.
+        assertThat(f.value("steps_last_30m")).isEqualTo(knownInt(1_000, f.now))
+    }
+
+    @Test
+    fun `R1-4 a coarse record overlapping minute records counts the larger share per minute`() = runTest {
+        // The watch uploads one record per minute (100 steps), the phone one 30-minute record of 2,800 (93.3 per minute).
+        val f = d()
+        f.stepMinutes(watch, "2026-10-01T16:10", minutes = 30, count = 100)
+        f.steps(watch, "2026-10-01T16:10", "2026-10-01T16:40", 2_800)
+        f.stepsCoverage(watch, "2026-10-01T17:00")
+
+        assertThat(f.value("steps_today")).isEqualTo(knownInt(3_000, f.now))
+    }
+
+    @Test
+    fun `R1-4 partly overlapping records count the larger share only where they overlap`() = runTest {
+        // A: 16:10-16:20, 100 per minute. B: 16:15-16:25, 50 per minute. 500 + 5 x max(100, 50) + 250.
+        val f = d()
+        f.steps(watch, "2026-10-01T16:10", "2026-10-01T16:20", 1_000)
+        f.steps(watch, "2026-10-01T16:15", "2026-10-01T16:25", 500)
+        f.stepsCoverage(watch, "2026-10-01T17:00")
+
+        assertThat(f.value("steps_today")).isEqualTo(knownInt(1_250, f.now))
+    }
+
+    @Test
+    fun `R1-4 records of one source that do not overlap are still summed, also inside one minute`() = runTest {
+        val f = d()
+        f.inputs.steps.add(watch, StepInterval(f.local("2026-10-01T16:10:00"), f.local("2026-10-01T16:10:30"), 40))
+        f.inputs.steps.add(watch, StepInterval(f.local("2026-10-01T16:10:30"), f.local("2026-10-01T16:11:00"), 50))
+        // A point record inside the first half-minute overlaps it; one at 16:10:45 overlaps the second.
+        f.inputs.steps.add(watch, StepInterval(f.local("2026-10-01T16:10:10"), f.local("2026-10-01T16:10:10"), 7))
+        f.inputs.steps.add(watch, StepInterval(f.local("2026-10-01T16:10:45"), f.local("2026-10-01T16:10:45"), 60))
+        f.stepsCoverage(watch, "2026-10-01T17:00")
+
+        // max(40, 7) + max(50, 60) = 100.
+        assertThat(f.value("steps_today")).isEqualTo(knownInt(100, f.now))
     }
 
     private fun RealtimeFixture.dailyOnlyApiSync(phoneStepsPerMinute: Long, minutes: Int) {
@@ -420,9 +492,12 @@ class StepsFeaturesTest {
     @Test
     fun `R10 12O O13 steps_today on Berlin 2026-10-25 covers 25 hours`() = runTest {
         val f = RealtimeFixture(start = "2026-10-25T23:59").apply { onlyStepSource(watch) }
-        // One interval per real hour of the day: 25 of them.
+        // One interval per real hour of the day: 25 of them, 40 minutes into each hour.
         val dayStart = f.local("2026-10-25T00:00")
-        repeat(25) { h -> f.inputs.steps.add(watch, StepInterval(dayStart + (h * 60).minutes, dayStart + (h * 60 + 1).minutes, 10)) }
+        repeat(25) { h ->
+            val start = dayStart + (h * 60 + 40).minutes
+            f.inputs.steps.add(watch, StepInterval(start, start + 1.minutes, 10))
+        }
         f.inputs.steps.add(watch, StepInterval(dayStart - 30.minutes, dayStart + 30.minutes, 60))
         f.stepsCoverage(watch, "2026-10-25T23:59")
 
