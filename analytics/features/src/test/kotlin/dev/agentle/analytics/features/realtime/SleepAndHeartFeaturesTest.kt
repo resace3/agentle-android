@@ -265,6 +265,15 @@ class SleepAndHeartFeaturesTest {
     }
 
     @Test
+    fun `Q3 a delta of 51 bpm during illness is a real value, not INVALID_VALUE`() = runTest {
+        val f = k()
+        f.rhr(today, 105)
+        f.baseline(50, 51, 52, 52, 53, 53, 54, 54, 55, 55, 56, 56, 57, 58)
+
+        assertThat(f.value("resting_hr_delta_vs_28d")).isEqualTo(knownInt(51, f.now))
+    }
+
+    @Test
     fun `R10 12K K5 an impossible resting heart rate is INVALID_VALUE`() = runTest {
         val f = k()
         f.rhr(today, 19)
