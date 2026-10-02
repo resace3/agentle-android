@@ -1,8 +1,6 @@
 package dev.agentle.core.database
 
 import com.google.common.truth.Truth.assertThat
-import dev.agentle.core.model.DataCategory
-import dev.agentle.core.model.SourceFamily
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -68,7 +66,7 @@ class SchemaRegistryTest {
             types = dev.agentle.core.model.EventType.entries.associate { it.name to it.ordinal.toLong() + 1 },
             sources = mapOf("googlehealth.steps" to 100L, "android.usage" to 101L, "user.log" to 102L),
         )
-        val scopes = SourceFamily.entries.map { DeletionScope.Family(it) } + DataCategory.entries.map { DeletionScope.Category(it) }
+        val scopes = DeletionScope.ALL
         DataCategoryRegistry.rules.forEach { rule ->
             val steps = scopes.flatMap { rule.steps(it, ids) }
             if (rule.exemption != null) {
@@ -82,7 +80,7 @@ class SchemaRegistryTest {
 
     @Test
     fun `scope codes round-trip`() {
-        val scopes = SourceFamily.entries.map { DeletionScope.Family(it) } + DataCategory.entries.map { DeletionScope.Category(it) }
+        val scopes = DeletionScope.ALL
         scopes.forEach { assertThat(DeletionScope.parse(it.code)).isEqualTo(it) }
         assertThat(DeletionScope.parse("X:WHAT")).isNull()
     }

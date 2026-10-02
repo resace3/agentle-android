@@ -1,19 +1,50 @@
 package dev.agentle.core.database
 
+import dev.agentle.core.model.ConnectorIds
 import dev.agentle.core.model.DataCategory
-import dev.agentle.core.model.DataSourceId
 import dev.agentle.core.model.EventType
 import dev.agentle.core.model.Lineage
 import dev.agentle.core.model.SourceFamily
 
 /**
+ * The source groups of the family deletion actions (docs/ARCHITECTURE.md §5.5): "delete wearable data" runs
+ * [GOOGLE_HEALTH] then [HEALTH_CONNECT]; "delete Android-collected data" runs [ANDROID]. Raw events are selected by
+ * connector; derived rows by the lineage family of the group. Events of a connector this version does not know belong to
+ * every group (they are deleted by any family action), and so does [Lineage.UNKNOWN].
+ *
+ * [ANDROID] uses the lineage family ON_DEVICE, which also covers the user's own logs and Agentle's records: deleting
+ * Android-collected data therefore also deletes derived rows computed partly from them. Derived rows are recomputed
+ * from the data that remains, so this over-deletion is safe; under-deletion would not be.
+ */
+enum class SourceGroup(val family: SourceFamily, val connectors: Set<String>) {
+    GOOGLE_HEALTH(SourceFamily.GH_API, setOf(ConnectorIds.GOOGLE_HEALTH)),
+    HEALTH_CONNECT(SourceFamily.HEALTH_CONNECT, setOf(ConnectorIds.HEALTH_CONNECT)),
+    ANDROID(SourceFamily.ON_DEVICE, setOf(ConnectorIds.ANDROID)),
+    ;
+
+    companion object {
+        /** Connectors whose events are deleted only by category actions (user logs and goals, Agentle's own records). */
+        val CATEGORY_ONLY_CONNECTORS: Set<String> = setOf(ConnectorIds.USER, ConnectorIds.AGENTLE)
+
+        /** The groups "delete wearable data" runs, in order. */
+        val WEARABLE: List<SourceGroup> = listOf(GOOGLE_HEALTH, HEALTH_CONNECT)
+
+        /** True when events of [connectorId] are deleted by [group]. */
+        fun covers(group: SourceGroup, connectorId: String): Boolean = when {
+            connectorId in group.connectors -> true
+            connectorId in CATEGORY_ONLY_CONNECTORS -> false
+            else -> entries.none { connectorId in it.connectors }
+        }
+    }
+}
+
+/**
  * One deletion action (docs/ARCHITECTURE.md §5.5; round 1 correction 5; round 2 correction 6): every stored row whose
- * data, or whose inputs, come from a source [Family] or belong to a data [Category]. "Delete wearable data" and "delete
- * Android-collected data" are families; "delete insights", "delete intervention history" and "delete generated media"
- * are the categories INSIGHTS, INTERVENTIONS and GENERATED_MEDIA.
+ * data, or whose inputs, come from a [Sources] group or belong to a data [Category]. "Delete insights", "delete
+ * intervention history" and "delete generated media" are the categories INSIGHTS, INTERVENTIONS and GENERATED_MEDIA.
  */
 sealed interface DeletionScope {
-    /** Stable text form, stored in the deletion marker: `F:<family>` or `C:<category>`. */
+    /** Stable text form, stored in the deletion marker: `S:<group>` or `C:<category>`. */
     val code: String
 
     /** The inputs being deleted, for the scrubber of derived JSON. */
@@ -22,10 +53,10 @@ sealed interface DeletionScope {
     /** The lineage token of derived rows that depend on this scope. */
     val token: String
 
-    data class Family(val family: SourceFamily) : DeletionScope {
-        override val code: String get() = "F:${family.name}"
-        override val deleted: Lineage get() = Lineage(families = setOf(family))
-        override val token: String get() = LineageCodec.token(family)
+    data class Sources(val group: SourceGroup) : DeletionScope {
+        override val code: String get() = "S:${group.name}"
+        override val deleted: Lineage get() = Lineage(sourceFamilies = setOf(group.family))
+        override val token: String get() = LineageCodec.token(group.family)
     }
 
     data class Category(val category: DataCategory) : DeletionScope {
@@ -35,8 +66,11 @@ sealed interface DeletionScope {
     }
 
     companion object {
+        /** Every scope, for tests and for the registry's coverage check. */
+        val ALL: List<DeletionScope> get() = SourceGroup.entries.map(::Sources) + DataCategory.entries.map(::Category)
+
         fun parse(code: String): DeletionScope? = when {
-            code.startsWith("F:") -> SourceFamily.entries.firstOrNull { it.name == code.substring(2) }?.let(::Family)
+            code.startsWith("S:") -> SourceGroup.entries.firstOrNull { it.name == code.substring(2) }?.let(::Sources)
             code.startsWith("C:") -> DataCategory.entries.firstOrNull { it.name == code.substring(2) }?.let(::Category)
             else -> null
         }
@@ -106,10 +140,8 @@ class TermIds(private val types: Map<String, Long>, private val sources: Map<Str
 
     fun typeIds(vararg types: EventType): List<Long> = types.mapNotNull { this.types[it.name] }
 
-    fun sourcesOf(family: SourceFamily): List<Long> = sources.filter { (value, _) -> familyOf(value) == family }.values.sorted()
-
-    private fun familyOf(source: String): SourceFamily =
-        runCatching { SourceFamily.of(DataSourceId(source)) }.getOrDefault(SourceFamily.OTHER)
+    fun sourcesOf(group: SourceGroup): List<Long> =
+        sources.filter { (value, _) -> SourceGroup.covers(group, value.substringBefore('.')) }.values.sorted()
 }
 
 /**
@@ -186,8 +218,7 @@ object DataCategoryRegistry {
             if (scope.isCategory(DataCategory.GOALS)) listOf(DeletionStep.Delete("user_goal", "1 = 1")) else emptyList()
         },
         TableRule("user_log") { scope, _ ->
-            val all = scope.isCategory(DataCategory.USER_LOGS) || (scope as? DeletionScope.Family)?.family == SourceFamily.USER
-            if (all) listOf(DeletionStep.Delete("user_log", "1 = 1")) else emptyList()
+            if (scope.isCategory(DataCategory.USER_LOGS)) listOf(DeletionStep.Delete("user_log", "1 = 1")) else emptyList()
         },
         TableRule("permission_snapshot", exemption = "capability states; no personal values"),
         TableRule("diagnostic_log", jsonColumns = setOf("fields_json")) { scope, _ -> listOf(byLineage("diagnostic_log", scope)) },
@@ -203,7 +234,7 @@ object DataCategoryRegistry {
     /** The `event` selection of [scope] (also used for tombstones), or null when no stored event can match. */
     private fun primarySelection(scope: DeletionScope, ids: TermIds): Pair<String, List<Any?>>? {
         val list = when (scope) {
-            is DeletionScope.Family -> ids.sourcesOf(scope.family).takeIf { it.isNotEmpty() }?.let { "source" to it }
+            is DeletionScope.Sources -> ids.sourcesOf(scope.group).takeIf { it.isNotEmpty() }?.let { "source" to it }
             is DeletionScope.Category -> ids.typesOf(scope.category).takeIf { it.isNotEmpty() }?.let { "type" to it }
         } ?: return null
         return "${list.first} IN (${placeholders(list.second.size)})" to list.second
@@ -220,7 +251,7 @@ object DataCategoryRegistry {
     }
 
     private fun collectorCoverageSteps(scope: DeletionScope): List<DeletionStep> {
-        if ((scope as? DeletionScope.Family)?.family != SourceFamily.ANDROID) return emptyList()
+        if ((scope as? DeletionScope.Sources)?.group != SourceGroup.ANDROID) return emptyList()
         return listOf(DeletionStep.Delete("collector_coverage", "to_ms IS NOT NULL"))
     }
 

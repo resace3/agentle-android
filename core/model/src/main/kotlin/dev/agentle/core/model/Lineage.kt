@@ -3,63 +3,47 @@ package dev.agentle.core.model
 import kotlinx.serialization.Serializable
 
 /**
- * Families of sources: the unit of the "delete wearable data" and "delete Android-collected data" actions
- * (docs/ARCHITECTURE.md §5.5). Derived rows record the families of their inputs in a [Lineage].
+ * Where data physically came from, for per-family deletion ("delete wearable data") and AI consent gating:
+ * the Google Health API, Health Connect, or the phone itself (on-device collectors, the user's own input and
+ * Agentle's own records).
  */
 @Serializable
-public enum class SourceFamily {
-    /** The user's wearable: Google Health API and Health Connect. */
-    WEARABLE,
+public enum class SourceFamily { GH_API, HEALTH_CONNECT, ON_DEVICE }
 
-    /** On-device Android collectors. */
-    ANDROID,
-
-    /** Manual input (mood/energy logs, notes). */
-    USER,
-
-    /** Records Agentle produces itself (JITAI deliveries, insights, generated media). */
-    AGENTLE,
-
-    /** A connector this version does not know; deleted with every family-scoped action that cannot rule it out. */
-    OTHER,
-    ;
-
-    public companion object {
-        public fun of(connectorId: String): SourceFamily = when (connectorId) {
-            in ConnectorIds.WEARABLE -> WEARABLE
-            ConnectorIds.ANDROID -> ANDROID
-            ConnectorIds.USER -> USER
-            ConnectorIds.AGENTLE -> AGENTLE
-            else -> OTHER
-        }
-
-        public fun of(source: DataSourceId): SourceFamily = of(source.connectorId)
+/** The family of a source: by connector id; anything that is not a wearable connector was produced on the device. */
+public val DataSourceId.family: SourceFamily
+    get() = when (connectorId) {
+        ConnectorIds.GOOGLE_HEALTH -> SourceFamily.GH_API
+        ConnectorIds.HEALTH_CONNECT -> SourceFamily.HEALTH_CONNECT
+        else -> SourceFamily.ON_DEVICE
     }
-}
 
 /**
- * Deletion lineage of a derived row (red team privacy-ai-07): the source families and data categories its inputs came
- * from. Every derived row (daily summaries, features, insights, decision traces and snapshots, eval-log traces, outcome
- * metrics, generated media, pooled AI text, diagnostics) stores one, so a per-family deletion can find every row whose
- * inputs include the family. [NONE] means the row was computed from no personal input at all.
+ * Lineage of a derived output (a daily row, a rolling window, an insight, proposal evidence): the union of the data
+ * categories and source families of everything it was computed from. AI consent gating and per-family deletion follow
+ * it. A consumer that cannot tell the lineage of a value must treat it as [UNKNOWN], which counts as every category and
+ * every family (architecture red team, privacy-ai-04/07).
  */
 @Serializable
-public data class Lineage(val families: Set<SourceFamily> = emptySet(), val categories: Set<DataCategory> = emptySet()) {
-    public val isEmpty: Boolean get() = families.isEmpty() && categories.isEmpty()
+public data class Lineage(val categories: Set<DataCategory> = emptySet(), val sourceFamilies: Set<SourceFamily> = emptySet()) {
+    /** Union of two lineages. */
+    public operator fun plus(other: Lineage): Lineage =
+        Lineage(categories = categories + other.categories, sourceFamilies = sourceFamilies + other.sourceFamilies)
 
-    public operator fun plus(other: Lineage): Lineage = Lineage(families + other.families, categories + other.categories)
-
-    public fun includes(family: SourceFamily): Boolean = family in families
-
-    public fun includes(category: DataCategory): Boolean = category in categories
+    public val isEmpty: Boolean get() = categories.isEmpty() && sourceFamilies.isEmpty()
 
     public companion object {
+        /** Derived from nothing personal (clock and calendar). */
         public val NONE: Lineage = Lineage()
 
-        public fun of(event: PersonalEvent): Lineage = Lineage(setOf(SourceFamily.of(event.source)), setOf(event.type.category))
+        /** Lineage that was lost or never recorded: every category and every family. */
+        public val UNKNOWN: Lineage = Lineage(DataCategory.entries.toSet(), SourceFamily.entries.toSet())
 
-        public fun of(events: Iterable<PersonalEvent>): Lineage = events.fold(NONE) { acc, event -> acc + of(event) }
+        /** Lineage of [sources] carrying data of [categories]. */
+        public fun of(categories: Set<DataCategory>, sources: Collection<DataSourceId>): Lineage =
+            Lineage(categories, sources.mapTo(mutableSetOf()) { it.family })
 
-        public fun of(vararg families: SourceFamily): Lineage = Lineage(families.toSet())
+        /** Union of many lineages; [NONE] when empty. */
+        public fun union(all: Iterable<Lineage>): Lineage = all.fold(NONE) { acc, l -> acc + l }
     }
 }

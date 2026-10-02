@@ -99,7 +99,7 @@ object LineageCodec {
 
     fun encode(lineage: Lineage): String = buildString {
         append('|')
-        lineage.families.map { it.name }.sorted().forEach { append(FAMILY).append(it).append('|') }
+        lineage.sourceFamilies.map { it.name }.sorted().forEach { append(FAMILY).append(it).append('|') }
         lineage.categories.map { it.name }.sorted().forEach { append(CATEGORY).append(it).append('|') }
     }
 
@@ -110,7 +110,7 @@ object LineageCodec {
             .mapNotNull { token -> SourceFamily.entries.firstOrNull { it.name == token.removePrefix(FAMILY) } }
         val categories = tokens.filter { it.startsWith(CATEGORY) }
             .mapNotNull { token -> DataCategory.entries.firstOrNull { it.name == token.removePrefix(CATEGORY) } }
-        return Lineage(families.toSet(), categories.toSet())
+        return Lineage(categories = categories.toSet(), sourceFamilies = families.toSet())
     }
 
     fun token(family: SourceFamily): String = "|$FAMILY${family.name}|"
