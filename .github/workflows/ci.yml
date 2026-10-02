@@ -66,7 +66,10 @@ jobs:
           add-job-summary: never
       - name: Test, detekt, ktlint
         shell: bash
-        run: mkdir -p build && ./gradlew test detekt spotlessCheck verifyNoSecrets --continue 2>&1 | tee build/gradle-output.log
+        # detektMain/detektTest are the type-resolved detekt tasks: the plain `detekt` task skips ForbiddenMethodCall.
+        run: >-
+          mkdir -p build && ./gradlew test detekt detektMain detektTest spotlessCheck verifyNoSecrets --continue
+          2>&1 | tee build/gradle-output.log
       - name: Test counts
         if: always()
         run: mkdir -p build && python3 tools/junit_summary.py --root . --json build/junit-summary.json --markdown "$GITHUB_STEP_SUMMARY"
@@ -144,7 +147,7 @@ jobs:
           testDebugUnitTest testFakeDebugUnitTest testProdDebugUnitTest
           ${{ steps.screenshots.outputs.tasks }}
           ${{ steps.mode.outputs.lint }}
-          detekt spotlessCheck verifyNoFakesInProd
+          detekt detektMain detektTest spotlessCheck verifyNoFakesInProd
           -ProbolectricSdks=${{ steps.mode.outputs.sdks }}
           --continue 2>&1 | tee build/gradle-output.log
       - name: Test counts
