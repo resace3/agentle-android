@@ -13,7 +13,9 @@ import kotlin.time.Instant
 
 /**
  * A recurring local-time window such as 22:00-07:00 (quiet hours, active windows). [start] == [end] means the
- * whole day. A window that crosses midnight belongs to the day it starts on.
+ * whole day, starting at [start]: 04:00-04:00 runs from 04:00 to 04:00 the next day. A window that crosses midnight
+ * belongs to the day it starts on. JITAI active windows never use the all-day form (the rule validator rejects
+ * start == end, R10 E025); it exists for settings such as "always quiet".
  */
 public data class LocalTimeWindow(val start: LocalTime, val end: LocalTime) {
     val crossesMidnight: Boolean get() = end < start
@@ -34,8 +36,7 @@ public data class LocalTimeWindow(val start: LocalTime, val end: LocalTime) {
         if (!contains(instant, zone)) return null
         val local = instant.toLocalDateTime(zone)
         val startDate: LocalDate = when {
-            isAllDay -> local.date
-            crossesMidnight && local.time < end -> local.date.minus(DatePeriod(days = 1))
+            (isAllDay || crossesMidnight) && local.time < start -> local.date.minus(DatePeriod(days = 1))
             else -> local.date
         }
         val endDate = if (crossesMidnight || isAllDay) startDate.plus(DatePeriod(days = 1)) else startDate
