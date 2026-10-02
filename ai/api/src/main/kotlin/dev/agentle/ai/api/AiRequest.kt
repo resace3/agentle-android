@@ -223,8 +223,15 @@ public object AiEnvelopeJson {
     @Serializable
     private data class Range(val start: String, val end: String)
 
+    /** [categories] is the block's full lineage, so the body states every category it carries (SEC-AI-06). */
     @Serializable
-    private data class Block(val label: String, val category: AiDataCategory, val kind: BlockKind, val items: List<DataItem>)
+    private data class Block(
+        val label: String,
+        val category: AiDataCategory,
+        val categories: List<AiDataCategory>,
+        val kind: BlockKind,
+        val items: List<DataItem>,
+    )
 
     @Serializable
     private data class DataInput(
@@ -248,7 +255,7 @@ public object AiEnvelopeJson {
                 purpose,
                 range,
                 blocks.map { block ->
-                    Block(block.label, block.category, block.kind, block.items.map { it.item })
+                    Block(block.label, block.category, block.lineage.categories.sorted(), block.kind, block.items.map { it.item })
                 },
             )
         return json.encodeToString(DataInput.serializer(), dto)
