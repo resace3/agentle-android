@@ -33,13 +33,7 @@ public enum class OverrideEffect { DELIVERY_INCREASING, DELIVERY_DECREASING }
  *   whenever the tree is TRUE, so its value is in the snapshot whenever the rule fires (R10 §11.2 E065).
  * @property depth 1 for a leaf at the root.
  */
-public data class LeafInfo(
-    val path: String,
-    val node: Condition,
-    val polarity: Polarity,
-    val determining: Boolean,
-    val depth: Int,
-) {
+public data class LeafInfo(val path: String, val node: Condition, val polarity: Polarity, val determining: Boolean, val depth: Int) {
     /** The feature the leaf reads: its `feature`, or `local_time` for `local_time_in`. */
     val featureId: String
         get() = when (node) {
@@ -93,9 +87,13 @@ public object RuleAnalysis {
                     frame.onlyAll && frame.polarity == Polarity.POSITIVE && node.onUnknown == null,
                     frame.depth,
                 )
+
                 is Condition.LocalTimeIn -> result += LeafInfo(frame.path, node, frame.polarity, frame.onlyAll, frame.depth)
+
                 is Condition.AllOf -> pushChildren(stack, frame, node.of, frame.polarity, frame.onlyAll)
+
                 is Condition.AnyOf -> pushChildren(stack, frame, node.of, frame.polarity, onlyAll = false)
+
                 is Condition.Not -> stack.addLast(Frame(node.of, frame.path + "/of", frame.polarity.flip(), false, frame.depth + 1))
             }
         }
@@ -194,12 +192,7 @@ public object RuleAnalysis {
     }
 
     /** What is known about one node: never TRUE (with the first proof), and the minutes at which it can be TRUE. */
-    private class NodeResult(
-        val neverTrue: Boolean,
-        val conflict: Unsatisfiability?,
-        val mask: MinuteMask,
-        val timeText: String?,
-    )
+    private class NodeResult(val neverTrue: Boolean, val conflict: Unsatisfiability?, val mask: MinuteMask, val timeText: String?)
 
     private val UNCONSTRAINED = NodeResult(false, null, MinuteMask.ALL, null)
 
@@ -300,15 +293,22 @@ public object RuleAnalysis {
             val k = keys.first()
             when (typed.leaf.operator) {
                 Operator.GT -> lo = maxOf(lo, k + 1)
+
                 Operator.GTE -> lo = maxOf(lo, k)
+
                 Operator.LT -> hi = minOf(hi, k - 1)
+
                 Operator.LTE -> hi = minOf(hi, k)
+
                 Operator.BETWEEN -> {
                     lo = maxOf(lo, keys[0])
                     hi = minOf(hi, keys[1])
                 }
+
                 Operator.EQ -> members = (members ?: setOf(k)) intersect setOf(k)
+
                 Operator.IN -> members = (members ?: keys.toSet()) intersect keys.toSet()
+
                 Operator.NEQ -> excluded += k
             }
         }

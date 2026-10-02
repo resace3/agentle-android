@@ -82,6 +82,16 @@ public data class SnoozePolicy(val mode: SnoozeMode, val options: List<SnoozeOpt
         /** The default for an INTERVENTION without a snooze policy (R10 §11.4 step 4). */
         public val DEFAULT: SnoozePolicy =
             SnoozePolicy(SnoozeMode.SUPPRESS_ONLY, listOf(SnoozeOption.MINUTES_60, SnoozeOption.UNTIL_TOMORROW))
+
+        /**
+         * The default for a `daily_at` INTERVENTION (integrator correction jitai-correctness-14): a snoozed daily check
+         * re-runs once at the end of the snooze ("remind me in an hour" re-checks the step count), R10 §9.5.
+         */
+        public val DEFAULT_DAILY_AT: SnoozePolicy =
+            SnoozePolicy(SnoozeMode.RE_EVALUATE_AFTER, listOf(SnoozeOption.MINUTES_60, SnoozeOption.UNTIL_TOMORROW))
+
+        /** [DEFAULT_DAILY_AT] for a `daily_at` trigger, else [DEFAULT]. */
+        public fun defaultFor(trigger: Trigger?): SnoozePolicy = if (trigger is Trigger.DailyAt) DEFAULT_DAILY_AT else DEFAULT
     }
 }
 

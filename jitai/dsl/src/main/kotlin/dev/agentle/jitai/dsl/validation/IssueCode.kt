@@ -13,9 +13,16 @@ public enum class Stage { S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10 }
  * Codes not in R10, added by integrator corrections (listed in the module README):
  * - [E028] CAPABILITY_UNAVAILABLE: a feature or trigger event the catalog marks unavailable in this build
  *   (`location_class`, `LOCATION_CLASS_CHANGED`; red team lifecycle-battery-06).
+ * - [E029] SINCE_MISALIGNED: a `since` arg that would read from the previous day at some decision points
+ *   (jitai-correctness-17).
  * - [W08] BEST_EFFORT_TRIGGER: event triggers that only a runtime receiver sees (lifecycle-battery-07).
+ * - [W09] EVENING_TIME_STOPS_AT_MIDNIGHT: `local_time gt/gte` an evening time without a midnight-crossing window
+ *   (jitai-correctness-17).
+ * - [W10] GENERIC_NOTIFICATION_TEXT: placeholders or app names stay inside the app unless detailed notifications are
+ *   on (jitai-correctness-18).
  * Extra templates (variant index > 0) cover stored-definition fields that proposals cannot set ([E048] for
- * `deliveryDeadlineMinutes` and `experiment.deliverProbability`) and the video text of [C02].
+ * `deliveryDeadlineMinutes` and `experiment.deliverProbability`), an assumption path outside `/jitai` ([E092]), the
+ * video text of [C02] and quiet hours switched off ([C03]).
  */
 public enum class IssueCode(public val title: String, public val severity: IssueSeverity, private vararg val templates: String) {
     // Structure and envelope
@@ -30,7 +37,12 @@ public enum class IssueCode(public val title: String, public val severity: Issue
     E009("INVALID_ENUM_VALUE", IssueSeverity.ERROR, "{path} must be one of {allowed}; got \"{value}\"."),
     E090("ENVELOPE_INCONSISTENT", IssueSeverity.ERROR, "status {status} requires {requirement}."),
     E091("QUESTIONS_INVALID", IssueSeverity.ERROR, "questions at {path}: {reason}."),
-    E092("ASSUMPTIONS_INVALID", IssueSeverity.ERROR, "At most 5 assumptions are allowed; got {n}."),
+    E092(
+        "ASSUMPTIONS_INVALID",
+        IssueSeverity.ERROR,
+        "At most 5 assumptions are allowed; got {n}.",
+        "Assumption path at {path} must be a JSON pointer into /jitai of at most 200 characters.",
+    ),
     E099("INTERNAL", IssueSeverity.ERROR, "Internal validation error in stage {stage}; the proposal was rejected."),
 
     // Conditions
@@ -64,6 +76,15 @@ public enum class IssueCode(public val title: String, public val severity: Issue
         "CAPABILITY_UNAVAILABLE",
         IssueSeverity.ERROR,
         "{kind} \"{name}\" at {path} cannot be used: capability unavailable: {capability}.",
+    ),
+    E029(
+        "SINCE_MISALIGNED",
+        IssueSeverity.ERROR,
+        "since {since} at {path} must be at or before the active window start {start}; " +
+            "inside the window it would read from the previous day.",
+        "since {since} at {path} must be 1 minute to 12 hours before the daily time {time}.",
+        "since {since} at {path} needs an active window or daily times; " +
+            "at other times it would read from the previous day.",
     ),
 
     // Trigger and active window
@@ -150,6 +171,7 @@ public enum class IssueCode(public val title: String, public val severity: Issue
         "QUIET_HOURS_OVERRIDE",
         IssueSeverity.CONFIRM,
         "This reminder may appear during your quiet hours ({start}-{end}) while you are using your phone. Allow?",
+        "This reminder may appear during quiet hours while you are using your phone. Allow?",
     ),
     C04("ASSUMPTION", IssueSeverity.CONFIRM, "Assumed: \"{text}\""),
     C05("UNKNOWN_OVERRIDE", IssueSeverity.CONFIRM, "This reminder can fire even when {feature} is missing or out of date."),
@@ -174,6 +196,18 @@ public enum class IssueCode(public val title: String, public val severity: Issue
         "BEST_EFFORT_TRIGGER",
         IssueSeverity.WARNING,
         "Reacting when {event} is best effort: it is reliable only while notification access keeps Agentle running.",
+    ),
+    W09(
+        "EVENING_TIME_STOPS_AT_MIDNIGHT",
+        IssueSeverity.WARNING,
+        "\"local_time {op} {value}\" at {path} is false from midnight on; " +
+            "to include the hours after midnight use local_time_in or a window that crosses midnight.",
+    ),
+    W10(
+        "GENERIC_NOTIFICATION_TEXT",
+        IssueSeverity.WARNING,
+        "Notifications show a general text unless detailed notifications are on; " +
+            "the values and app names in this text appear only inside the app.",
     ),
     ;
 

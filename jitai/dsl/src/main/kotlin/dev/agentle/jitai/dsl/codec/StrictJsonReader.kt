@@ -86,10 +86,12 @@ internal class StrictJsonReader private constructor(private val text: String, pr
                     pos++
                     skipWhitespace()
                 }
+
                 '}' -> {
                     pos++
                     return JsonObject(members)
                 }
+
                 else -> fail()
             }
         }
@@ -114,10 +116,12 @@ internal class StrictJsonReader private constructor(private val text: String, pr
                     pos++
                     skipWhitespace()
                 }
+
                 ']' -> {
                     pos++
                     return JsonArray(items)
                 }
+
                 else -> fail()
             }
         }
@@ -133,8 +137,11 @@ internal class StrictJsonReader private constructor(private val text: String, pr
                     pos++
                     return out.toString()
                 }
+
                 c == '\\' -> readEscape(out)
+
                 c < ' ' -> fail()
+
                 else -> {
                     out.append(c)
                     pos++

@@ -60,7 +60,9 @@ public object TextLint {
     )
 
     private val URL = Regex("https?://|www\\.")
-    private val DOMAIN = Regex("(?<![\\p{L}\\p{N}_-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.(?:${TLDS.joinToString("|")})(?![\\p{L}\\p{N}_-])")
+    private val DOMAIN = Regex(
+        "(?<![\\p{L}\\p{N}_-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.(?:${TLDS.joinToString("|")})(?![\\p{L}\\p{N}_-])",
+    )
     private val EMAIL = Regex("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")
     private val PHONE = Regex("\\d(?:[ .()\\-]*\\d){6,}")
     private val MARKUP = Regex("<[\\p{L}/]|\\]\\(|`|\\*\\*")
@@ -111,14 +113,13 @@ public object TextLint {
     /** NFKC and case folding (lower case in the root locale), the form L1-L4, L6 and L7 run on. */
     public fun fold(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
 
-    private fun isControlOrInvisible(cp: Int): Boolean =
-        Character.getType(cp) == Character.CONTROL.toInt() ||
-            cp in 0x200B..0x200D ||
-            cp == 0x2028 ||
-            cp == 0x2029 ||
-            cp in 0x202A..0x202E ||
-            cp in 0x2066..0x2069 ||
-            cp == 0xFEFF
+    private fun isControlOrInvisible(cp: Int): Boolean = Character.getType(cp) == Character.CONTROL.toInt() ||
+        cp in 0x200B..0x200D ||
+        cp == 0x2028 ||
+        cp == 0x2029 ||
+        cp in 0x202A..0x202E ||
+        cp in 0x2066..0x2069 ||
+        cp == 0xFEFF
 
     private fun firstMatch(regex: Regex, text: String): String? = regex.find(text)?.value
 }

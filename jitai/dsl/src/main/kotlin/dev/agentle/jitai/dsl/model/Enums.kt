@@ -61,7 +61,7 @@ public enum class Tone { WARM, NEUTRAL, BRIEF }
 
 /** Variant selection of `variants` content (R10 §3.3): index = deliveryCount mod n. */
 @Serializable
-public enum class VariantSelection { ROTATE }
+public enum class VariantSelection { ROTATE, }
 
 /** Days of an active window, written `MON`..`SUN` on the wire (R10 §3.2). */
 @Serializable

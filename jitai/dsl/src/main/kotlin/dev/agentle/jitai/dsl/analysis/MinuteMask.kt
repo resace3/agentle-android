@@ -41,7 +41,7 @@ public class MinuteMask private constructor(private val words: LongArray) {
 
     override fun hashCode(): Int = words.contentHashCode()
 
-    override fun toString(): String = "MinuteMask(${cardinality} min)"
+    override fun toString(): String = "MinuteMask($cardinality min)"
 
     public companion object {
         private const val WORD_SHIFT = 6
