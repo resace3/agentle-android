@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated from :jitai:dsl IssueCode templates (scratchpad gen_issues.py). -->
+<resources>
+    <string name="issue_e001_0" formatted="true">Response is not one valid JSON object: %1$s.</string>
+    <string name="issue_e002_0" formatted="true">Response is %1$s bytes; the limit is 16384.</string>
+    <string name="issue_e003_0" formatted="true">JSON nesting is deeper than 20 at offset %1$s.</string>
+    <string name="issue_e004_0" formatted="true">schemaVersion must be 1; got %1$s.</string>
+    <string name="issue_e005_0" formatted="true">%1$s is set by the app and must not appear in a proposal.</string>
+    <string name="issue_e006_0" formatted="true">Unknown field %1$s.</string>
+    <string name="issue_e007_0" formatted="true">Missing required field %1$s.</string>
+    <string name="issue_e008_0" formatted="true">%1$s must be %2$s; got %3$s.</string>
+    <string name="issue_e009_0" formatted="true">%1$s must be one of %2$s; got \"%3$s\".</string>
+    <string name="issue_e090_0" formatted="true">status %1$s requires %2$s.</string>
+    <string name="issue_e091_0" formatted="true">questions at %1$s: %2$s.</string>
+    <string name="issue_e092_0" formatted="true">At most 5 assumptions are allowed; got %1$s.</string>
+    <string name="issue_e092_1" formatted="true">Assumption path at %1$s must be a JSON pointer into /jitai of at most 200 characters.</string>
+    <string name="issue_e099_0" formatted="true">Internal validation error in stage %1$s; the proposal was rejected.</string>
+    <string name="issue_e010_0" formatted="true">Unknown feature \"%1$s\" at %2$s.</string>
+    <string name="issue_e011_0" formatted="true">%1$s at %2$s requires arg \"%3$s\".</string>
+    <string name="issue_e012_0" formatted="true">%1$s at %2$s does not take arg \"%3$s\".</string>
+    <string name="issue_e013_0" formatted="true">Arg \"%1$s\" of %2$s at %3$s is invalid: %4$s.</string>
+    <string name="issue_e014_0" formatted="true">Operator \"%1$s\" cannot be used with %2$s (%3$s) at %4$s; allowed: %5$s.</string>
+    <string name="issue_e015_0" formatted="true">Value at %1$s must be %2$s for %3$s; got %4$s.</string>
+    <string name="issue_e016_0" formatted="true">Value %1$s at %2$s is outside %3$s..%4$s for %5$s.</string>
+    <string name="issue_e017_0" formatted="true">between at %1$s: min %2$s is greater than max %3$s.</string>
+    <string name="issue_e018_0" formatted="true">in at %1$s needs 1-%2$s values; got %3$s.</string>
+    <string name="issue_e019_0" formatted="true">in at %1$s lists %2$s more than once.</string>
+    <string name="issue_e020_0" formatted="true">%1$s is %2$s levels deep; the limit is %3$s.</string>
+    <string name="issue_e021_0" formatted="true">%1$s has %2$s nodes; the limit is %3$s.</string>
+    <string name="issue_e022_0" formatted="true">\"%1$s\" at %2$s has no conditions.</string>
+    <string name="issue_e023_0" formatted="true">\"%1$s\" at %2$s has %3$s conditions; the limit is %4$s.</string>
+    <string name="issue_e024_0" formatted="true">\"%1$s\" at %2$s is not a 24-hour HH:mm time.</string>
+    <string name="issue_e025_0" formatted="true">Time window at %1$s starts and ends at %2$s.</string>
+    <string name="issue_e026_0" formatted="true">onUnknown %1$s at %2$s would let this rule %3$s when %4$s is unknown.</string>
+    <string name="issue_e027_0" formatted="true">Conditions at %1$s can never all be true: %2$s.</string>
+    <string name="issue_e028_0" formatted="true">%1$s \"%2$s\" at %3$s cannot be used: capability unavailable: %4$s.</string>
+    <string name="issue_e029_0" formatted="true">since %1$s at %2$s must be at or before the active window start %3$s; inside the window it would read from the previous day.</string>
+    <string name="issue_e029_1" formatted="true">since %1$s at %2$s must be 1 minute to 12 hours before the daily time %3$s.</string>
+    <string name="issue_e029_2" formatted="true">since %1$s at %2$s needs an active window or daily times; at other times it would read from the previous day.</string>
+    <string name="issue_e030_0" formatted="true">Event \"%1$s\" at %2$s is not supported; supported: %3$s.</string>
+    <string name="issue_e031_0" formatted="true">events at %1$s must list 1-8 different event types.</string>
+    <string name="issue_e032_0" formatted="true">debounceSeconds must be 0-600; got %1$s.</string>
+    <string name="issue_e033_0" formatted="true">everyMinutes must be %1$s-1440 for %2$s rules; got %3$s.</string>
+    <string name="issue_e034_0" formatted="true">everyMinutes must be a multiple of 15; got %1$s.</string>
+    <string name="issue_e035_0" formatted="true">times at %1$s must list 1-6 different times.</string>
+    <string name="issue_e036_0" formatted="true">maxLatenessMinutes must be 5-120; got %1$s.</string>
+    <string name="issue_e037_0" formatted="true">A %1$s trigger needs an activeWindow in AI-made rules.</string>
+    <string name="issue_e038_0" formatted="true">activeWindow.days must be null or 1-7 different days.</string>
+    <string name="issue_e039_0" formatted="true">Time %1$s is outside the active window %2$s-%3$s, so it would never run.</string>
+    <string name="issue_e040_0" formatted="true">%1$s is required for a reminder rule.</string>
+    <string name="issue_e041_0" formatted="true">cooldownMinutes must be %1$s-10080 for %2$s rules; got %3$s.</string>
+    <string name="issue_e042_0" formatted="true">maxPerDay must be 1-%1$s for %2$s rules; got %3$s.</string>
+    <string name="issue_e043_0" formatted="true">maxPerWeek must be 1-%1$s for %2$s rules; got %3$s.</string>
+    <string name="issue_e044_0" formatted="true">maxPerWeek (%1$s) must be at least maxPerDay (%2$s).</string>
+    <string name="issue_e045_0" formatted="true">priority must be 0-%1$s for %2$s rules; got %3$s.</string>
+    <string name="issue_e046_0" formatted="true">Discovered rules must end: set expiresInDays (1-90).</string>
+    <string name="issue_e047_0" formatted="true">expiresInDays must be 1-90; got %1$s.</string>
+    <string name="issue_e048_0" formatted="true">notificationTimeoutMinutes must be null or 5-1440; got %1$s.</string>
+    <string name="issue_e048_1" formatted="true">deliveryDeadlineMinutes must be 1-60; got %1$s.</string>
+    <string name="issue_e048_2" formatted="true">experiment.deliverProbability must be %1$s; got %2$s.</string>
+    <string name="issue_e049_0" formatted="true">snooze.options must list 1-3 different options.</string>
+    <string name="issue_e050_0" formatted="true">A reminder rule needs a trigger.</string>
+    <string name="issue_e051_0" formatted="true">A blocking rule must have trigger null.</string>
+    <string name="issue_e052_0" formatted="true">A blocking rule must name at least one category to block.</string>
+    <string name="issue_e053_0" formatted="true">A blocking rule cannot have %1$s; set it to %2$s.</string>
+    <string name="issue_e054_0" formatted="true">A reminder rule needs %1$s.</string>
+    <string name="issue_e055_0" formatted="true">A %1$s trigger needs conditions in AI-made rules.</string>
+    <string name="issue_e056_0" formatted="true">Block target %1$s at %2$s %3$s.</string>
+    <string name="issue_e057_0" formatted="true">A blocking rule needs conditions or an active window; to turn a category off, use its switch.</string>
+    <string name="issue_e058_0" formatted="true">variants at %1$s needs 2-8 items; got %2$s.</string>
+    <string name="issue_e060_0" formatted="true">%1$s must be %2$s-%3$s characters; got %4$s.</string>
+    <string name="issue_e061_0" formatted="true">%1$s contains a link, email address or phone number (\"%2$s\").</string>
+    <string name="issue_e062_0" formatted="true">%1$s contains %2$s: \"%3$s\".</string>
+    <string name="issue_e063_0" formatted="true">Placeholder \"%1$s\" at %2$s is not a known feature.</string>
+    <string name="issue_e064_0" formatted="true">Placeholder \"%1$s\" at %2$s must refer to a condition of this rule.</string>
+    <string name="issue_e065_0" formatted="true">Placeholder \"%1$s\" at %2$s must match exactly one condition that has to be true for the rule to fire.</string>
+    <string name="issue_e066_0" formatted="true">%1$s contains a control or invisible character (U+%2$s).</string>
+    <string name="issue_e067_0" formatted="true">Malformed placeholder at %1$s near \"%2$s\".</string>
+    <string name="issue_e068_0" formatted="true">Media \"%1$s\" at %2$s is not in the app\'s media library.</string>
+    <string name="issue_e069_0" formatted="true">Content type \"%1$s\" cannot be used with channel %2$s.</string>
+    <string name="issue_e070_0" formatted="true">A reminder rule needs outcome.proximal.</string>
+    <string name="issue_e071_0" formatted="true">Metric %1$s cannot be used as a %2$s outcome.</string>
+    <string name="issue_e072_0" formatted="true">Outcome %1$s at %2$s: %3$s.</string>
+    <string name="issue_e073_0" formatted="true">windowMinutes for %1$s must be %2$s; got %3$s.</string>
+    <string name="issue_e081_0" formatted="true">\"%1$s\" at %2$s is not a valid Android package name.</string>
+    <string name="issue_c01_0" formatted="true">Which app did you mean by \"%1$s\"?</string>
+    <string name="issue_c02_0" formatted="true">This reminder will speak out loud. Allow?</string>
+    <string name="issue_c02_1" formatted="true">This reminder will open a short video. Allow?</string>
+    <string name="issue_c03_0" formatted="true">This reminder may appear during your quiet hours (%1$s-%2$s) while you are using your phone. Allow?</string>
+    <string name="issue_c03_1" formatted="true">This reminder may appear during quiet hours while you are using your phone. Allow?</string>
+    <string name="issue_c04_0" formatted="true">Assumed: \"%1$s\"</string>
+    <string name="issue_c05_0" formatted="true">This reminder can fire even when %1$s is missing or out of date.</string>
+    <string name="issue_w01_0" formatted="true">You already have a rule that does this: \"%1$s\".</string>
+    <string name="issue_w02_0" formatted="true">%1$s is not available on this phone, so this rule will not fire.</string>
+    <string name="issue_w03_0" formatted="true">Needs %1$s. Until you allow it, this rule will not fire.</string>
+    <string name="issue_w04_0" formatted="true">This rule only runs during your quiet hours (%1$s-%2$s), so it will not notify you.</string>
+    <string name="issue_w05_0" formatted="true">Your overall limit of %1$s reminders per %2$s applies first.</string>
+    <string name="issue_w06_0" formatted="true">\"%1$s\" may block this reminder.</string>
+    <string name="issue_w07_0" formatted="true">%1$s reaches the phone when your tracker syncs, so this rule may skip a check when the data is late.</string>
+    <string name="issue_w08_0" formatted="true">Reacting when %1$s is best effort: it is reliable only while notification access keeps Agentle running.</string>
+    <string name="issue_w09_0" formatted="true">\"local_time %1$s %2$s\" at %3$s is false from midnight on; to include the hours after midnight use local_time_in or a window that crosses midnight.</string>
+    <string name="issue_w10_0" formatted="true">Notifications show a general text unless detailed notifications are on; the values and app names in this text appear only inside the app.</string>
+</resources>
