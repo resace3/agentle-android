@@ -41,6 +41,19 @@ public interface Connector {
 
     public suspend fun sync(trigger: SyncTrigger): SyncResult
 
+    /**
+     * Stream ids [syncStream] accepts (for example `steps`, `sleep`); empty if the connector cannot sync one stream
+     * on its own.
+     */
+    public val streamIds: Set<String> get() = emptySet()
+
+    /**
+     * Syncs one stream now, outside the regular schedule: a staleness retry, or a prefetch shortly before a rule
+     * reads that stream. Same guarantees as [sync] (idempotent, data and cursor committed together). The default
+     * runs a full [sync].
+     */
+    public suspend fun syncStream(stream: String, trigger: SyncTrigger = SyncTrigger.MANUAL): SyncResult = sync(trigger)
+
     /** Disabling stops all collection immediately; it does not delete data. */
     public suspend fun setEnabled(enabled: Boolean)
 }
@@ -56,6 +69,13 @@ public data class SyncCursor(
     val lastErrorCode: String? = null,
 )
 
+/**
+ * A connector's assertion that it has delivered everything [connectorId]'s [stream] recorded before
+ * [coverageThrough] (docs/research/10 §5.3). Stored in the same transaction as the data it covers, so a reader
+ * can tell "no data" (covered, nothing stored) from "not synced yet" (not covered).
+ */
+public data class StreamCoverage(val connectorId: String, val stream: String, val coverageThrough: Instant)
+
 /** Result of committing a batch: how many rows were inserted, updated (payload changed) or ignored (duplicates). */
 public data class CommitResult(val inserted: Int, val updated: Int, val ignored: Int) {
     val written: Int get() = inserted + updated
@@ -69,12 +89,15 @@ public data class CommitResult(val inserted: Int, val updated: Int, val ignored:
  * Where connectors write. Implemented by the event repository (Room) and by in-memory fakes in tests.
  *
  * [commit] stores [events] (dedup by `dedupKey`: insert new, update only if the payload changed, ignore otherwise)
- * and, in the same transaction, replaces the cursor with [cursor] if given. Nothing is committed if it throws.
+ * and, in the same transaction, replaces the cursor with [cursor] and the stream's coverage with `coverage` if given.
+ * Nothing is committed if it throws.
  * [replaceWindow] is for upstream types without stable ids: it deletes this source's events whose start lies in
- * `[windowStart, windowEnd)` and inserts [events], atomically with the cursor.
+ * `[windowStart, windowEnd)` and inserts [events], atomically with the cursor and the coverage.
+ * A sink may drop records it must not keep (for example older than a deletion watermark); they count as ignored,
+ * which is never an error for the connector.
  */
 public interface EventSink {
-    public suspend fun commit(events: List<PersonalEvent>, cursor: SyncCursor? = null): CommitResult
+    public suspend fun commit(events: List<PersonalEvent>, cursor: SyncCursor? = null, coverage: StreamCoverage? = null): CommitResult
 
     public suspend fun replaceWindow(
         source: dev.agentle.core.model.DataSourceId,
@@ -82,6 +105,7 @@ public interface EventSink {
         windowEnd: Instant,
         events: List<PersonalEvent>,
         cursor: SyncCursor? = null,
+        coverage: StreamCoverage? = null,
     ): CommitResult
 
     public suspend fun cursor(connectorId: String, stream: String): SyncCursor?
