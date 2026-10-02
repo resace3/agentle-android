@@ -56,29 +56,28 @@ public object RuleCodec {
         "userConfirmedUnknownOverrides", "provenance",
     )
 
-    public fun encodeDefinition(definition: JitaiDefinition): String = json.encodeToString(JitaiDefinition.serializer(), definition)
+    public fun encodeDefinition(definition: JitaiDefinition): String = json.encodeToString(DslSerializers.definition, definition)
 
-    public fun decodeDefinition(text: String): Outcome<JitaiDefinition> = decode(text, Schemas.definition, JitaiDefinition.serializer())
+    public fun decodeDefinition(text: String): Outcome<JitaiDefinition> = decode(text, Schemas.definition, DslSerializers.definition)
 
     /** [decodeDefinition] with an explicit alias table (tests of a catalog rename). */
     internal fun decodeDefinition(text: String, aliases: Map<String, String>): Outcome<JitaiDefinition> =
-        decode(text, Schemas.definition, JitaiDefinition.serializer(), aliases)
+        decode(text, Schemas.definition, DslSerializers.definition, aliases)
 
     /** A condition tree in the stored form (sparse `args`, no `appLabel`). */
-    public fun encodeCondition(condition: Condition): String = json.encodeToString(Condition.serializer(), condition)
+    public fun encodeCondition(condition: Condition): String = json.encodeToString(DslSerializers.condition, condition)
 
-    public fun decodeCondition(text: String): Outcome<Condition> = decode(text, Schemas.storedCondition, Condition.serializer())
+    public fun decodeCondition(text: String): Outcome<Condition> = decode(text, Schemas.storedCondition, DslSerializers.condition)
 
     /** A model reply in JitaiProposalSchema v1 (R10 §13.3). */
-    public fun encodeProposal(proposal: JitaiProposal): String = json.encodeToString(JitaiProposal.serializer(), proposal)
+    public fun encodeProposal(proposal: JitaiProposal): String = json.encodeToString(DslSerializers.proposal, proposal)
 
-    public fun decodeProposal(text: String): Outcome<JitaiProposal> = decode(text, Schemas.proposal, JitaiProposal.serializer())
+    public fun decodeProposal(text: String): Outcome<JitaiProposal> = decode(text, Schemas.proposal, DslSerializers.proposal)
 
     /** An AI-discovered proposal (R10 §14.7). */
-    public fun encodeDiscovered(proposal: DiscoveredProposal): String = json.encodeToString(DiscoveredProposal.serializer(), proposal)
+    public fun encodeDiscovered(proposal: DiscoveredProposal): String = json.encodeToString(DslSerializers.discovered, proposal)
 
-    public fun decodeDiscovered(text: String): Outcome<DiscoveredProposal> =
-        decode(text, Schemas.discovered, DiscoveredProposal.serializer())
+    public fun decodeDiscovered(text: String): Outcome<DiscoveredProposal> = decode(text, Schemas.discovered, DslSerializers.discovered)
 
     /**
      * SHA-256 (lowercase hex) of the canonical JSON without the properties in [CONTENT_HASH_EXCLUDED] (R10 §3.1).
@@ -89,7 +88,7 @@ public object RuleCodec {
      * experiment) and not who made it or when.
      */
     public fun contentHash(definition: JitaiDefinition): String {
-        val element = json.encodeToJsonElement(JitaiDefinition.serializer(), definition).jsonObject
+        val element = json.encodeToJsonElement(DslSerializers.definition, definition).jsonObject
         val semantic = JsonObject(element.filterKeys { it !in CONTENT_HASH_EXCLUDED })
         return sha256Hex(json.encodeToString(JsonObject.serializer(), semantic))
     }

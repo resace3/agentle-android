@@ -148,7 +148,7 @@ internal class StrictJsonReader private constructor(private val text: String, pr
                 }
             }
         }
-        return fail()
+        fail()
     }
 
     private fun readEscape(out: StringBuilder) {

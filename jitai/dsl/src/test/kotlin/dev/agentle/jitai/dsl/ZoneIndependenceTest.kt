@@ -1,10 +1,12 @@
 package dev.agentle.jitai.dsl
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import dev.agentle.core.common.getOrThrow
 import dev.agentle.jitai.dsl.codec.RuleCodec
 import dev.agentle.jitai.dsl.model.JitaiDefinition
 import dev.agentle.jitai.dsl.model.JitaiLifecycle
+import dev.agentle.jitai.dsl.model.LifecycleEvent
 import dev.agentle.jitai.dsl.render.RenderOptions
 import dev.agentle.jitai.dsl.render.RuleRenderer
 import dev.agentle.jitai.dsl.testing.Fixtures
@@ -14,24 +16,28 @@ import dev.agentle.jitai.dsl.validation.ValidationInput
 import dev.agentle.jitai.dsl.validation.ValidationRequest
 import kotlinx.datetime.TimeZone
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import java.util.Locale
 import kotlin.time.Instant
 
 /**
- * Integrator correction testing-build-04: test JVMs will soon default to a non-UTC zone (America/St_Johns). Validation,
- * rendering and expiry read the zone they are given (the [dev.agentle.core.time.AgentleClock] or [RenderOptions]),
- * never the JVM default zone or locale.
+ * Integrator correction testing-build-04: every test JVM runs in America/St_Johns (`user.timezone` and `TZ`, set by
+ * build-logic), a half-hour zone with DST, while the fixtures use the zone of their [dev.agentle.core.time.AgentleClock]
+ * (Europe/Berlin) or of [RenderOptions]. Code that read the JVM default zone would compute other local dates than the
+ * ones pinned here and in the rest of the suite. These tests never read or change the JVM default zone (detekt
+ * ForbiddenMethodCall); they pin dates for several given zones and check that the JVM default locale changes nothing.
  */
 class ZoneIndependenceTest {
     @Test
-    fun `reports, sentences and expiry do not change with the JVM default zone and locale`() {
+    fun `reports, sentences and expiry do not change with the JVM default locale`() {
         val baseline = snapshot()
 
-        val changed = withJvmDefaults(java.util.TimeZone.getTimeZone("America/St_Johns"), Locale.forLanguageTag("tr-TR")) { snapshot() }
-        val far = withJvmDefaults(java.util.TimeZone.getTimeZone("Pacific/Kiritimati"), Locale.forLanguageTag("ar-EG")) { snapshot() }
+        val turkish = withDefaultLocale(Locale.forLanguageTag("tr-TR")) { snapshot() }
+        val arabic = withDefaultLocale(Locale.forLanguageTag("ar-EG")) { snapshot() }
 
-        assertThat(changed).isEqualTo(baseline)
-        assertThat(far).isEqualTo(baseline)
+        assertThat(turkish).isEqualTo(baseline)
+        assertThat(arabic).isEqualTo(baseline)
     }
 
     @Test
@@ -49,9 +55,25 @@ class ZoneIndependenceTest {
             .isEqualTo(Instant.parse("2026-10-28T02:30:00Z"))
     }
 
+    /** 2026-10-01T16:00Z plus the 28-day trial of the R10 §14.7 proposal, at local midnight of the clock's zone. */
+    @ParameterizedTest(name = "{0}")
+    @CsvSource(
+        "Europe/Berlin, 2026-10-28T23:00:00Z",
+        "America/St_Johns, 2026-10-29T02:30:00Z",
+        "Pacific/Kiritimati, 2026-10-29T10:00:00Z",
+        "UTC, 2026-10-29T00:00:00Z",
+    )
+    fun `APPROVE sets expiresAt at local midnight in the zone of the clock`(zone: String, expected: String) {
+        val clock = Fixtures.clock(now = Instant.parse("2026-10-01T16:00:00Z"), zone = TimeZone.of(zone))
+
+        val approved = JitaiLifecycle.apply(golden("definition-14-7.json"), LifecycleEvent.APPROVE, clock).getOrThrow()
+
+        assertWithMessage(zone).that(approved.expiresAt).isEqualTo(Instant.parse(expected))
+    }
+
     @Test
     fun `text folding ignores a Turkish default locale`() {
-        val folded = withJvmDefaults(java.util.TimeZone.getTimeZone("UTC"), Locale.forLanguageTag("tr-TR")) { TextLint.fold("INSOMNIA") }
+        val folded = withDefaultLocale(Locale.forLanguageTag("tr-TR")) { TextLint.fold("INSOMNIA") }
 
         assertThat(folded).isEqualTo("insomnia")
     }
@@ -74,16 +96,14 @@ class ZoneIndependenceTest {
         return proposals + discovered + definitions + renderings + verdicts + expiry
     }
 
-    private fun <T> withJvmDefaults(zone: java.util.TimeZone, locale: Locale, block: () -> T): T {
-        val previousZone = java.util.TimeZone.getDefault()
-        val previousLocale = Locale.getDefault()
-        java.util.TimeZone.setDefault(zone)
+    /** Runs [block] with [locale] as the JVM default locale (the default zone is left as the build set it). */
+    private fun <T> withDefaultLocale(locale: Locale, block: () -> T): T {
+        val previous = Locale.getDefault()
         Locale.setDefault(locale)
         try {
             return block()
         } finally {
-            java.util.TimeZone.setDefault(previousZone)
-            Locale.setDefault(previousLocale)
+            Locale.setDefault(previous)
         }
     }
 

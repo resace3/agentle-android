@@ -26,6 +26,7 @@ import dev.agentle.jitai.engine.decision.TriggerKind
 import dev.agentle.jitai.engine.delivery.DeliveryCoordinator
 import dev.agentle.jitai.engine.delivery.DeliveryEnvironment
 import dev.agentle.jitai.engine.delivery.DeliveryProtocol
+import dev.agentle.jitai.engine.delivery.PendingCard
 import dev.agentle.jitai.engine.eval.RuleEvaluator
 import dev.agentle.jitai.engine.gates.Backoff
 import dev.agentle.jitai.engine.gates.MicroRandomization
@@ -214,6 +215,14 @@ public class JitaiEngine(
         guard("card_displayed") { coordinator.displayCard(decisionKey, context().delivery) }
 
     /**
+     * The in-app cards waiting to be displayed (CARD_PENDING), oldest first, each rendered from its stored row (content
+     * ref and snapshot, the in-app text), so they come back unchanged after a restart. Cards past
+     * [DeliveryProtocol.cardExpiry] and cards of disabled or edited JITAIs are left out (recovery ends them). Read-only.
+     */
+    public suspend fun pendingCards(): Outcome<List<PendingCard>> =
+        guard("pending_cards") { coordinator.pendingCards(context().delivery).getOrThrow() }
+
+    /**
      * Marks DELIVERED decisions without a response as IGNORED once their notification timed out, or, without a timeout,
      * once their engine day ended (R10 §9.6). Returns the keys marked. [runTimer] runs it too.
      */
@@ -359,8 +368,9 @@ public class JitaiEngine(
         val events = due.backstop?.let { eventPass(context.later())?.report }
         val end = context.later()
         val handled = due.prefetches.map { it.key } + outcomes.done + listOfNotNull(due.backstop?.key)
-        val plan = reconcile(end, ReplanReason.EVALUATION, handled.toSet(), outcomes.reschedule)
+        // Expire first: the re-plan then reads the new status, so nextDueAt never aims at an expired rule's slot.
         val expired = expire(end)
+        val plan = reconcile(if (expired.isEmpty()) end else context(), ReplanReason.EVALUATION, handled.toSet(), outcomes.reschedule)
         return TimerReport(
             at = context.now.wall,
             recovery = recovery,

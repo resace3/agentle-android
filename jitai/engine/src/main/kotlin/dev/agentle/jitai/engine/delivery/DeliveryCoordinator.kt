@@ -4,10 +4,12 @@ import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Logger
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.common.getOrNull
+import dev.agentle.core.common.getOrThrow
 import dev.agentle.core.common.outcomeOf
 import dev.agentle.jitai.dsl.codec.RuleCodec
 import dev.agentle.jitai.dsl.model.ContentStrategy
 import dev.agentle.jitai.dsl.model.DeliveryChannel
+import dev.agentle.jitai.dsl.model.JitaiCategory
 import dev.agentle.jitai.dsl.model.JitaiDefinition
 import dev.agentle.jitai.engine.EnginePorts
 import dev.agentle.jitai.engine.content.ContentRef
@@ -31,10 +33,12 @@ import dev.agentle.jitai.engine.ports.DeliveryPrerequisite
 import dev.agentle.jitai.engine.ports.EngineSettings
 import dev.agentle.jitai.engine.ports.InterruptionFilter
 import dev.agentle.jitai.engine.ports.NotificationSystemState
+import dev.agentle.jitai.engine.ports.PooledText
 import dev.agentle.jitai.engine.ports.PostResult
 import dev.agentle.jitai.engine.ports.PrepareResult
 import dev.agentle.jitai.engine.ports.PreparedDelivery
 import dev.agentle.jitai.engine.schedule.Effectiveness
+import dev.agentle.jitai.engine.schedule.SchedulePlanner
 import dev.agentle.jitai.engine.time.EngineClock
 import dev.agentle.jitai.engine.time.EngineDays
 import dev.agentle.jitai.engine.time.MonotonicStamp
@@ -47,6 +51,7 @@ import kotlinx.datetime.TimeZone
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
 
 /** Constants of the delivery protocol (R10 §8.5). */
 public object DeliveryProtocol {
@@ -62,7 +67,37 @@ public object DeliveryProtocol {
     /** Fail-closed live state used when the platform cannot be read (G07 then blocks). */
     public val UNKNOWN_NOTIFICATION_STATE: NotificationSystemState =
         NotificationSystemState(interruptionFilter = InterruptionFilter.UNKNOWN, notificationListenerConnected = false)
+
+    /**
+     * When the in-app card of [row] expires (jitai-correctness-13): `notificationTimeoutMinutes` of [definition] after the
+     * row became CARD_PENDING, else at the next engine-day rollover after that.
+     */
+    public fun cardExpiry(row: DecisionRecord, definition: JitaiDefinition?, zone: TimeZone, rolloverMinute: Int): MonotonicStamp {
+        val from = row.claimed ?: row.decided
+        val timeout = definition?.delivery?.notificationTimeoutMinutes
+        if (timeout != null) return from + timeout.coerceAtLeast(0).minutes
+        val rollover = EngineDays.nextRollover(from.wall, zone, rolloverMinute)
+        return from + (rollover - from.wall)
+    }
 }
+
+/**
+ * An in-app card waiting to be displayed (CARD_PENDING): what the app shows, rendered again from the stored row (its
+ * content ref and stored snapshot), so it survives a restart. [intervention] carries the in-app text
+ * ([RenderedIntervention.title] / [RenderedIntervention.body]) and the nonce responses must present.
+ *
+ * @property decidedAt when the decision point was resolved.
+ * @property expiresAt when the card stops being offered ([DeliveryProtocol.cardExpiry]); recovery then moves it to EXPIRED.
+ */
+public data class PendingCard(
+    val decisionKey: String,
+    val jitaiId: String,
+    val category: JitaiCategory,
+    val channel: DeliveryChannel,
+    val intervention: RenderedIntervention,
+    val decidedAt: Instant,
+    val expiresAt: Instant,
+)
 
 /** What a delivery reads besides its row: the current definitions by id, the effective settings and the pass zone. */
 public class DeliveryEnvironment(
@@ -202,7 +237,7 @@ public class DeliveryCoordinator(
             is Claim.Claimed -> post(record, claim.row, prepared, env)
 
             is Claim.Ended -> {
-                discard(prepared)
+                if (claim.state == DecisionState.CARD_PENDING) keepAsCard(prepared) else discard(prepared)
                 DeliveryResult.Ended(key, claim.state, claim.reason)
             }
 
@@ -314,7 +349,10 @@ public class DeliveryCoordinator(
 
             PostResult.Blocked -> {
                 val target = if (env.settings.inAppCards) DecisionState.CARD_PENDING else DecisionState.SUPPRESSED
-                finish(claimed, target, ReasonCode.NOTIFICATIONS_BLOCKED, null)
+                val ended = finish(claimed, target, ReasonCode.NOTIFICATIONS_BLOCKED, null)
+                val card = ended is DeliveryResult.Ended && ended.state == DecisionState.CARD_PENDING
+                if (card) keepAsCard(prepared) else discard(prepared)
+                ended
             }
 
             is PostResult.Failed -> finish(claimed, DecisionState.FAILED, ReasonCode.POST_FAILED, result.code)
@@ -423,6 +461,36 @@ public class DeliveryCoordinator(
     }
 
     /**
+     * The in-app cards waiting to be displayed: CARD_PENDING rows of armed JITAIs at their decided version and before their
+     * expiry, oldest first, each rendered again from its stored content ref and snapshot (the in-app text). Read-only:
+     * recovery moves expired cards to EXPIRED and cancels those of disabled or edited JITAIs.
+     */
+    public suspend fun pendingCards(env: DeliveryEnvironment): Outcome<List<PendingCard>> {
+        val now = clock.now()
+        val rows = when (val found = ports.store.decisionsInStates(setOf(DecisionState.CARD_PENDING))) {
+            is Outcome.Failure -> return found
+            is Outcome.Success -> found.value.sortedBy { it.sequence }
+        }
+        val cards = rows.mapNotNull { row ->
+            val definition = env.definitions[row.jitaiId]
+                ?.takeIf { Effectiveness.isArmed(it) && it.version == row.jitaiVersion }
+                ?: return@mapNotNull null
+            val expiry = cardExpiry(row, definition, env)
+            if (!isBefore(now, expiry)) return@mapNotNull null
+            PendingCard(
+                decisionKey = row.decisionKey,
+                jitaiId = row.jitaiId,
+                category = row.category,
+                channel = row.channel,
+                intervention = render(row, definition, env, now, row.content.contentRef?.let(ContentRef::parse)),
+                decidedAt = row.decided.wall,
+                expiresAt = SchedulePlanner.wallOf(expiry, now),
+            )
+        }
+        return Outcome.success(cards)
+    }
+
+    /**
      * Cancels the unclaimed rows (DECIDED and CARD_PENDING) of [jitaiId] (R10 §9.5, §12.N6; jitai-correctness-16): all of
      * them with JITAI_DISABLED when [currentVersion] is null (disabled or deleted), else those of another version with
      * DEFINITION_CHANGED.
@@ -463,21 +531,34 @@ public class DeliveryCoordinator(
     private suspend fun skipped(row: DecisionRecord): DeliveryResult =
         DeliveryResult.Skipped(row.decisionKey, ports.store.decision(row.decisionKey).getOrNull()?.state)
 
+    /**
+     * Renders [record]: with the content ref chosen now (a delivery), or with the [stored] one (an in-app card shown
+     * later). An AI pool item that is gone or no longer usable renders the template fallback.
+     */
     private suspend fun render(
         record: DecisionRecord,
         definition: JitaiDefinition,
         env: DeliveryEnvironment,
         now: MonotonicStamp,
+        stored: ContentRef? = null,
     ): RenderedIntervention {
         val settings = env.settings
         val renderer = ContentRenderer(DefaultPlaceholderFormatter(settings.display))
-        val pool = if (definition.content is ContentStrategy.AiText) {
-            ports.aiTexts.pooled(RuleCodec.contentHash(definition)).getOrNull().orEmpty()
+        val ref: ContentRef
+        val pooled: PooledText?
+        if (stored != null) {
+            ref = stored
+            pooled = (stored as? ContentRef.AiPooled)?.let { pooledItem(it.itemId) }
         } else {
-            emptyList()
+            val pool = if (definition.content is ContentStrategy.AiText) {
+                ports.aiTexts.pooled(RuleCodec.contentHash(definition)).getOrNull().orEmpty()
+            } else {
+                emptyList()
+            }
+            val previous = (ports.store.readSnapshot { it.countedCount(definition.id) }.getOrNull() ?: 1L) - 1L
+            ref = renderer.choose(definition, previous.coerceAtLeast(0), pool, record.content.snapshotHash, now.wall, settings.aiConsent)
+            pooled = (ref as? ContentRef.AiPooled)?.let { chosen -> pool.firstOrNull { it.id == chosen.itemId } }
         }
-        val previous = (ports.store.readSnapshot { it.countedCount(definition.id) }.getOrNull() ?: 1L) - 1L
-        val ref = renderer.choose(definition, previous.coerceAtLeast(0), pool, record.content.snapshotHash, now.wall, settings.aiConsent)
         return renderer.render(
             ContentRenderer.RenderInput(
                 definition = definition,
@@ -486,7 +567,7 @@ public class DeliveryCoordinator(
                 snapshot = record.content.snapshotJson?.let(StoredSnapshots::decode)?.toFeatureSnapshot(),
                 snapshotHash = record.content.snapshotHash,
                 ref = ref,
-                pooled = (ref as? ContentRef.AiPooled)?.let { chosen -> pool.firstOrNull { it.id == chosen.itemId } },
+                pooled = pooled,
                 nonce = record.nonce.orEmpty(),
                 now = now.wall,
                 consent = settings.aiConsent,
@@ -521,6 +602,17 @@ public class DeliveryCoordinator(
             .onFailureLog("discard")
     }
 
+    private suspend fun keepAsCard(prepared: PreparedDelivery) {
+        outcomeOf(mapError = { AppError.Unexpected("keep_as_card:${it::class.simpleName}") }) {
+            ports.delivery.keepAsCard(prepared).getOrThrow()
+        }.onFailureLog("keep_as_card")
+    }
+
+    /** The pool item [itemId], or null when it was purged or cannot be read (the card then shows the fallback). */
+    private suspend fun pooledItem(itemId: String): PooledText? =
+        outcomeOf(mapError = { AppError.Unexpected("pool_get:${it::class.simpleName}") }) { ports.aiTexts.get(itemId).getOrThrow() }
+            .getOrNull()
+
     private fun <T> Outcome<T>.onFailureLog(step: String) {
         if (this is Outcome.Failure) logger.w(COMPONENT, "delivery side step failed", error, mapOf("step" to step))
     }
@@ -535,14 +627,8 @@ public class DeliveryCoordinator(
         (definition?.delivery?.deliveryDeadlineMinutes ?: dev.agentle.jitai.dsl.model.Delivery.DEFAULT_DELIVERY_DEADLINE_MINUTES)
             .coerceAtLeast(0).minutes
 
-    /** When an in-app card expires: `notificationTimeoutMinutes` after it became pending, else at the next engine-day rollover. */
-    private fun cardExpiry(row: DecisionRecord, definition: JitaiDefinition, env: DeliveryEnvironment): MonotonicStamp {
-        val from = row.claimed ?: row.decided
-        val timeout = definition.delivery.notificationTimeoutMinutes
-        if (timeout != null) return from + timeout.coerceAtLeast(0).minutes
-        val rollover = EngineDays.nextRollover(from.wall, env.zone, env.settings.rolloverMinute)
-        return from + (rollover - from.wall)
-    }
+    private fun cardExpiry(row: DecisionRecord, definition: JitaiDefinition, env: DeliveryEnvironment): MonotonicStamp =
+        DeliveryProtocol.cardExpiry(row, definition, env.zone, env.settings.rolloverMinute)
 
     private companion object {
         const val COMPONENT = "jitai-delivery"

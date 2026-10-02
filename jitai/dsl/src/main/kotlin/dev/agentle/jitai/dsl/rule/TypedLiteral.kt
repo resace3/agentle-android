@@ -108,6 +108,7 @@ public object TypedLiterals {
     }
 
     /** Typed literals of [leaf] in wire order, or null when its feature is unknown or a literal does not convert. */
+    @Suppress("MemberNameEqualsClassName") // Public contract name that :jitai:engine compiles against; kept stable.
     public fun typedLiterals(leaf: Condition.FeatureLeaf): List<TypedLiteral>? {
         val definition = RealtimeFeatureCatalog[leaf.feature] ?: return null
         return leaf.literals.map { (convert(definition, it) as? LiteralConversion.Converted)?.literal ?: return null }
