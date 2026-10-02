@@ -7,6 +7,15 @@
 # Pushes to `android/**` run the Android job in branch-light mode (Robolectric SDKs 29 and 37 only, lintDebug only);
 # pushes to main, pull requests and manual runs use the full SDK matrix and lint every variant. The job summary
 # names the mode. Documentation-only pushes (docs/**, *.md) run no CI.
+#
+# Screenshot goldens (Roborazzi) are recorded here, because Robolectric cannot run in the development container.
+# Dispatch this workflow on your branch with `record_screenshots: true` (GitHub MCP tool `actions_run_trigger`:
+# owner resace3, repo agentle-android, workflow_id ci.yml, ref <your branch>, inputs {"record_screenshots": true}).
+# Only the `record-screenshots` job runs: `./gradlew recordRoborazziDebug`, then it commits the changed files under
+# `**/src/screenshots/**` to that branch as github-actions[bot] ("test: record screenshot goldens [skip ci]"). It
+# refuses to run on main. Pull before you push again. Normal runs verify goldens (`verifyRoborazziDebug`) in every
+# module that has some; a module without goldens is not verified. Pin screenshot tests to one SDK
+# (`@Config(sdk = [37])`) so the light and the full Robolectric matrix verify the same image.
 name: CI
 
 on:
@@ -24,9 +33,15 @@ on:
         description: JSON list of emulator API levels
         type: string
         default: "[29, 31, 34, 36]"
+      record_screenshots:
+        description: Record Roborazzi screenshot goldens and commit them to this branch (never main)
+        type: boolean
+        default: false
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Per event, so a manual run (recording goldens, emulator tests) and a push run on the same branch do not cancel
+  # each other. A newer push still cancels an older push run.
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
@@ -35,6 +50,7 @@ permissions:
 jobs:
   jvm:
     name: JVM modules
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.record_screenshots) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -70,6 +86,7 @@ jobs:
 
   android:
     name: Android build, unit tests, lint
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.record_screenshots) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -107,12 +124,25 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list 2>/dev/null \
             | grep -E "platforms;android-3[6-9]|system-images;android-3[6-9][^|]*(google_apis|default)[^|]*x86_64" \
             | sort -u | head -40
+      - name: Screenshot verification (modules with goldens)
+        id: screenshots
+        shell: bash
+        run: |
+          # verifyRoborazziDebug fails on a missing golden, so only modules with goldens in src/screenshots are
+          # verified; the others run their screenshot tests without comparing.
+          tasks=$(find . -path ./.git -prune -o -path '*/build' -prune -o -path '*/src/screenshots/*' -name '*.png' -print \
+            | sed -E 's#^\./##; s#/src/screenshots/.*##' | sort -u \
+            | sed -E 's#/#:#g; s#^#:#; s#$#:verifyRoborazziDebug#' | tr '\n' ' ')
+          echo "tasks=$tasks" >> "$GITHUB_OUTPUT"
+          echo "- Screenshot verification: ${tasks:-none (no module has goldens)}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Screenshot verification: ${tasks:-none}"
       - name: Build, unit tests, lint, fake isolation
         shell: bash
         run: >-
           mkdir -p build && ./gradlew
           assembleFakeDebug assembleProdDebug assembleProdRelease
           testDebugUnitTest testFakeDebugUnitTest testProdDebugUnitTest
+          ${{ steps.screenshots.outputs.tasks }}
           ${{ steps.mode.outputs.lint }}
           detekt spotlessCheck verifyNoFakesInProd
           -ProbolectricSdks=${{ steps.mode.outputs.sdks }}
@@ -139,6 +169,70 @@ jobs:
           name: apks
           path: app/build/outputs/apk/
           retention-days: 7
+
+  record-screenshots:
+    name: Record screenshot goldens
+    if: github.event_name == 'workflow_dispatch' && inputs.record_screenshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - name: Refuse main and non-branch refs
+        env:
+          GIT_REF: ${{ github.ref }}
+        run: |
+          if [ "$GIT_REF" = "refs/heads/main" ]; then
+            echo "::error::Goldens are never recorded on main. Dispatch record_screenshots on your own branch."
+            exit 1
+          fi
+          case "$GIT_REF" in
+            refs/heads/*) echo "Recording goldens for $GIT_REF" ;;
+            *) echo "::error::record_screenshots needs a branch ref, got $GIT_REF"; exit 1 ;;
+          esac
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6.4.0
+        with:
+          add-job-summary: never
+      - name: Accept SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: Record goldens
+        shell: bash
+        run: mkdir -p build && ./gradlew recordRoborazziDebug --continue 2>&1 | tee build/gradle-output.log
+      - name: Commit changed goldens
+        shell: bash
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- ':(glob)**/src/screenshots/**'
+          if git diff --cached --quiet; then
+            echo "No golden changed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git diff --cached --stat | tee -a "$GITHUB_STEP_SUMMARY"
+          git commit -m "test: record screenshot goldens [skip ci]"
+          if ! git push origin "HEAD:refs/heads/$BRANCH"; then
+            echo "::error::Could not push the goldens: $BRANCH moved while recording. Dispatch record_screenshots again."
+            exit 1
+          fi
+      - name: Failure digest
+        if: failure()
+        run: python3 tools/ci_digest.py build/gradle-output.log
+      - name: Upload Roborazzi reports and goldens
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshot-goldens
+          path: |
+            **/build/reports/roborazzi/
+            **/src/screenshots/
+          retention-days: 14
 
   emulator:
     name: Emulator API ${{ matrix.api-level }}
