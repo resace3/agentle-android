@@ -56,6 +56,5 @@ class JvmLibraryConventionPlugin : Plugin<Project> {
                 showStandardStreams = false
             }
         }
-        ModuleGraphRules.register(this)
     }
 }

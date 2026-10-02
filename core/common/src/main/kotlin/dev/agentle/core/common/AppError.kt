@@ -20,8 +20,7 @@ public sealed class AppError(public val code: String, public open val detail: St
     public data class AuthenticationRequired(val provider: String, override val detail: String? = null) :
         AppError("authentication_required", detail)
 
-    public data class TokenExpired(val provider: String, override val detail: String? = null) :
-        AppError("token_expired", detail) {
+    public data class TokenExpired(val provider: String, override val detail: String? = null) : AppError("token_expired", detail) {
         override val retryable: Boolean = true
     }
 
@@ -56,8 +55,7 @@ public sealed class AppError(public val code: String, public open val detail: St
         AppError("consent_violation", detail)
 
     /** The remote service refused for account/plan reasons (e.g. ChatGPT plan not eligible, usage limit). */
-    public data class NotEligible(val reason: String, override val detail: String? = null) :
-        AppError("not_eligible", detail)
+    public data class NotEligible(val reason: String, override val detail: String? = null) : AppError("not_eligible", detail)
 
     public data class Cancelled(override val detail: String? = null) : AppError("cancelled", detail)
 
@@ -67,5 +65,4 @@ public sealed class AppError(public val code: String, public open val detail: St
 }
 
 /** Thrown inside coroutines when a typed error must cross a boundary that only speaks exceptions. */
-public class AppException(public val error: AppError, cause: Throwable? = null) :
-    RuntimeException(error.toString(), cause)
+public class AppException(public val error: AppError, cause: Throwable? = null) : RuntimeException(error.toString(), cause)

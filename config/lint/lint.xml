@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Every suppression here needs a justification comment (spec §46). -->
+<lint>
+    <!-- Version catalog freshness is managed deliberately (docs/research/07); newer versions are evaluated, not auto-adopted. -->
+    <issue id="GradleDependency" severity="informational" />
+    <issue id="NewerVersionAvailable" severity="informational" />
+    <issue id="AndroidGradlePluginVersion" severity="informational" />
+</lint>

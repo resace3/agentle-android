@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- prod: HTTPS only. The Sign in with ChatGPT loopback listener is a local socket the app itself serves to the
+     browser; the app never makes cleartext requests. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

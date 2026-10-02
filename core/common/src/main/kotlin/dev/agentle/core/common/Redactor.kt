@@ -10,6 +10,10 @@ package dev.agentle.core.common
  */
 public object Redactor {
     private const val MASK = "[REDACTED]"
+    private val SECRET_KEYS = listOf(
+        "access_token", "refresh_token", "id_token", "token", "code", "code_verifier",
+        "client_secret", "state", "nonce", "password", "api[_-]?key",
+    ).joinToString("|")
 
     private val rules: List<Pair<Regex, String>> = listOf(
         // JWT: three base64url segments starting with eyJ
@@ -18,9 +22,7 @@ public object Redactor {
         Regex("""(?i)(authorization\s*[:=]\s*)(bearer|basic)?\s*[^\s,;]+""") to "$1$MASK",
         Regex("""(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}""") to "Bearer $MASK",
         // key=value or "key":"value" for OAuth parameters
-        Regex(
-            """(?i)("?(?:access_token|refresh_token|id_token|token|code|code_verifier|client_secret|state|nonce|password|api[_-]?key)"?\s*[:=]\s*"?)([^"&\s,}]+)""",
-        ) to "$1$MASK",
+        Regex("""(?i)("?(?:$SECRET_KEYS)"?\s*[:=]\s*"?)([^"&\s,}]+)""") to "$1$MASK",
         // e-mail addresses
         Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "[EMAIL]",
         // precise coordinates: keep 2 decimals (about 1 km)

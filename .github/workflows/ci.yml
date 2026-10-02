@@ -1,0 +1,151 @@
+# CI for Agentle. The JVM job runs the pure-Kotlin modules (no Google Maven needed). The Android job builds every
+# variant that ships or is tested, runs Robolectric unit tests and lint, and checks that no fake reaches a prod
+# classpath. The emulator job runs instrumented tests on a matrix of API levels; it only runs when dispatched by hand
+# so routine pushes don't spend emulator minutes. Every test job prints exact counts (tools/junit_summary.py).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      emulator:
+        description: Run instrumented tests on the emulator matrix
+        type: boolean
+        default: false
+      api_levels:
+        description: JSON list of emulator API levels
+        type: string
+        default: "[29, 31, 34, 36]"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  jvm:
+    name: JVM modules
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      AGENTLE_JVM_ONLY: "true"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6.4.0
+      - name: Test, detekt, ktlint
+        run: ./gradlew test detekt spotlessCheck --continue
+      - name: Test counts
+        if: always()
+        run: mkdir -p build && python3 tools/junit_summary.py --root . --json build/junit-summary.json --markdown "$GITHUB_STEP_SUMMARY"
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jvm-reports
+          path: |
+            build/junit-summary.json
+            **/build/reports/
+            **/build/test-results/
+          retention-days: 14
+
+  android:
+    name: Android build, unit tests, lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6.4.0
+      - name: Accept SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - name: SDK inventory (API 36+ platforms and system images)
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --list 2>/dev/null \
+            | grep -E "platforms;android-3[6-9]|system-images;android-3[6-9][^|]*(google_apis|default)[^|]*x86_64" \
+            | sort -u | head -40
+      - name: Build, unit tests, lint, fake isolation
+        run: >-
+          ./gradlew
+          assembleFakeDebug assembleProdDebug assembleProdRelease
+          testDebugUnitTest testFakeDebugUnitTest
+          lintDebug lintFakeDebug lintProdDebug
+          detekt spotlessCheck verifyNoFakesInProd
+          --continue
+      - name: Test counts
+        if: always()
+        run: mkdir -p build && python3 tools/junit_summary.py --root . --json build/junit-summary.json --markdown "$GITHUB_STEP_SUMMARY"
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-reports
+          path: |
+            build/junit-summary.json
+            **/build/reports/
+            **/build/test-results/
+          retention-days: 14
+      - name: Upload APKs
+        uses: actions/upload-artifact@v7
+        with:
+          name: apks
+          path: app/build/outputs/apk/
+          retention-days: 7
+
+  emulator:
+    name: Emulator API ${{ matrix.api-level }}
+    if: github.event_name == 'workflow_dispatch' && inputs.emulator
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: ${{ fromJSON(inputs.api_levels) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v6.4.0
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build test APKs
+        run: ./gradlew assembleFakeDebug assembleFakeDebugAndroidTest
+      - name: Instrumented tests
+        uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: ./gradlew connectedFakeDebugAndroidTest --continue
+      - name: Test counts
+        if: always()
+        run: mkdir -p build && python3 tools/junit_summary.py --root . --json build/junit-summary.json --markdown "$GITHUB_STEP_SUMMARY"
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: emulator-${{ matrix.api-level }}-reports
+          path: |
+            build/junit-summary.json
+            **/build/reports/
+            **/build/outputs/androidTest-results/
+          retention-days: 14

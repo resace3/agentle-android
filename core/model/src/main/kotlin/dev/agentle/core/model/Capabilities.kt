@@ -7,17 +7,38 @@ import kotlin.time.Instant
 /** Permission Center groups (spec §6). */
 @Serializable
 public enum class CapabilityCategory(public val label: String) {
-    @SerialName("Activity") ACTIVITY("Activity"),
-    @SerialName("Location") LOCATION("Location"),
-    @SerialName("Notifications") NOTIFICATIONS("Notifications"),
-    @SerialName("Apps") APPS("Apps"),
-    @SerialName("Bluetooth") BLUETOOTH("Bluetooth"),
-    @SerialName("Media") MEDIA("Media"),
-    @SerialName("Calendar") CALENDAR("Calendar"),
-    @SerialName("Health") HEALTH("Health"),
-    @SerialName("Communication") COMMUNICATION("Communication"),
-    @SerialName("Device State") DEVICE_STATE("Device State"),
-    @SerialName("Sensors") SENSORS("Sensors"),
+    @SerialName("Activity")
+    ACTIVITY("Activity"),
+
+    @SerialName("Location")
+    LOCATION("Location"),
+
+    @SerialName("Notifications")
+    NOTIFICATIONS("Notifications"),
+
+    @SerialName("Apps")
+    APPS("Apps"),
+
+    @SerialName("Bluetooth")
+    BLUETOOTH("Bluetooth"),
+
+    @SerialName("Media")
+    MEDIA("Media"),
+
+    @SerialName("Calendar")
+    CALENDAR("Calendar"),
+
+    @SerialName("Health")
+    HEALTH("Health"),
+
+    @SerialName("Communication")
+    COMMUNICATION("Communication"),
+
+    @SerialName("Device State")
+    DEVICE_STATE("Device State"),
+
+    @SerialName("Sensors")
+    SENSORS("Sensors"),
 }
 
 /** Implementation decision for a capability in this build (docs/research/capabilities.json "plannedStatus"). */
@@ -71,8 +92,11 @@ public data class DataCapability(
     val status: CapabilityAvailability
         get() = when (plannedStatus) {
             PlannedStatus.DOCUMENT_UNAVAILABLE -> CapabilityAvailability.UNAVAILABLE
+
             PlannedStatus.DEFER -> CapabilityAvailability.DEFERRED
+
             PlannedStatus.IMPLEMENT_DEBUG_ONLY -> CapabilityAvailability.DEBUG_ONLY
+
             PlannedStatus.IMPLEMENT -> when {
                 requiresSettingsGrant -> CapabilityAvailability.AVAILABLE_WITH_SPECIAL_ACCESS
                 requiresRuntimePermission -> CapabilityAvailability.AVAILABLE_WITH_RUNTIME_PERMISSION

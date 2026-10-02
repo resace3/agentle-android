@@ -6,6 +6,8 @@
 [versions]
 # ---------------------------------------------------------------- SDK levels (read by build-logic)
 compileSdk = "37"                    # Android 17; AGP 9.3 and 9.4 support up to API 37 [AGP-ABOUT]
+compileSdkMinor = "1"                # platforms;android-37.1 (QPR1, a base SDK). API 37 ships as 37.0/37.1 packages
+                                     # (doc 01 s9: Agentle compiles against android-37.1).
 targetSdk = "37"
 minSdk = "29"                        # PROVISIONAL: doc 01 recommends 29, doc 02 prefers 31 (29 acceptable).
                                      # No library below needs more than 24 (s8.7). The spike used 28.

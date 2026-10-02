@@ -6,7 +6,7 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.kotlin.dsl.configure
 
-/** detekt 2 (AGP 9 compatible) + Spotless/ktlint, Kover. Applied by every module convention. */
+/** detekt 2 (AGP 9 compatible) + Spotless/ktlint, Kover and the module-graph rules. Applied by every module convention. */
 class QualityConventionPlugin : Plugin<Project> {
     override fun apply(target: Project) = with(target) {
         pluginManager.apply("dev.detekt")
@@ -36,5 +36,6 @@ class QualityConventionPlugin : Plugin<Project> {
                 ktlint(libs.version("ktlint"))
             }
         }
+        ModuleGraphRules.register(this)
     }
 }

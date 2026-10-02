@@ -10,12 +10,11 @@ import kotlin.time.Instant
  * Deterministic [AgentleClock] for tests. [advanceBy] moves wall and elapsed time together (a device that stays
  * awake); [setWallClock] simulates a user changing the time (elapsed does not move); [setZone] simulates travel.
  */
-public class TestAgentleClock(
-    start: Instant = Instant.parse("2026-10-01T12:00:00Z"),
-    zone: TimeZone = TimeZone.UTC,
-) : AgentleClock {
+public class TestAgentleClock(start: Instant = Instant.parse("2026-10-01T12:00:00Z"), zone: TimeZone = TimeZone.UTC) : AgentleClock {
     @Volatile private var current: Instant = start
+
     @Volatile private var elapsedTotal: Duration = Duration.ZERO
+
     @Volatile private var tz: TimeZone = zone
 
     override val wall: Clock = object : Clock {

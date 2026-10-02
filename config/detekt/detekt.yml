@@ -39,8 +39,8 @@ style:
         reason: 'Use the Logger facade (sanitized)'
 complexity:
   LongParameterList:
-    functionThreshold: 8
-    constructorThreshold: 12
+    allowedFunctionParameters: 8
+    allowedConstructorParameters: 12
   TooManyFunctions:
     active: false
   LongMethod:

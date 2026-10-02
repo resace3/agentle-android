@@ -31,9 +31,8 @@ public interface AgentleClock {
 }
 
 /** Start (inclusive) and end (exclusive) of a local calendar day; 23 h and 25 h DST days are handled. */
-public fun dayBounds(date: LocalDate, zone: TimeZone): ClosedOpenRange {
-    return ClosedOpenRange(date.atStartOfDayIn(zone), date.plus(DatePeriod(days = 1)).atStartOfDayIn(zone))
-}
+public fun dayBounds(date: LocalDate, zone: TimeZone): ClosedOpenRange =
+    ClosedOpenRange(date.atStartOfDayIn(zone), date.plus(DatePeriod(days = 1)).atStartOfDayIn(zone))
 
 public fun AgentleClock.dayBounds(date: LocalDate): ClosedOpenRange = dayBounds(date, zone())
 

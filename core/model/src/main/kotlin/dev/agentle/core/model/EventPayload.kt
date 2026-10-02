@@ -30,10 +30,7 @@ public data class AppUsagePayload(
 
 @Serializable
 @SerialName("screen")
-public data class ScreenPayload(
-    val interactive: Boolean,
-    val durationMs: Long? = null,
-) : EventPayload
+public data class ScreenPayload(val interactive: Boolean, val durationMs: Long? = null) : EventPayload
 
 @Serializable
 @SerialName("notification")
@@ -69,11 +66,7 @@ public data class LocationSamplePayload(
 
 @Serializable
 @SerialName("location_visit")
-public data class LocationVisitPayload(
-    val placeId: String,
-    val placeClass: PlaceClass,
-    val durationMs: Long,
-) : EventPayload
+public data class LocationVisitPayload(val placeId: String, val placeClass: PlaceClass, val durationMs: Long) : EventPayload
 
 @Serializable
 @SerialName("steps")
@@ -99,10 +92,7 @@ public enum class TransitionKind { ENTER, EXIT }
 
 @Serializable
 @SerialName("activity_transition")
-public data class ActivityTransitionPayload(
-    val activity: ActivityKind,
-    val transition: TransitionKind,
-) : EventPayload
+public data class ActivityTransitionPayload(val activity: ActivityKind, val transition: TransitionKind) : EventPayload
 
 @Serializable
 @SerialName("exercise")
@@ -123,11 +113,7 @@ public data class HeartRatePayload(val bpm: Double) : EventPayload
 public enum class SleepStageKind { AWAKE, LIGHT, DEEP, REM, ASLEEP_UNSPECIFIED, OUT_OF_BED, RESTLESS, UNKNOWN }
 
 @Serializable
-public data class SleepStage(
-    val stage: SleepStageKind,
-    val startEpochMs: Long,
-    val endEpochMs: Long,
-)
+public data class SleepStage(val stage: SleepStageKind, val startEpochMs: Long, val endEpochMs: Long)
 
 @Serializable
 @SerialName("sleep_session")
@@ -171,11 +157,8 @@ public data class BatteryPayload(
 
 @Serializable
 @SerialName("power_state")
-public data class PowerStatePayload(
-    val powerSaveMode: Boolean? = null,
-    val deviceIdle: Boolean? = null,
-    val thermalStatus: Int? = null,
-) : EventPayload
+public data class PowerStatePayload(val powerSaveMode: Boolean? = null, val deviceIdle: Boolean? = null, val thermalStatus: Int? = null) :
+    EventPayload
 
 @Serializable
 public enum class NetworkKind { NONE, WIFI, CELLULAR, ETHERNET, VPN, BLUETOOTH, OTHER }
@@ -201,11 +184,8 @@ public data class BluetoothPayload(
 
 @Serializable
 @SerialName("audio")
-public data class AudioStatePayload(
-    val ringerMode: Int? = null,
-    val musicVolumePercent: Int? = null,
-    val outputRoute: String? = null,
-) : EventPayload
+public data class AudioStatePayload(val ringerMode: Int? = null, val musicVolumePercent: Int? = null, val outputRoute: String? = null) :
+    EventPayload
 
 @Serializable
 @SerialName("dnd")
@@ -213,10 +193,7 @@ public data class DndPayload(val interruptionFilter: Int) : EventPayload
 
 @Serializable
 @SerialName("system")
-public data class SystemEventPayload(
-    val oldValue: String? = null,
-    val newValue: String? = null,
-) : EventPayload
+public data class SystemEventPayload(val oldValue: String? = null, val newValue: String? = null) : EventPayload
 
 @Serializable
 @SerialName("calendar_event")
@@ -276,12 +253,8 @@ public data class InsightEventPayload(val insightId: String, val kind: String) :
 
 @Serializable
 @SerialName("generated_media")
-public data class GeneratedMediaPayload(
-    val artifactId: String,
-    val mimeType: String,
-    val sizeBytes: Long,
-    val method: String,
-) : EventPayload
+public data class GeneratedMediaPayload(val artifactId: String, val mimeType: String, val sizeBytes: Long, val method: String) :
+    EventPayload
 
 /** A payload written by a newer schema that this version cannot decode. Preserved verbatim. */
 @Serializable
