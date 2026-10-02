@@ -166,6 +166,18 @@ public enum class Blocker {
     NO_HARDWARE,
     SDK_TOO_OLD,
     COLLECTION_DISABLED_BY_USER,
+
+    /** Usage access is missing, so only live receiver events are recorded (screen and unlock: PARTIALLY_ALLOWED). */
+    USAGE_ACCESS_MISSING,
+
+    /** No activity resolves the Settings screen that grants this access (UNSUPPORTED_ON_DEVICE). */
+    SETTINGS_SCREEN_MISSING,
+
+    /**
+     * Live receivers only run while Agentle's process is alive, which the connected notification listener keeps
+     * likely but does not guarantee: events of this source are best effort (red team lifecycle-battery-07).
+     */
+    LIVE_EVENTS_BEST_EFFORT,
 }
 
 /** Resolved live status of one capability. */

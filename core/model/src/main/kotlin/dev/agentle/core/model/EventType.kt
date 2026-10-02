@@ -77,6 +77,17 @@ public enum class EventType(public val category: DataCategory) {
     IMAGE_GENERATED(DataCategory.GENERATED_MEDIA),
     VOICE_GENERATED(DataCategory.GENERATED_MEDIA),
     VIDEO_GENERATED(DataCategory.GENERATED_MEDIA),
+
+    // Appended later (enum names are persisted, so new types go at the end)
+
+    /** The next alarm clock changed or was sampled (see [NextAlarmPayload]). */
+    NEXT_ALARM_CHANGED(DataCategory.DEVICE_STATE),
+
+    /** An app standby bucket changed or was sampled (see [StandbyBucketPayload]). */
+    STANDBY_BUCKET_CHANGED(DataCategory.DEVICE_STATE),
+
+    /** Device storage sample (see [StoragePayload]). */
+    STORAGE_SAMPLE(DataCategory.DEVICE_STATE),
 }
 
 /**
