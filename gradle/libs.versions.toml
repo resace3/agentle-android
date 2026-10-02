@@ -21,6 +21,8 @@ ksp = "2.3.12"                       # [MC] 2026-09-09; KSP2 is versioned indepe
 
 # ---------------------------------------------------------------- AndroidX / Compose (Google Maven)
 composeBom = "2026.09.00"            # [BOM-MAP] compose 1.12.1, material3 1.4.0, material3-adaptive 1.3.0
+composeUiTestAccessibility = "1.12.1" # ui-test-junit4-accessibility (ATF checks, enableAccessibilityChecks) is not in the
+                                     # Compose BOM (docs/research/08 s1), so it is pinned to the BOM's compose-ui 1.12.1.
 activityCompose = "1.13.0"           # [AX:activity] (1.14.0-alpha03 not used)
 coreKtx = "1.19.1"                   # [AX:core]
 lifecycle = "2.11.0"                 # [AX:lifecycle] incl. lifecycle-viewmodel-navigation3 (2.12.0-alpha04 not used)
@@ -114,6 +116,7 @@ compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+compose-ui-test-junit4-accessibility = { module = "androidx.compose.ui:ui-test-junit4-accessibility", version.ref = "composeUiTestAccessibility" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
 
