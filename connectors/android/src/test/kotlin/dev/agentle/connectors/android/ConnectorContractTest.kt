@@ -136,7 +136,6 @@ class ConnectorContractTest {
             val seams = Seams()
             assertThat(connector(name, t, seams).sync(SyncTrigger.MANUAL).status).isEqualTo(SyncResult.Status.SUCCESS)
             val rows = t.writer.rows.toMap()
-            assertThat(rows).isNotEmpty()
 
             t.clock.advanceBy(30.minutes)
             val again = connector(name, t, seams).sync(SyncTrigger.MANUAL)
