@@ -29,7 +29,7 @@ import kotlin.time.Instant
  */
 internal class DraftDashboardPort @Inject constructor(
     private val events: EventRepository,
-    private val graph: AndroidCollectorsGraph,
+    graph: AndroidCollectorsGraph,
     private val clock: AgentleClock,
 ) : DashboardPort {
     override val dashboard: Flow<DashboardData> =

@@ -8,6 +8,7 @@ import dagger.hilt.components.SingletonComponent
 import dev.agentle.background.port.Collectors
 import dev.agentle.background.port.Maintenance
 import dev.agentle.core.time.AgentleClock
+import dev.agentle.core.time.SystemAgentleClock
 import dev.agentle.feature.hub.port.DashboardPort
 import dev.agentle.feature.hub.port.DataSourcesPort
 import dev.agentle.feature.hub.port.HubClockPort
@@ -35,9 +36,13 @@ internal interface WiringModule {
     fun maintenance(impl: DraftMaintenance): Maintenance
 
     companion object {
+        /** The one wall clock of the app; tests and debug builds replace it through their own bindings. */
         @Provides @Singleton
-        fun hubClock(clock: AgentleClock): HubClockPort = object : HubClockPort {
-            override val clock: AgentleClock = clock
+        fun clock(): AgentleClock = SystemAgentleClock()
+
+        @Provides @Singleton
+        fun hubClock(appClock: AgentleClock): HubClockPort = object : HubClockPort {
+            override val clock: AgentleClock = appClock
         }
 
         @Provides

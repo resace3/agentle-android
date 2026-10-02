@@ -21,6 +21,8 @@ class AgentleApplication :
 
     @Inject lateinit var background: BackgroundStarter
 
+    // The process-lifetime root scope: nothing above it could inject a dispatcher.
+    @Suppress("InjectDispatcher")
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override val workManagerConfiguration: Configuration

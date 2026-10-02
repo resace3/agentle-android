@@ -96,9 +96,9 @@ class PermissionCenterJourneyTest {
         assertThat(app.checkSelfPermission("android.permission.ACTIVITY_RECOGNITION"))
             .isEqualTo(android.content.pm.PackageManager.PERMISSION_DENIED)
         compose.onNodeWithText("Allow").performClick()
-        compose.waitForIdle()
-        assertThat(port.calls).isNotEmpty()
+        // The launch runs from a ViewModel effect, so wait for it (and for the reported result) before asserting.
         compose.waitUntil(timeoutMillis = 5_000) { registry.launches == 1 }
+        compose.waitUntil(timeoutMillis = 5_000) { port.calls.isNotEmpty() }
         assertThat(port.calls).hasSize(1)
         compose.onNodeWithText("Denied").assertExists()
         permanently = true

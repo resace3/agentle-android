@@ -35,7 +35,7 @@ internal class RoomTimelinePort @Inject constructor(private val events: EventRep
     override fun dayCoverage(from: LocalDate, to: LocalDate): Flow<Map<LocalDate, DayCoverage>> = flowOf(emptyMap())
 
     override val sources: Flow<List<String>> =
-        events.changes().map { events.countsPerSource().filter { it.rows > 0 }.map { it.name }.sorted() }
+        events.changes().map { events.countsPerSource().filter { stream -> stream.rows > 0 }.map { stream -> stream.name }.sorted() }
 
     private companion object {
         const val PAGE_SIZE = 50
