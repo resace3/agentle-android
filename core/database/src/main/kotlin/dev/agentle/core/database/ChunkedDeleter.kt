@@ -95,7 +95,7 @@ class ChunkedDeleter(
         val assignments = (columns.map { "$it = ?" } + step.nullColumns.map { "$it = NULL" } + "lineage = ?").joinToString(", ")
         rows.forEach { row ->
             val scrubbed = row.json.map { json -> json?.let { scrubber.scrub(it, deleted) } }
-            val args = scrubbed + LineageCodec.without(row.lineage, step.token) + row.rowid
+            val args: List<Any?> = scrubbed + LineageCodec.without(row.lineage, step.token) + row.rowid
             execute("UPDATE ${step.table} SET $assignments WHERE rowid = ?", *args.toTypedArray())
         }
         return rows.size

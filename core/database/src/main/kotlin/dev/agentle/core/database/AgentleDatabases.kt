@@ -42,7 +42,7 @@ internal object StorageCallback : RoomDatabase.Callback() {
     const val JOURNAL_SIZE_LIMIT_BYTES: Long = 4L * 1024 * 1024
     const val BUSY_TIMEOUT_MS: Int = 5_000
 
-    override fun onCreate(connection: SQLiteConnection) {
+    override suspend fun onCreate(connection: SQLiteConnection) {
         insertState(connection, EngineStateKeys.DB_GENERATION, null, UUID.randomUUID().toString())
         insertState(connection, EngineStateKeys.CHANGE_SEQ, 0L, null)
         insertState(connection, EngineStateKeys.DATA_EPOCH, 0L, null)
@@ -50,7 +50,7 @@ internal object StorageCallback : RoomDatabase.Callback() {
         insertState(connection, EngineStateKeys.JITAI_DIRTY, 0L, null)
     }
 
-    override fun onOpen(connection: SQLiteConnection) {
+    override suspend fun onOpen(connection: SQLiteConnection) {
         connection.execSQL("PRAGMA journal_mode = WAL")
         connection.execSQL("PRAGMA synchronous = NORMAL")
         connection.execSQL("PRAGMA journal_size_limit = $JOURNAL_SIZE_LIMIT_BYTES")
