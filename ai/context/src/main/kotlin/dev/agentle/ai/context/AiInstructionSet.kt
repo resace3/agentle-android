@@ -23,11 +23,25 @@ public class AiInstructionSet(taskOverrides: Map<AiPurpose, String> = emptyMap()
 
     public fun forPurpose(purpose: AiPurpose): String = texts.getValue(purpose)
 
+    /**
+     * False for a purpose whose reply contract must come from its owner and was not given: JITAI_FROM_NATURAL_LANGUAGE
+     * needs the `jitai-nl-v1` contract with its schema from `:jitai:dsl` (R10 section 13.2). The engine refuses to build
+     * such a request (fail closed) rather than send a task without its schema.
+     */
+    public fun hasContract(purpose: AiPurpose): Boolean = purpose !in REQUIRED_OVERRIDES || purpose in overridden
+
+    private val overridden: Set<AiPurpose> = taskOverrides.keys
+
     public companion object {
         /** Version of the default texts, recorded nowhere else: changing a text means changing this version. */
         public const val VERSION: String = "agentle-ai-context-v1"
 
         private const val MAX_TASK_CHARS = 60_000
+
+        /** Purposes whose task must be supplied by its owner. */
+        public val REQUIRED_OVERRIDES: Set<AiPurpose> = setOf(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE)
+
+        public const val CONTRACT_MISSING: String = "instructions_contract_missing"
 
         /** Sent first in every request. */
         public val PREAMBLE: String = """

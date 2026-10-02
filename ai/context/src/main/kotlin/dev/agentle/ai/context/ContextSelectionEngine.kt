@@ -73,7 +73,8 @@ public class ContextSelectionEngine(
     public suspend fun build(request: AiContextRequest): Outcome<AiRequestEnvelope> {
         val spec = PurposePolicy.spec(request.purpose)
         val requestId = REQUEST_PREFIX + RequestIds.next(random)
-        val result = requestError(spec, request)?.let { Outcome.Failure(it) }
+        val missing = if (instructions.hasContract(request.purpose)) null else AppError.NotEligible(AiInstructionSet.CONTRACT_MISSING)
+        val result = (missing ?: requestError(spec, request))?.let { Outcome.Failure(it) }
             ?: decide(spec, request, requestId).flatMap { decision -> assemble(spec, request, requestId, decision) }
         log(request, requestId, result)
         return result

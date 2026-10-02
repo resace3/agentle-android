@@ -5,6 +5,8 @@ package dev.agentle.ai.context
 import com.google.common.truth.Truth.assertThat
 import dev.agentle.ai.api.AiEnvelopeJson
 import dev.agentle.ai.api.AiPurpose
+import dev.agentle.ai.api.validation.InsightSchema
+import dev.agentle.ai.api.validation.MediaPromptSchema
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.errorOrNull
 import dev.agentle.core.common.getOrThrow
@@ -73,6 +75,30 @@ class ReviewRepairTest {
         assertThat(record.status).isEqualTo(AiRequestStatus.CANCELLED)
         assertThat(record.reason).isEqualTo(EgressGuard.CALLER_CANCELLED)
         assertThat(record.status.mayHaveBeenSent).isTrue()
+    }
+
+    @Test
+    fun `a natural-language rule request without the jitai-nl-v1 contract is never built`() = runTest {
+        val world = World(instructions = AiInstructionSet())
+        assertThat(world.engine.build(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE, "Remind me to walk").errorOrNull())
+            .isEqualTo(AppError.NotEligible(AiInstructionSet.CONTRACT_MISSING))
+        assertThat(World().engine.build(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE, "Remind me to walk").errorOrNull()).isNull()
+    }
+
+    @Test
+    fun `a structured call must name the schema of its purpose's instructions`() = runTest {
+        val world = World()
+        val question = world.engine.build(AiPurpose.GENERAL_QUESTION, "How was my week").getOrThrow()
+        assertThat(world.guard.generateStructuredResult(question, InsightSchema.SCHEMA).errorOrNull())
+            .isEqualTo(AppError.ValidationError(listOf(EgressGuard.SCHEMA_NOT_FOR_PURPOSE)))
+        world.grant(AiPurpose.SLEEP_INSIGHT, SLEEP)
+        val insight = World(data = sleepData()).let { other ->
+            other.grant(AiPurpose.SLEEP_INSIGHT, SLEEP)
+            other to other.engine.build(AiPurpose.SLEEP_INSIGHT, null).getOrThrow()
+        }
+        assertThat(insight.first.guard.generateStructuredResult(insight.second, MediaPromptSchema.SCHEMA).errorOrNull())
+            .isEqualTo(AppError.ValidationError(listOf(EgressGuard.SCHEMA_NOT_FOR_PURPOSE)))
+        assertThat(insight.first.provider.journal).isEmpty()
     }
 
     @Test

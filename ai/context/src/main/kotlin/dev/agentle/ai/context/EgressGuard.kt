@@ -174,7 +174,7 @@ public class EgressGuard(
 
             isUsed(envelope.requestId) -> AppError.ValidationError(listOf(ENVELOPE_REUSED))
 
-            schema != null && expected != null && (schema.name != expected.name || schema.version != expected.version) ->
+            schema != null && (expected == null || schema.name != expected.name || schema.version != expected.version) ->
                 AppError.ValidationError(listOf(SCHEMA_NOT_FOR_PURPOSE))
 
             else -> null

@@ -41,6 +41,9 @@ const val ACCOUNT: String = "acct-test-one"
 /** The per-install salt of test worlds. */
 const val SALT: String = "test-install-salt"
 
+/** Stands in for the jitai-nl-v1 contract that :jitai:dsl renders. */
+const val NL_CONTRACT: String = "Task: jitai-nl-v1 test contract. Reply with one JitaiProposalSchema JSON object."
+
 /** A zone with a 45-minute offset and no DST, so a JVM-default-zone bug cannot pass by accident (testing-build-04). */
 val KATHMANDU: TimeZone = TimeZone.of("Asia/Kathmandu")
 
@@ -269,7 +272,7 @@ class World(
     guardPolicy: AiSharingPolicy? = null,
     providerFactory: ((AiSendVerifier) -> AiProvider)? = null,
     currentVersion: Int = AiConsentDisclosure.VERSION,
-    val instructions: AiInstructionSet = AiInstructionSet(),
+    val instructions: AiInstructionSet = AiInstructionSet(mapOf(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE to NL_CONTRACT)),
     hooked: Boolean = false,
 ) {
     val clock: TestAgentleClock = TestAgentleClock(START, zone)
