@@ -26,9 +26,11 @@ public object RollingWindows {
         now: Instant,
     ): DerivedFeatureRow {
         require(windowDays > 0) { "windowDays must be positive" }
-        val rows = (0 until windowDays).mapNotNull { daily[anchor.minus(DatePeriod(days = it))] }
+        val all = (0 until windowDays).mapNotNull { daily[anchor.minus(DatePeriod(days = it))] }
+        // A row of another catalog version is waiting for its recompute: never final, it makes the window STALE.
+        val rows = all.filter { it.catalogVersion == DailyFeatureCatalog.VERSION }
         val final = rows.mapNotNull { it.finalValue }
-        val pending = rows.any { it.status == DailyRowStatus.PROVISIONAL }
+        val pending = rows.size < all.size || rows.any { it.status == DailyRowStatus.PROVISIONAL }
         val known = if (pending) DerivedStatus.STALE else DerivedStatus.OK
         val result: Pair<Double?, Int> = when (def.aggregator) {
             RollingAggregator.MEAN -> (if (final.size >= minDays(windowDays)) final.average() else null) to final.size

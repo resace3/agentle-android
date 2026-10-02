@@ -121,7 +121,11 @@ public interface DailyFeatureStore {
     /** Rolling rows with `from <= anchorDate <= to`, optionally of one feature. */
     public suspend fun derivedRows(from: LocalDate, to: LocalDate, featureId: String? = null): List<DerivedFeatureRow>
 
-    /** Marks [dates] dirty; each mark gets a new version. */
+    /**
+     * Marks [dates] dirty; each mark gets a new version. Marks are row dates (the `date` of [DailySummaryRow], as
+     * [DirtyDays.of] and [DirtyDays.overlapping] compute them), not engine days: callers must expand a change into the
+     * row dates it can touch with [DirtyDays] before marking, and refresh recomputes exactly the marked dates.
+     */
     public suspend fun markDirty(dates: Set<LocalDate>)
 
     public suspend fun dirtyMarks(): List<DirtyMark>

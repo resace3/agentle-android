@@ -96,6 +96,13 @@ public interface DailyInputs {
     public suspend fun zoneTimeline(range: ClosedOpenRange): ZoneTimeline
 
     public companion object {
+        /**
+         * The [collectorCoverage] id under which the repository reports the retained range of the intervention
+         * delivery ledger (`jitai_decision`, kept 400 days): intervention-history features read a day as MISSING,
+         * never 0, when the ledger no longer (or does not yet) covers it. Deleting ledger rows removes that coverage.
+         */
+        public const val INTERVENTION_LEDGER: String = "jitai_decision"
+
         /** The `subject` projection of an event: package, place class or activity; null for other events. */
         public fun subjectOf(event: PersonalEvent): String? = when (val p = event.payload) {
             is AppUsagePayload -> p.packageName
@@ -150,13 +157,36 @@ public interface DailyInputs {
  * highest-priority source ([CanonicalSourcePolicy]) that has a record in it; the records of every other source are
  * ignored for that minute. A watch and a phone that count the same walk therefore never double the steps, and the
  * phone still fills the minutes the watch was off the wrist. Sources the policy does not list are never used.
- * Within one source, records are assumed not to overlap (connector contract, docs/research/05 §7.5).
+ * Within one source, overlapping records take the per-instant maximum prorated share, never the sum.
  */
 public object MinuteFusion {
     private const val MINUTE_MS = IntervalMath.MS_PER_MINUTE
 
-    /** Fuses the [family] records among [events] over [range]. */
+    /**
+     * Fuses the [family] records among [events] over [range]. Where [policy] has periods, each part of [range] is fused
+     * with the policy in force at that time ([CanonicalSourcePolicy.at]).
+     */
     public fun fuse(
+        events: List<PersonalEvent>,
+        family: MetricFamily,
+        policy: CanonicalSourcePolicy,
+        range: ClosedOpenRange,
+    ): List<FusedPiece> {
+        val cuts = policy.boundaries(range)
+        if (cuts.isEmpty()) return fuseSegment(events, family, policy.at(range.start), range)
+        val edges = listOf(range.start) + cuts + range.end
+        val parts = LinkedHashMap<PersonalEvent, MutableList<ClosedOpenRange>>()
+        edges.zipWithNext { a, b -> ClosedOpenRange(a, b) }.forEach { segment ->
+            fuseSegment(events, family, policy.at(segment.start), segment).forEach { piece ->
+                parts.getOrPut(piece.event) { ArrayList() } += piece.selected
+            }
+        }
+        return parts.map { (event, selected) ->
+            FusedPiece(event, if (selected.all { it.duration == Duration.ZERO }) selected.distinct() else mergeRanges(selected))
+        }
+    }
+
+    private fun fuseSegment(
         events: List<PersonalEvent>,
         family: MetricFamily,
         policy: CanonicalSourcePolicy,
@@ -176,16 +206,37 @@ public object MinuteFusion {
             assigned[source] = intersect(covered, remaining)
             remaining = subtract(remaining, covered)
         }
-        return eligible.map { event ->
-            val interval = event.interval()
-            val mine = assigned.getValue(event.source)
-            val selected = if (interval.duration == Duration.ZERO) {
-                if (interval.start in range && mine.any { interval.start in it }) listOf(interval) else emptyList()
-            } else {
-                intersect(mine, listOf(interval)).mapNotNull { it.intersect(range) }
+        val selected = HashMap<PersonalEvent, List<ClosedOpenRange>>()
+        for ((source, records) in bySource) {
+            var free = assigned.getValue(source)
+            for (event in records.sortedWith(SAME_SOURCE_ORDER)) {
+                val interval = event.interval()
+                selected[event] = if (interval.duration == Duration.ZERO) {
+                    if (interval.start in range && free.any { interval.start in it }) listOf(interval) else emptyList()
+                } else {
+                    intersect(free, listOf(interval)).mapNotNull { it.intersect(range) }.also {
+                        free = subtract(free, listOf(interval))
+                    }
+                }
             }
-            FusedPiece(event, selected)
         }
+        return eligible.map { FusedPiece(it, selected.getValue(it)) }
+    }
+
+    /**
+     * Overlapping records of one source (a re-sync, a corrected record) are never summed: each instant goes to the record
+     * with the highest prorated rate (steps per millisecond), so two records of 3000 and 2900 steps for the same walk give
+     * 3000. Ties go to the earlier, then longer record.
+     */
+    private val SAME_SOURCE_ORDER: Comparator<PersonalEvent> = compareByDescending<PersonalEvent> { rateOf(it) }
+        .thenBy { it.startTime }
+        .thenByDescending { it.interval().duration }
+        .thenBy { it.id.value }
+
+    private fun rateOf(event: PersonalEvent): Double {
+        val count = (event.payload as? StepsPayload)?.count ?: return 0.0
+        val ms = event.interval().duration.inWholeMilliseconds
+        return if (ms == 0L) count.toDouble() else count.toDouble() / ms
     }
 
     private fun ClosedOpenRange.overlapsOrHolds(range: ClosedOpenRange): Boolean =

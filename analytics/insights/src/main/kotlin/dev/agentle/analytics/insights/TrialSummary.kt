@@ -25,6 +25,11 @@ public data class TrialDecision(
     val suppressedBy: String? = null,
     val responses: Set<ResponseKind> = emptySet(),
     val proximal: OutcomeValue? = null,
+    /**
+     * Whether this decision went through the micro-randomization draw (experiment mode). Only randomized decisions are
+     * compared: a reminder delivered outside the draw (before experiment mode, or forced) is not a comparable moment.
+     */
+    val randomized: Boolean = result == DecisionResult.SKIPPED_AT_RANDOM,
 )
 
 /** Delivered versus skipped at random (experiment mode only); the range is approximate (docs/research/10 §15.2). */
@@ -84,7 +89,17 @@ public object TrialSummaries {
             .sortedWith(compareBy({ -it.value }, { it.key })).take(TOP_REASONS).map { it.key to it.value }
         fun count(kind: ResponseKind) = delivered.count { kind in it.responses }
         val after = delivered.mapNotNull { valueOf(it) }
-        val comparison = if (randomized) compare(after, skipped.mapNotNull { valueOf(it) }, metric) else null
+        val comparison = if (randomized) {
+            compare(
+                delivered.filter {
+                    it.randomized
+                }.mapNotNull { valueOf(it) },
+                skipped.filter { it.randomized }.mapNotNull { valueOf(it) },
+                metric,
+            )
+        } else {
+            null
+        }
         val summary = TrialSummary(
             evaluated = decisions.size,
             available = delivered.size + skipped.size,
@@ -152,7 +167,7 @@ public object TrialSummaries {
                     "${amount(
                         metric,
                         comparison.meanSkipped,
-                    )} (difference ${signed(comparison.difference, metric)}$unit, approximate range " +
+                    )} (difference ${shownDifference(comparison, metric)}$unit, approximate range " +
                     "${signed(
                         comparison.low,
                         metric,
@@ -184,6 +199,13 @@ public object TrialSummaries {
     private fun amount(metric: OutcomeMetric, value: Double): String = when (metric) {
         OutcomeMetric.NOTIFICATION_OPENED -> "${PatternStatistics.percent(value)}%"
         else -> "${value.roundToLong()}${unitOf(metric)}"
+    }
+
+    /** The difference of the means as shown (rounded the same way), so the text never reads 6 - 11 = -4. */
+    private fun shownDifference(c: TrialComparison, metric: OutcomeMetric): String = if (metric == OutcomeMetric.NOTIFICATION_OPENED) {
+        "${PatternStatistics.percent(c.meanDelivered) - PatternStatistics.percent(c.meanSkipped)} points"
+    } else {
+        "${c.meanDelivered.roundToLong() - c.meanSkipped.roundToLong()}"
     }
 
     private fun signed(value: Double, metric: OutcomeMetric): String =

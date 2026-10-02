@@ -111,8 +111,16 @@ class NullSemanticsTest {
             "N9 a true-zero step record is 0" to Case(
                 "steps",
                 events = listOf(Ev.steps(Src.GH_STEPS, at(D, 10), at(D, 11), 0)),
+                claims = mapOf((MetricFamily.STEPS to Src.GH_STEPS) to FULL.single()),
                 status = DailyRowStatus.FINAL,
                 value = 0.0,
+            ),
+            "N9b steps the source covers only in part are PARTIAL after the grace period, never FINAL" to Case(
+                "steps",
+                events = listOf(Ev.steps(Src.GH_STEPS, at(D, 10), at(D, 11), 500)),
+                claims = mapOf((MetricFamily.STEPS to Src.GH_STEPS) to HALF.single()),
+                status = DailyRowStatus.PARTIAL,
+                value = 500.0,
             ),
             "N10 steps wait for the source to assert the whole day" to Case(
                 "steps",
@@ -181,7 +189,19 @@ class NullSemanticsTest {
                 value = null,
                 reason = MissingReason.INVALID_VALUE,
             ),
-            "N19 no intervention is a true 0" to Case("interventions_delivered", status = DailyRowStatus.FINAL, value = 0.0),
+            "N19 no intervention is a true 0" to Case(
+                "interventions_delivered",
+                collectors = mapOf(Col.LEDGER to FULL),
+                status = DailyRowStatus.FINAL,
+                value = 0.0,
+            ),
+            "N19b a day the delivery ledger no longer keeps is unknown, never 0" to Case(
+                "interventions_delivered",
+                collectors = mapOf(Col.LEDGER to HALF),
+                status = DailyRowStatus.MISSING,
+                value = null,
+                reason = MissingReason.COVERAGE_GAP,
+            ),
             "N20 interventions of a running engine day are provisional" to Case(
                 "interventions_delivered",
                 events = listOf(Ev.jitai(EventType.JITAI_DELIVERED, at(D, 9))),

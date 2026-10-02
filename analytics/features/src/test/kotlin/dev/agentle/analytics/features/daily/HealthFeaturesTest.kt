@@ -30,6 +30,14 @@ class HealthFeaturesTest {
     ): List<DailySummaryRow> {
         val inputs = InMemoryDailyInputs(events, timeline, policy = policy)
         claims.forEach { (family, bySource) -> bySource.forEach { (source, ranges) -> inputs.setSourceCoverage(family, source, ranges) } }
+        if (claims.isEmpty()) {
+            // Unless a test says otherwise, every source in it asserts the whole day (FINAL needs full coverage).
+            for (e in events) {
+                MetricFamily.entries.filter {
+                    e.type in it.eventTypes
+                }.forEach { inputs.setSourceCoverage(it, e.source, listOf(around(day))) }
+            }
+        }
         return DailyFeatureCalculator(inputs).compute(day, now)
     }
 

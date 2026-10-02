@@ -69,7 +69,8 @@ internal object Col {
     const val BATTERY = "battery_state"
     const val ACTIVITY = "activity_recognition_transitions"
     const val LOCATION = "location_background"
-    val ALL = listOf(USAGE, UNLOCK, NOTIFICATIONS, BATTERY, ACTIVITY, LOCATION)
+    const val LEDGER = DailyInputs.INTERVENTION_LEDGER
+    val ALL = listOf(USAGE, UNLOCK, NOTIFICATIONS, BATTERY, ACTIVITY, LOCATION, LEDGER)
 }
 
 internal val UTC: TimeZone = TimeZone.UTC

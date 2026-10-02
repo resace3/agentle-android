@@ -46,7 +46,8 @@ public object DiscoveredProposals {
             put("hypothesisId", hypothesis.id)
             put("exposure", hypothesis.exposure.id)
             put("outcome", hypothesis.outcome.id)
-            put("createdAt", createdAt.toString())
+            // The validator requires yyyy-MM-ddTHH:mm:ssZ: whole seconds only.
+            put("createdAt", Instant.fromEpochSeconds(createdAt.epochSeconds).toString())
             put("tier", result.tier.name)
             put("approvalRequired", true)
             putJsonObject("whyProposed") {

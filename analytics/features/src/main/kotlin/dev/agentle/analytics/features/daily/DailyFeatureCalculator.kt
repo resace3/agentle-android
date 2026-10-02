@@ -55,8 +55,12 @@ public class DailyFeatureCalculator(private val inputs: DailyInputs, private val
     private suspend fun historyRows(day: DayContext): List<DailySummaryRow> {
         val window = day.window(DailyWindow.ENGINE_DAY)
         val events = day.events(DailyGroupQueries.HISTORY, day.hullOf(DailyWindow.ENGINE_DAY))
+        val retained = day.coverage(DailyInputs.INTERVENTION_LEDGER, DailyWindow.ENGINE_DAY) >= 1.0
         return listOf("interventions_delivered", "interventions_opened", "interventions_dismissed").map { id ->
             val def = feature(id)
+            if (!retained && day.windowEnded(DailyWindow.ENGINE_DAY)) {
+                return@map day.rows.noSource(def, reason = MissingReason.COVERAGE_GAP)
+            }
             val count = events.count { it.type in def.eventTypes && IntervalMath.contains(window, it.startTime) }
             day.rows.alwaysKnown(def, def.id, count.toDouble(), DailyWindow.ENGINE_DAY)
         }
@@ -139,6 +143,10 @@ internal class DayContext private constructor(
         IntervalMath.fraction(covered, IntervalMath.windowMillis(window))
     }
 
+    /** The parts of [kind]'s window in which the collector [collectorId] was healthy. */
+    suspend fun coveredRanges(collectorId: String, kind: DailyWindow): List<ClosedOpenRange> =
+        IntervalMath.clip(inputs.collectorCoverage(collectorId, hullOf(kind)), window(kind))
+
     /** Per connected source of [family], the parts of [kind]'s window it asserts to have fully delivered. */
     suspend fun sourceCoverage(family: MetricFamily, kind: DailyWindow): Map<DataSourceId, List<ClosedOpenRange>> =
         sourceRanges.getOrPut(family to kind) {
@@ -192,7 +200,8 @@ internal class RowFactory(private val day: DayContext) {
     /**
      * A feature computed from [sources]' records. PROVISIONAL while the window runs, while [pending] (the source is
      * still processing the record), or while the sources do not assert coverage of the whole window, but at most
-     * `provisionalGrace` after the window ends; FINAL afterwards. [value] null gives MISSING with [reason].
+     * `provisionalGrace` after the window ends; afterwards FINAL when the sources cover the whole window and PARTIAL
+     * (never FINAL) when they cover only part of it. [value] null gives MISSING with [reason].
      */
     suspend fun sourced(
         def: DailyFeatureDefinition,
@@ -206,7 +215,11 @@ internal class RowFactory(private val day: DayContext) {
         if (day.isSkipped(def.window)) return skipped(def, metric)
         val coverage = day.sourceCoverageFraction(family, def.window, sources)
         val waiting = day.inGrace(def.window) && (pending || coverage < 1.0)
-        val status = if (!day.windowEnded(def.window) || waiting) DailyRowStatus.PROVISIONAL else DailyRowStatus.FINAL
+        val status = when {
+            !day.windowEnded(def.window) || waiting -> DailyRowStatus.PROVISIONAL
+            coverage < 1.0 && value != null -> DailyRowStatus.PARTIAL
+            else -> DailyRowStatus.FINAL
+        }
         val lineage = lineage(def, sources.mapTo(mutableSetOf()) { it.family })
         return finish(def, metric, value, coverage, status, if (value == null) reason else null, sources.singleOrNull(), lineage)
     }

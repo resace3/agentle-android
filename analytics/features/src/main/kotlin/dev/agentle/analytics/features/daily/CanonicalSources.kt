@@ -2,6 +2,8 @@ package dev.agentle.analytics.features.daily
 
 import dev.agentle.core.model.DataSourceId
 import dev.agentle.core.model.EventType
+import dev.agentle.core.time.ClosedOpenRange
+import kotlin.time.Instant
 
 /** Metrics that more than one source can supply; a metric is never summed across sources. */
 public enum class MetricFamily(public val eventTypes: Set<EventType>) {
@@ -26,7 +28,23 @@ public enum class MetricFamily(public val eventTypes: Set<EventType>) {
  * The default prefers the wearable API, then Health Connect, then (steps only) the phone. Step-counter sensor readings
  * (`TYPE_STEP_COUNTER`) are never stored as step samples (docs/ARCHITECTURE.md §6.4), so they cannot be selected.
  */
-public data class CanonicalSourcePolicy(val preferences: Map<MetricFamily, List<String>>) {
+public data class CanonicalSourcePolicy(
+    val preferences: Map<MetricFamily, List<String>>,
+    /** Earlier or later choices of the user (`valid_from`, `valid_to`); [preferences] applies outside all of them. */
+    val periods: List<PolicyPeriod> = emptyList(),
+) {
+    /** The policy in force at [instant]: the period whose `[validFrom, validTo)` holds it, else [preferences]. */
+    public fun at(instant: Instant): CanonicalSourcePolicy {
+        val period = periods.lastOrNull {
+            (it.validFrom == null || instant >= it.validFrom) && (it.validTo == null || instant < it.validTo)
+        }
+        return if (period == null) copy(periods = emptyList()) else CanonicalSourcePolicy(period.preferences)
+    }
+
+    /** Every period boundary strictly inside [range], sorted. */
+    public fun boundaries(range: ClosedOpenRange): List<Instant> =
+        periods.flatMap { listOfNotNull(it.validFrom, it.validTo) }.filter { it > range.start && it < range.end }.distinct().sorted()
+
     /** Rank of [source] for [family]: index of the first matching entry, or the list size when none matches. */
     public fun rank(family: MetricFamily, source: DataSourceId): Int {
         val list = preferences[family].orEmpty()
@@ -55,3 +73,9 @@ public data class CanonicalSourcePolicy(val preferences: Map<MetricFamily, List<
         )
     }
 }
+
+/**
+ * A canonical-source choice valid in `[validFrom, validTo)` (null: unbounded). When the user changes the canonical source,
+ * the old choice keeps applying to the minutes before the change, so history is not re-fused with today's choice.
+ */
+public data class PolicyPeriod(val validFrom: Instant?, val validTo: Instant?, val preferences: Map<MetricFamily, List<String>>)

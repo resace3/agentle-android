@@ -67,7 +67,8 @@ internal class StepFeatures(private val day: DayContext) {
 
     private suspend fun activityRows(sources: Set<DataSourceId>, buckets: Buckets): List<DailySummaryRow> {
         val active = buckets.minutes.values.count { it.floor() >= day.config.activeCadence }
-        val runs = stepFreeRuns(buckets)
+        val all = day.sourceCoverage(MetricFamily.STEPS, DailyWindow.DAYTIME_08_21)
+        val runs = stepFreeRuns(buckets, sources.flatMap { all[it].orEmpty() })
         val bouts = runs.filter { it >= day.config.sedentaryBoutMinutes }
         return listOf(
             day.rows.sourced(feature("active_minutes"), "active_minutes", active.toDouble(), sources),
@@ -82,8 +83,11 @@ internal class StepFeatures(private val day: DayContext) {
         )
     }
 
-    /** Lengths of the runs of consecutive step-free minutes in the daytime window (before now), cut at window edges. */
-    private fun stepFreeRuns(buckets: Buckets): List<Int> {
+    /**
+     * Lengths of the runs of consecutive step-free minutes in the daytime window (before now), cut at window edges.
+     * Only minutes inside the sources' [covered] time count: an uncovered minute ends a run and is never sedentary.
+     */
+    private fun stepFreeRuns(buckets: Buckets, covered: List<ClosedOpenRange>): List<Int> {
         val runs = ArrayList<Int>()
         for (range in day.window(DailyWindow.DAYTIME_08_21)) {
             var run = 0
@@ -91,7 +95,9 @@ internal class StepFeatures(private val day: DayContext) {
             val end = minOf(range.end, day.now).toEpochMilliseconds()
             while (minute * IntervalMath.MS_PER_MINUTE < end) {
                 val steps = buckets.minutes[minute]?.floor() ?: 0L
-                if (steps <= day.config.sedentaryMaxSteps) {
+                val at = Instant.fromEpochMilliseconds(minute * IntervalMath.MS_PER_MINUTE)
+                val inCoverage = covered.any { at >= it.start && at < it.end }
+                if (inCoverage && steps <= day.config.sedentaryMaxSteps) {
                     run++
                 } else {
                     if (run > 0) runs += run

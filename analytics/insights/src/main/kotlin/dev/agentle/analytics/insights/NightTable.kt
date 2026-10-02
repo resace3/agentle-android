@@ -80,7 +80,8 @@ public data class NightTable(
 /**
  * Builds the night table from `daily_summary` rows (docs/research/10 §14.2-§14.3). Only FINAL rows of the current
  * [DailyFeatureCatalog.VERSION] are observations; every other row (provisional, partial, missing, or computed by another
- * catalog version and not yet recomputed) leaves the value unknown, never zero. Reads a bounded date range ([rowRange]).
+ * catalog version and not yet recomputed, or an additive feature such as minutes or counts whose coverage is below 1)
+ * leaves the value unknown, never zero. Reads a bounded date range ([rowRange]).
  */
 public object NightTableBuilder {
     /** The first and last dates of the daily rows needed for the window that ends with [lastNight]. */
@@ -93,7 +94,7 @@ public object NightTableBuilder {
         val firstNight = lastNight.minus(DatePeriod(days = config.windowNights - 1))
         val used = rows.filter {
             it.status == DailyRowStatus.FINAL && it.catalogVersion == DailyFeatureCatalog.VERSION && it.metric == it.featureId &&
-                it.featureId in FEATURES
+                it.featureId in FEATURES && (it.coverage >= 1.0 || DailyFeatureCatalog[it.featureId]?.additive != true)
         }
         val values = used.associate { (it.featureId to it.date) to requireNotNull(it.value) }
         fun value(feature: String, date: LocalDate): Double? = values[feature to date]

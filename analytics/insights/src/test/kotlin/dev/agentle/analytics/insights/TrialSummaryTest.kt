@@ -16,10 +16,11 @@ class TrialSummaryTest {
         metric: OutcomeMetric = OutcomeMetric.APP_MINUTES_AFTER,
         state: OutcomeState = OutcomeState.AVAILABLE,
         flag: Boolean? = null,
+        randomized: Boolean = result == DecisionResult.DELIVERED || result == DecisionResult.SKIPPED_AT_RANDOM,
     ): TrialDecision {
         val key = "d${next++}"
         val proximal = if (minutes != null || flag != null) OutcomeValue(key, metric, state, number = minutes, flag = flag) else null
-        return TrialDecision(key, result, suppressedBy, responses, proximal)
+        return TrialDecision(key, result, suppressedBy, responses, proximal, randomized)
     }
 
     @Test
@@ -179,5 +180,35 @@ class TrialSummaryTest {
     fun `the sample variance needs two values`() {
         assertThat(TrialSummaries.variance(listOf(1.0, 3.0))).isEqualTo(2.0)
         assertThrows<IllegalArgumentException> { TrialSummaries.variance(listOf(1.0)) }
+    }
+
+    @Test
+    fun `R2-3 only randomized decisions are compared`() {
+        val delivered =
+            List(10) { decision(DecisionResult.DELIVERED, 5) } + List(10) { decision(DecisionResult.DELIVERED, 100, randomized = false) }
+        val skipped = List(10) { decision(DecisionResult.SKIPPED_AT_RANDOM, 5) }
+
+        val comparison =
+            requireNotNull(TrialSummaries.summarize(delivered + skipped, OutcomeMetric.APP_MINUTES_AFTER, 30, randomized = true).comparison)
+
+        assertThat(comparison.delivered).isEqualTo(10)
+        assertThat(comparison.meanDelivered).isEqualTo(5.0)
+        assertThat(comparison.difference).isEqualTo(0.0)
+    }
+
+    @Test
+    fun `R2-4 the shown difference is the difference of the rounded means`() {
+        // Means 6.4 and 10.6: shown as 6 and 11, so the difference reads -5, never -4.
+        val delivered =
+            List(5) { decision(DecisionResult.DELIVERED, 6) } + List(5) { decision(DecisionResult.DELIVERED, if (it < 4) 7 else 6) }
+        val skipped =
+            List(5) { decision(DecisionResult.SKIPPED_AT_RANDOM, 10) } +
+                List(5) { decision(DecisionResult.SKIPPED_AT_RANDOM, if (it < 3) 12 else 10) }
+
+        val summary = TrialSummaries.summarize(delivered + skipped, OutcomeMetric.APP_MINUTES_AFTER, 30, randomized = true)
+
+        assertThat(requireNotNull(summary.comparison).difference).isWithin(1e-9).of(-4.2)
+        assertThat(summary.text).contains("6 minutes on average")
+        assertThat(summary.text).contains("11 minutes (difference -5 minutes")
     }
 }

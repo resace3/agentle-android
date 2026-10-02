@@ -7,6 +7,8 @@ import dev.agentle.core.common.outcomeOf
 import dev.agentle.core.model.PersonalEvent
 import dev.agentle.core.time.AgentleClock
 import dev.agentle.core.time.ClosedOpenRange
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -72,6 +74,7 @@ public class DailyFeatureEngine(
     private val logger: Logger = Logger.NONE,
 ) {
     private val calculator = DailyFeatureCalculator(inputs, config)
+    private val mutex = Mutex()
 
     /** Marks the dates [events] can affect (after an ingestion, correction or deletion of them). */
     public suspend fun markChanged(events: Collection<PersonalEvent>) {
@@ -144,8 +147,12 @@ public class DailyFeatureEngine(
         return rows.size
     }
 
+    /**
+     * Runs [block] under the engine's mutex: refresh and every recompute are serialized, and each reads its marks and
+     * the clock inside the lock, so a run that started earlier can never overwrite rows a later run computed.
+     */
     private suspend fun <T> guarded(operation: String, block: suspend () -> T): Outcome<T> =
-        outcomeOf { block() }.onFailure { error -> logger.w(COMPONENT, "daily features $operation failed", error) }
+        outcomeOf { mutex.withLock { block() } }.onFailure { error -> logger.w(COMPONENT, "daily features $operation failed", error) }
 
     private companion object {
         const val COMPONENT = "DailyFeatureEngine"

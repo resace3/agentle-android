@@ -24,8 +24,10 @@ internal class ChargingFeatures(private val day: DayContext) {
         val inWindow = events.filter { IntervalMath.contains(window, it.startTime) }
         val starts = inWindow.filter { it.type == EventType.CHARGING_STARTED }
         val stops = inWindow.filter { it.type == EventType.CHARGING_STOPPED }
-        val chargingInWindow = IntervalMath.clip(charging, window)
-        val coverage = day.coverage(collectorOf(DailyFeatureCalculator.feature("charging_minutes")), kind)
+        val collector = collectorOf(DailyFeatureCalculator.feature("charging_minutes"))
+        // State intervals count only where the collector was healthy: a gap is never "still charging".
+        val chargingInWindow = MinuteFusion.intersect(IntervalMath.clip(charging, window), day.coveredRanges(collector, kind))
+        val coverage = day.coverage(collector, kind)
         val seen = inWindow.isNotEmpty() || chargingInWindow.isNotEmpty()
         return listOf(
             row("charging_minutes", (IntervalMath.totalMillis(chargingInWindow) / IntervalMath.MS_PER_MINUTE).toDouble(), coverage, seen),
@@ -94,8 +96,10 @@ internal class PlaceAndActivityFeatures(private val day: DayContext) {
     private suspend fun subjectRows(def: DailyFeatureDefinition, bySubject: Map<String, List<ClosedOpenRange>>): List<DailySummaryRow> {
         val window = day.window(def.window)
         val coverage = day.coverage(collectorOf(def), def.window)
+        val covered = day.coveredRanges(collectorOf(def), def.window)
         return bySubject.toSortedMap().mapNotNull { (subject, intervals) ->
-            val millis = IntervalMath.unionMillis(intervals, window)
+            // State intervals (an activity still "entered") count only inside the collector's healthy time.
+            val millis = IntervalMath.unionMillis(MinuteFusion.intersect(intervals, covered), window)
             if (millis == 0L) {
                 null
             } else {
