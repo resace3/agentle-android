@@ -16,8 +16,8 @@ import dev.agentle.interventions.video.VideoSpec
 import dev.agentle.interventions.video.VideoStudio
 import dev.agentle.interventions.voice.Wav
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -35,7 +35,7 @@ class VideoTest {
             Fixtures.clock(),
             PendingDeliveries { emptySet() },
             Logger.NONE,
-            io = Dispatchers.Unconfined,
+            io = UnconfinedTestDispatcher(),
         )
     }
 

@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
@@ -238,12 +239,13 @@ class InterventionPlayer(
      */
     private fun registerNoisy() {
         if (noisyRegistered) return
-        ContextCompat.registerReceiver(
-            context,
-            noisy,
-            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
-            ContextCompat.RECEIVER_NOT_EXPORTED,
-        )
+        val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(noisy, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            // A protected system broadcast: before 33 there is no export flag (ContextCompat would add a signature permission).
+            context.registerReceiver(noisy, filter)
+        }
         noisyRegistered = true
     }
 

@@ -12,7 +12,7 @@ import dev.agentle.interventions.storage.MediaQuota
 import dev.agentle.interventions.storage.MediaRef
 import dev.agentle.interventions.storage.MediaSpec
 import dev.agentle.interventions.storage.PendingDeliveries
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -39,7 +39,7 @@ class MediaStorageTest {
         PendingDeliveries { pendingKeys },
         Logger.NONE,
         quota = quota,
-        io = Dispatchers.Unconfined,
+        io = UnconfinedTestDispatcher(),
         ids = { "m${nextId++}" },
     )
 

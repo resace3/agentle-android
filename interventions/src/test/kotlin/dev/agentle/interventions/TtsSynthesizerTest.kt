@@ -13,8 +13,8 @@ import dev.agentle.interventions.voice.TtsFactory
 import dev.agentle.interventions.voice.TtsFailure
 import dev.agentle.interventions.voice.TtsResult
 import dev.agentle.interventions.voice.TtsSynthesizer
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -61,7 +61,7 @@ class TtsSynthesizerTest {
     }
 
     private fun synthesizer(status: Int?) =
-        TtsSynthesizer(context, factory = factory(status), io = Dispatchers.Unconfined, initTimeout = 5.seconds)
+        TtsSynthesizer(context, factory = factory(status), io = UnconfinedTestDispatcher(), initTimeout = 5.seconds)
 
     private suspend fun TtsSynthesizer.run(): TtsResult = synthesize("Take a short walk.", Locale.US, File(tmp.root, "v.wav"))
 

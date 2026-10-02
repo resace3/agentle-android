@@ -100,23 +100,22 @@ object CodecPlan {
  * video streams into the muxer. 16-bit PCM WAV only. Temp file then rename; cancellation deletes the temp file.
  */
 class CodecVideoComposer(private val dispatcher: CoroutineDispatcher = Dispatchers.Default) : VideoComposer {
-    override suspend fun compose(slides: List<Slide>, narration: File, out: File, spec: VideoSpec): VideoOutcome =
-        withContext(dispatcher) {
-            val tmp = File(out.parentFile, out.name + ".tmp")
-            out.parentFile?.mkdirs()
-            try {
-                val wav = Wav.parse(narration)?.takeIf { it.audioFormat == PCM && it.bitsPerSample == PCM_BITS }
-                    ?: return@withContext VideoOutcome.Failure(BAD_AUDIO)
-                encode(slides, narration, wav, tmp, spec)
-                if (tmp.renameTo(out)) VideoOutcome.Success(out, out.length()) else VideoOutcome.Failure(RENAME_FAILED)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                VideoOutcome.Failure("CODEC_" + (e::class.simpleName ?: "ERROR"))
-            } finally {
-                tmp.delete()
-            }
+    override suspend fun compose(slides: List<Slide>, narration: File, out: File, spec: VideoSpec): VideoOutcome = withContext(dispatcher) {
+        val tmp = File(out.parentFile, out.name + ".tmp")
+        out.parentFile?.mkdirs()
+        try {
+            val wav = Wav.parse(narration)?.takeIf { it.audioFormat == PCM && it.bitsPerSample == PCM_BITS }
+                ?: return@withContext VideoOutcome.Failure(BAD_AUDIO)
+            encode(slides, narration, wav, tmp, spec)
+            if (tmp.renameTo(out)) VideoOutcome.Success(out, out.length()) else VideoOutcome.Failure(RENAME_FAILED)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            VideoOutcome.Failure("CODEC_" + (e::class.simpleName ?: "ERROR"))
+        } finally {
+            tmp.delete()
         }
+    }
 
     private suspend fun encode(slides: List<Slide>, narration: File, wav: WavInfo, tmp: File, spec: VideoSpec) {
         val (audioFormat, audioSamples) = encodeAudio(narration, wav, spec)

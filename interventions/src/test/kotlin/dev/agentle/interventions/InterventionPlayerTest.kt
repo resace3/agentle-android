@@ -27,7 +27,7 @@ import dev.agentle.interventions.voice.PlaybackEngine
 import dev.agentle.interventions.voice.PlaybackListener
 import dev.agentle.interventions.voice.PlayerState
 import dev.agentle.interventions.voice.SkipReason
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -77,7 +77,7 @@ class InterventionPlayerTest {
         Fixtures.clock(),
         PendingDeliveries { emptySet() },
         Logger.NONE,
-        io = Dispatchers.Unconfined,
+        io = UnconfinedTestDispatcher(),
     )
     private val player = InterventionPlayer(context, library, BundledMedia(context.assets), engine, { quiet }, audio)
 
