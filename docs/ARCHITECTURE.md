@@ -225,7 +225,7 @@ them in code; unknown future kinds decode to `UnknownPayload(raw)` and are kept,
 | `connector_state` | `connector_id` PK, `enabled`, `connection`, `permission_summary`, `last_success_ms`, `last_attempt_ms`, `last_error_code`, `sync_state` | |
 | `sync_cursor` | (`connector_id`, `account_id`, `stream`) PK, `synced_through_ms`, `synced_through_elapsed_ms`, `synced_through_boot_count`, `backfilled_from_ms`, `next_allowed_at_ms`, `consecutive_failures`, `fetch_generation`, `import_floor_ms` | Written in the same transaction as the data it covers, with `max()` and a fetch-generation compare-and-set (§5.6). `import_floor_ms` = max(now - retention, last deletion instant). |
 | `google_health_state` | `health_user_id`, `account_hint`, `granted_scopes`, `connected_ms`, `disconnected_ms`, `last_full_resync_ms` | No tokens. |
-| `ai_request` | `id`, `purpose`, `categories`, `time_range`, `raw_events_sent` (bool), `aggregates_sent` (bool), `model`, `status`, `error_code`, `created_ms`, `bytes_sent` | Metadata only; no payload copy. One row per send, background sends included (the user-visible log of §9.3 reads them); `categories` equal the categories present in the request body. |
+| `ai_request` | `id`, `purpose`, `categories`, `time_range`, `raw_events_sent` (bool), `aggregates_sent` (bool), `model`, `status`, `error_code`, `created_ms`, `bytes_sent` | Metadata only; no payload copy. One row per send, background sends included (the user-visible log of §9.1 reads them); `categories` equal the categories present in the request body. |
 | `ai_result_meta` | `request_id`, `schema`, `valid`, `validation_errors`, `produced_entity_id` | |
 | `media_artifact` | `id`, `created_ms`, `source_jitai_id`, `decision_key`, `method` (LOCAL_RENDER/TTS/MEDIA3), `local_uri`, `mime`, `size_bytes`, `expires_ms` | Files live in app-private storage; cleanup by quota and age. |
 | `user_goal` | `id`, `text`, `metric`, `target`, `created_ms`, `active` | |
@@ -712,7 +712,7 @@ returns `AppError.AuthenticationRequired` without network).
   it a value is Missing(INVALID_VALUE)), never rare but real ones: a +51 bpm resting heart-rate delta during an
   illness is a value.
 - Coverage: unobserved time never counts as 0 (§6.5); each feature declares how much coverage it needs.
-  - A count window that its coverage source does not cover gives Missing(COVERAGE_GAP) or Stale:
+  - By default, a window that its coverage source does not fully cover gives Missing(COVERAGE_GAP) or Stale:
     `notifications_last_60m` while the listener was disconnected is UNKNOWN.
   - Minute-window step features (`steps_last_60m`, `steps_last_30m`) count observed minutes, as
     `activity_level_last_30m` does, and need at least 80% of them (48 of 60, 24 of 30); below that they are
@@ -727,8 +727,8 @@ returns `AppError.AuthenticationRequired` without network).
   a metric across sources. Within one source, overlapping intervals (several devices' records) are not summed either:
   per minute, the largest prorated share among them counts. When the canonical API source has no coverage for recent
   minutes, the freshest local copy (Health Connect Fitbit-origin steps or on-device steps) fills those minutes as a
-  provisional value; daily totals stay API-canonical once covered. So a step rule can fire for a wearable user even when
-  the API source syncs rarely.
+  provisional value; daily totals stay API-canonical once covered. So a step rule can fire for a wearable user even
+  when the API source syncs rarely.
 - Civil dates: daily values the source computed (resting heart rate, the wearable's daily totals) are read by civil
   date in the user's zone, never shifted onto the 04:00 engine day. `resting_hr_today` at 01:30 reads today's civil
   date; if there is none, it is Missing, never yesterday's value.
