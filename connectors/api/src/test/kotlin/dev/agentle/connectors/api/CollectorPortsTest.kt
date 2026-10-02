@@ -37,6 +37,20 @@ class CollectorPortsTest {
     }
 
     @Test
+    fun `a window replacement only holds events of its source and window`() {
+        val window = ReplaceWindow(DataSourceId("android.screen"), at, at.plus(kotlin.time.Duration.parse("1h")))
+
+        assertThat(WriteBatch(epoch = 1, events = listOf(event(1)), window = window).window).isEqualTo(window)
+        assertThrows<IllegalArgumentException> {
+            WriteBatch(epoch = 1, events = listOf(event(1)), window = window.copy(source = DataSourceId("android.calendar")))
+        }
+        assertThrows<IllegalArgumentException> {
+            WriteBatch(epoch = 1, deleteDedupKeys = setOf("k1"), window = window)
+        }
+        assertThrows<IllegalArgumentException> { ReplaceWindow(DataSourceId("android.screen"), at, at) }
+    }
+
+    @Test
     fun `known places validate coordinates and radius`() {
         assertThat(KnownPlace(PlaceClass.HOME, 52.5, 13.4).radiusMeters).isEqualTo(KnownPlace.DEFAULT_RADIUS_METERS)
         assertThrows<IllegalArgumentException> { KnownPlace(PlaceClass.WORK, 91.0, 0.0) }
