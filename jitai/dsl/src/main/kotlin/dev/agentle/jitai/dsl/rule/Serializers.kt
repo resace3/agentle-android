@@ -55,7 +55,11 @@ public object UtcInstantSerializer : KSerializer<Instant> {
     /** The instant for canonical [text], or null when [text] is not exactly `yyyy-MM-ddTHH:mm:ssZ` or not a real date. */
     public fun parse(text: String): Instant? {
         if (!PATTERN.matches(text)) return null
-        val parsed = runCatching { Instant.parse(text) }.getOrNull() ?: return null
+        val parsed = try {
+            Instant.parse(text)
+        } catch (ignored: IllegalArgumentException) {
+            return null
+        }
         return parsed.takeIf { format(it) == text }
     }
 }

@@ -14,6 +14,7 @@ import dev.agentle.jitai.dsl.rule.ClockTime
 import dev.agentle.jitai.dsl.rule.Condition
 import dev.agentle.jitai.dsl.rule.LiteralConversion
 import dev.agentle.jitai.dsl.rule.LiteralRejection
+import dev.agentle.jitai.dsl.rule.OnUnknown
 import dev.agentle.jitai.dsl.rule.RuleLiteral
 import dev.agentle.jitai.dsl.rule.TypedLiteral
 import dev.agentle.jitai.dsl.rule.TypedLiterals
@@ -216,11 +217,7 @@ internal class ConditionChecks(
         // R10 §6.4 classifies overrides of INTERVENTION trees and of SUPPRESSION conditions; a SUPPRESSION with
         // contextRequirements is rejected separately (E053).
         if (view.kind == JitaiKind.SUPPRESSION && treeName != CONDITIONS) return
-        for (info in RuleAnalysis.leaves(tree)) {
-            val leaf = info.node as? Condition.FeatureLeaf ?: continue
-            val onUnknown = leaf.onUnknown ?: continue
-            if (RuleAnalysis.overrideEffect(view.kind, info.polarity, onUnknown) != OverrideEffect.DELIVERY_INCREASING) continue
-            val path = "$root${info.path}/onUnknown"
+        for ((path, leaf, onUnknown) in increasingOverrides(tree, root)) {
             val needsError = origin == RuleOrigin.AI || !view.userConfirmedUnknownOverrides
             if (needsError) {
                 val effect = if (view.kind == JitaiKind.INTERVENTION) "notify you" else "stop blocking"
@@ -231,6 +228,15 @@ internal class ConditionChecks(
             }
         }
     }
+
+    /** Delivery-increasing `onUnknown` overrides (R10 §6.4) with the path of their `onUnknown` key. */
+    private fun increasingOverrides(tree: Condition, root: String): List<Triple<String, Condition.FeatureLeaf, OnUnknown>> =
+        RuleAnalysis.leaves(tree).mapNotNull { info ->
+            val leaf = info.node as? Condition.FeatureLeaf ?: return@mapNotNull null
+            val onUnknown = leaf.onUnknown ?: return@mapNotNull null
+            val effect = RuleAnalysis.overrideEffect(view.kind, info.polarity, onUnknown)
+            if (effect == OverrideEffect.DELIVERY_INCREASING) Triple("$root${info.path}/onUnknown", leaf, onUnknown) else null
+        }
 
     private fun display(literal: RuleLiteral): String = (literal as? RuleLiteral.Text)?.value ?: literal.json
 

@@ -114,11 +114,12 @@ public object TypedLiterals {
     }
 
     private fun convertInt(definition: FeatureDefinition, literal: RuleLiteral): LiteralConversion {
-        val token = literal as? RuleLiteral.NumberToken ?: return mismatch()
-        if (!token.isInteger) return mismatch()
-        val value = token.token.toLongOrNull() ?: return rejected(LiteralRejection.OUT_OF_RANGE)
-        val range = definition.literalRange ?: return mismatch()
-        return if (value in range) converted(FeatureScalar.IntValue(value)) else rejected(LiteralRejection.OUT_OF_RANGE)
+        val token = (literal as? RuleLiteral.NumberToken)?.takeIf { it.isInteger }
+        val range = definition.literalRange
+        if (token == null || range == null) return mismatch()
+        // An integer token too large for a Long is out of every catalog range.
+        val value = token.token.toLongOrNull()
+        return if (value != null && value in range) converted(FeatureScalar.IntValue(value)) else rejected(LiteralRejection.OUT_OF_RANGE)
     }
 
     private fun convertTime(literal: RuleLiteral, make: (Int) -> FeatureScalar): LiteralConversion {

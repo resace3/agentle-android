@@ -240,42 +240,32 @@ public object RuleRenderer {
     }
 
     private fun subject(leaf: Condition.FeatureLeaf, options: RenderOptions): String {
-        val since = leaf.args["since"]?.let { time(it, options) }.orEmpty()
-        val app = leaf.args["package"]?.let { appLabel(it, options) } ?: leaf.args["appLabel"] ?: "the app"
-        val category = leaf.args["category"]?.let { APP_CATEGORY_LABELS[it] ?: it.lowercase(Locale.ROOT) }.orEmpty()
-        val jitai = leaf.args["jitai"]?.let { jitaiText(it, options) } ?: "this reminder"
-        return when (leaf.feature) {
-            "local_time" -> "the time"
-            "day_of_week", "day_type" -> "the day"
-            "engine_day_of_week" -> "the night's day"
-            "battery_pct" -> "the battery level"
-            "screen_minutes_last_60m" -> "screen time in the last 60 minutes"
-            "screen_minutes_since" -> "screen time since $since"
-            "app_minutes_last_60m" -> "time in $app in the last 60 minutes"
-            "app_minutes_since" -> "time in $app since $since"
-            "app_category_minutes_last_60m" -> "time in $category apps in the last 60 minutes"
-            "app_category_minutes_since" -> "time in $category apps since $since"
-            "app_opens_last_60m" -> "times $app was opened in the last 60 minutes"
-            "foreground_app" -> "the app on screen"
-            "notifications_last_60m" -> "notifications in the last 60 minutes"
-            "location_class" -> "your location"
-            "activity_state" -> "your current activity"
-            "activity_level_last_30m" -> "your activity in the last 30 minutes"
-            "steps_today" -> "your step count today"
-            "steps_last_60m" -> "your steps in the last 60 minutes"
-            "steps_last_30m" -> "your steps in the last 30 minutes"
-            "sleep_minutes_last_night" -> "your sleep last night"
-            "bedtime_last_night" -> "your bedtime last night"
-            "wake_time_today" -> "your wake-up time today"
-            "resting_hr_today" -> "your resting heart rate today"
-            "resting_hr_delta_vs_28d" -> "your resting heart rate today compared with your usual"
-            "minutes_since_last_delivery" -> "the time since $jitai was last sent"
-            "deliveries_today" -> "$jitai sent today"
-            "deliveries_last_7d" -> "$jitai sent in the last 7 days"
-            "last_response" -> "your last response to $jitai"
-            "consecutive_ignored" -> "$jitai ignored in a row"
-            else -> leaf.feature
+        val template = SUBJECTS[leaf.feature] ?: return leaf.feature
+        val values = mapOf(
+            "since" to { leaf.args["since"]?.let { time(it, options) }.orEmpty() },
+            "app" to { leaf.args["package"]?.let { appLabel(it, options) } ?: leaf.args["appLabel"] ?: "the app" },
+            "category" to { leaf.args["category"]?.let { APP_CATEGORY_LABELS[it] ?: it.lowercase(Locale.ROOT) }.orEmpty() },
+            "jitai" to { leaf.args["jitai"]?.let { jitaiText(it, options) } ?: "this reminder" },
+        )
+        return fill(template) { key -> values[key]?.invoke() }
+    }
+
+    /** Fills `{key}` tokens of [template] in one pass; inserted values are never re-scanned. */
+    private fun fill(template: String, value: (String) -> String?): String {
+        val out = StringBuilder(template.length + 16)
+        var i = 0
+        while (i < template.length) {
+            val open = template.indexOf('{', i)
+            val close = if (open < 0) -1 else template.indexOf('}', open + 1)
+            if (open < 0 || close < 0) {
+                out.append(template, i, template.length)
+                break
+            }
+            val key = template.substring(open + 1, close)
+            out.append(template, i, open).append(value(key) ?: "{$key}")
+            i = close + 1
         }
+        return out.toString()
     }
 
     private fun value(definition: FeatureDefinition, literal: RuleLiteral, options: RenderOptions): String {
@@ -376,6 +366,40 @@ public object RuleRenderer {
 
     private const val CATEGORY_PREFIX = "category:"
     private const val NO_APP = "NONE"
+
+    /** Leaf subjects of R10 §13.5; `{since}`, `{app}`, `{category}` and `{jitai}` come from the leaf's args. */
+    private val SUBJECTS: Map<String, String> = mapOf(
+        "local_time" to "the time",
+        "day_of_week" to "the day",
+        "day_type" to "the day",
+        "engine_day_of_week" to "the night's day",
+        "battery_pct" to "the battery level",
+        "screen_minutes_last_60m" to "screen time in the last 60 minutes",
+        "screen_minutes_since" to "screen time since {since}",
+        "app_minutes_last_60m" to "time in {app} in the last 60 minutes",
+        "app_minutes_since" to "time in {app} since {since}",
+        "app_category_minutes_last_60m" to "time in {category} apps in the last 60 minutes",
+        "app_category_minutes_since" to "time in {category} apps since {since}",
+        "app_opens_last_60m" to "times {app} was opened in the last 60 minutes",
+        "foreground_app" to "the app on screen",
+        "notifications_last_60m" to "notifications in the last 60 minutes",
+        "location_class" to "your location",
+        "activity_state" to "your current activity",
+        "activity_level_last_30m" to "your activity in the last 30 minutes",
+        "steps_today" to "your step count today",
+        "steps_last_60m" to "your steps in the last 60 minutes",
+        "steps_last_30m" to "your steps in the last 30 minutes",
+        "sleep_minutes_last_night" to "your sleep last night",
+        "bedtime_last_night" to "your bedtime last night",
+        "wake_time_today" to "your wake-up time today",
+        "resting_hr_today" to "your resting heart rate today",
+        "resting_hr_delta_vs_28d" to "your resting heart rate today compared with your usual",
+        "minutes_since_last_delivery" to "the time since {jitai} was last sent",
+        "deliveries_today" to "{jitai} sent today",
+        "deliveries_last_7d" to "{jitai} sent in the last 7 days",
+        "last_response" to "your last response to {jitai}",
+        "consecutive_ignored" to "{jitai} ignored in a row",
+    )
 
     private val BOOL_PREDICATES: Map<String, Pair<String, String>> = mapOf(
         "charging" to ("the phone is charging" to "the phone is not charging"),
