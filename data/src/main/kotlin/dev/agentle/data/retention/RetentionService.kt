@@ -80,11 +80,14 @@ internal class RoomRetentionService(
         var total = 0
         while (true) {
             val rows = access.write {
+                @Suppress("SpreadOperator") // SQL bind arguments are varargs; the array is small.
                 sql.execute(
                     "DELETE FROM $table WHERE rowid IN " +
                         "(SELECT rowid FROM $table WHERE $predicate LIMIT ${DataCategoryRegistry.CHUNK_ROWS})",
                     *args.toTypedArray(),
                 )
+                // execute() counts result rows; changes() is the number of rows the DELETE removed.
+                sql.changes().toInt()
             }
             total += rows
             if (rows == 0) return total

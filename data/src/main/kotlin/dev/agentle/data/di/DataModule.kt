@@ -67,7 +67,7 @@ import javax.inject.Singleton
 @Singleton
 class DataGraph @Inject internal constructor(
     @ApplicationContext private val context: Context,
-    provider: DatabaseProvider,
+    private val provider: DatabaseProvider,
     terms: TermCache,
     private val clock: AgentleClock,
     private val settings: SettingsStore,
@@ -80,7 +80,6 @@ class DataGraph @Inject internal constructor(
     private val remote: Optional<RemoteRevoker>,
 ) {
     internal val access = DataAccess(provider, terms)
-    private val provider = provider
     private val diagnosticWriter = DiagnosticWriter(clock)
     private val writer by lazy { RoomEventWriter(access, clock, ImportFloorReader(settings, clock), CursorWriter(clock, boots)) }
 

@@ -22,7 +22,7 @@ class DeleteAllServiceTest {
         private fun step(name: String) {
             if (crashAt == name) {
                 crashAt = null
-                throw IllegalStateException("crash")
+                error("crash")
             }
             calls += name
         }
