@@ -184,6 +184,25 @@ class FakeGoogleHealthServerTest {
     }
 
     @Test
+    fun `R05 8 6 R7a ascending order inside each page while pages stay newest first`() {
+        val newestFirst = get("$steps?filter=$stepsFilter&pageSize=3").points()
+        fake.config = fake.config.copy(listOrder = ListOrder.ASCENDING)
+        val first = get("$steps?filter=$stepsFilter&pageSize=3")
+        val token = first.json().getValue("nextPageToken").jsonPrimitive.content
+        val second = get("$steps?filter=$stepsFilter&pageSize=3&pageToken=$token")
+        assertThat(first.points().toSet()).isEqualTo(newestFirst.toSet())
+        assertThat(first.points().starts()).isInOrder()
+        assertThat(second.points().counts()).containsExactly(null, "87")
+        assertThat(second.points().starts()).isInOrder()
+        assertThat(second.points().starts().max()).isAtMost(first.points().starts().min())
+    }
+
+    private fun JsonArray.starts(): List<Instant> = map { point ->
+        val interval = point.jsonObject.getValue("steps").jsonObject.getValue("interval").jsonObject
+        Instant.parse(interval.getValue("startTime").jsonPrimitive.content)
+    }
+
+    @Test
     fun `R05 8 3 V5 data source families`() {
         assertThat(get("$steps?dataSourceFamily=google-wearables").code).isEqualTo(400)
         val sleepWithFamily = get("/v4/users/me/dataTypes/sleep/dataPoints?dataSourceFamily=users/me/dataSourceFamilies/all-sources")

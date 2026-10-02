@@ -135,13 +135,12 @@ internal class ModelEngine(
         val reconcile = route.kind == RouteKind.RECONCILE
         var points = visible(query.type).filter { familyAllows(query.family, it) && query.filter.matches(it) }
         if (reconcile) points = reconciled(points)
-        val ordered = if (!reconcile && config().listOrder == ListOrder.NEWEST_FIRST) {
-            points.sortedByDescending { it.start }
-        } else {
-            points.sortedBy { it.start }
-        }
-        val page = ordered.drop(offset).take(query.pageSize)
+        // list: newest first (documented); :reconcile order is undocumented, the fake serves it ascending.
+        val ordered = if (reconcile) points.sortedBy { it.start } else points.sortedByDescending { it.start }
+        var page = ordered.drop(offset).take(query.pageSize)
         if (page.isEmpty()) return ok("{}")
+        // R7a: the same pages, with the points inside each page in ascending order.
+        if (!reconcile && config().listOrder == ListOrder.ASCENDING) page = page.sortedBy { it.start }
         val next = offset + page.size
         val body = buildJsonObject {
             put("dataPoints", JsonArray(page.map { if (reconcile) it.toReconcileJson() else it.toListJson() }))

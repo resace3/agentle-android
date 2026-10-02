@@ -85,7 +85,7 @@ public enum class DailyRollUpEnd { INCLUSIVE, EXCLUSIVE }
 /** How the last page marks the end of a paged list (docs/research/05 §5.2, R8b). */
 public enum class EndOfPages { EMPTY_STRING, OMITTED, NULL }
 
-/** Ordering of `list` pages: newest first as documented, or ascending (R7a). */
+/** Ordering inside `list` pages: newest first as documented, or ascending within each page (R7a); pages are always newest first. */
 public enum class ListOrder { NEWEST_FIRST, ASCENDING }
 
 /**
