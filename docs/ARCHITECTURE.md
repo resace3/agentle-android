@@ -176,89 +176,180 @@ build-logic, so the domain core builds and tests on any JVM.
 
 ```kotlin
 data class PersonalEvent(
-  val id: EventId,                 // UUIDv7-like, generated locally
-  val type: EventType,             // closed enum (APP_FOREGROUND ... VIDEO_GENERATED, plus device-state types)
+  val id: EventId,                 // UUIDv7-like, generated locally (stored, not indexed)
+  val type: EventType,             // closed enum (APP_FOREGROUND ... VIDEO_GENERATED, DAILY_TOTAL, plus device-state types)
   val source: DataSourceId,        // connector + stream, e.g. android.usage, googlehealth.steps
   val startTime: Instant,
   val endTime: Instant?,
   val zoneId: String,              // zone at capture time
   val payload: EventPayload,       // sealed, typed, @Serializable with a "kind" discriminator
   val confidence: Double?,
-  val dedupKey: String,            // deterministic natural key (source-specific), see 5.3
-  val metadata: EventMetadata,     // ingestedAt, schemaVersion, provenance (package/device), sensitivity
+  val dedupKey: String,            // deterministic natural key (source-specific, account-bound for Google Health), see 5.3
+  val metadata: EventMetadata,     // ingestedAt, schemaVersion, provenance (package/device/platform), upstreamId,
+                                   // upstreamUpdatedAt, payloadHash, sensitivity
 )
 ```
 
 Payloads are typed classes (`AppSessionPayload(packageName, durationMs)`, `NotificationPayload(package,
-category, channelHash, hasContent, title?/text? only if notification_content is enabled)`, `StepsPayload(count)`,
-`HeartRatePayload(bpm)`, `SleepSessionPayload(stages)`, `BatteryPayload(level, plugType, status)`, ...).
-Schema evolution: each payload class has a `schemaVersion`; decoders accept older versions and upgrade them
-in code; unknown future kinds decode to `UnknownPayload(raw)` and are kept, never dropped.
+category, channelHash, keyHash, flags (ongoing, foreground service, group summary, local only), updateCount,
+lastUpdateEpochMs, hasContent, title?/text? only if notification_content is enabled)`, `StepsPayload(count)`,
+`HeartRatePayload(bpm, minBpm?, maxBpm?)` (min and max for 60-s roll-ups), `SleepSessionPayload(stages)`,
+`RestingHeartRatePayload` and `DailyTotalPayload` keyed by a civil `LocalDate`, `BatteryPayload(level, plugType,
+status)`, ...). Schema evolution: each payload class has a `schemaVersion`; decoders accept older versions and upgrade
+them in code; unknown future kinds decode to `UnknownPayload(raw)` and are kept, never dropped.
 
 ### 5.2 Room schema (v1)
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `event` | `seq` INTEGER PK AUTOINCREMENT, `id` UNIQUE, `type`, `source`, `start_ms`, `end_ms`, `zone_id`, `dedup_key` UNIQUE, `subject` (package / category / device hash), `value_num`, `payload_json`, `payload_version`, `confidence`, `ingested_ms`, `sensitivity` | Indexes: (`type`,`start_ms`), (`source`,`start_ms`), (`subject`,`start_ms`), (`start_ms`). `value_num`/`subject` are typed projections so features aggregate in SQL without parsing JSON. `seq` is the ingestion watermark for event-driven JITAI checks. |
-| `raw_source_record` | `source`, `external_id`, `fetched_ms`, `body_hash` | Hash and provenance only (no raw bodies) to detect changed upstream records. |
-| `daily_summary` | (`date`, `metric`) PK, `value`, `coverage`, `computed_ms` | Engine-day based. |
-| `derived_feature` | (`feature_id`, `window`, `anchor_date`) PK, `value`, `status` (OK/UNKNOWN/STALE), `computed_ms` | Rolling windows. |
-| `insight` | `id`, `kind`, `title`, `finding`, `support_json`, `period_start/end`, `strength`, `origin` (LOCAL/AI), `created_ms`, `state` | |
-| `jitai_definition` | `id`, `version`, `json` (canonical `JitaiDefinition`), `enabled`, `state`, `origin` (MANUAL/NL/AI_DISCOVERED), `created/modified_ms`, `expires_ms` | Versioned; history rows are immutable. |
-| `jitai_decision` | `decision_key` UNIQUE, `jitai_id`, `jitai_version`, `state` (DECIDED/DELIVERING/DELIVERED/DELIVERY_UNCERTAIN/SUPPRESSED/EXPIRED), `lease_until_ms`, `decided_ms`, `delivered_ms`, `channel`, `trace_json` | Two-phase delivery record [R10 §8]. |
-| `intervention_outcome` | `decision_key`, `outcome` (OPENED/DISMISSED/SNOOZED/ACTION/IGNORED), `at_ms`, `metric_json` | |
-| `jitai_eval_log` | `id`, `at_ms`, `trigger`, `result`, `trace_json` | Ring-buffered (retention 30 d). |
+| `event` | `seq` INTEGER PK, `id` (not indexed), `type` and `source` (small integers), `account_id` (Google Health account; none for device sources), `start_ms`, `end_ms`, `start_offset_s`, `end_offset_s`, `local_date` (civil-date records only), `zone_id`, `dedup_hash` INTEGER UNIQUE + `dedup_key`, `upstream_id`, `upstream_update_ms`, `payload_hash`, `subject` (package / category / device hash), `value_num`, `payload_json`, `payload_version`, `confidence`, `ingested_ms`, `sensitivity`, `change_seq` INTEGER NOT NULL | Indexes: (`type`,`start_ms`), (`type`,`end_ms`), (`source`,`start_ms`), (`subject`,`start_ms`), (`start_ms`), (`change_seq`); partial indexes where a column is mostly NULL; no indexed TEXT id. `value_num`/`subject` are typed projections so features aggregate in SQL without parsing JSON. `payload_hash` hashes a canonical, versioned projection of the normalized fields, never the encoded JSON. `change_seq` comes from one counter: every insert, semantic update and tombstone (a deleted row leaves one) takes the next value inside the ingest transaction. It is the change watermark for event-driven JITAI checks (§5.6). |
+| `raw_source_record` | (`source`, `external_id`) PK, `body_hash` | Hash and provenance only (no raw bodies); optional, the table may be dropped. |
+| `engine_day_summary` | (`engine_day`, `metric`) PK, `value`, `coverage`, `lineage`, `catalog_version`, `computed_ms` | Daily features by engine day (04:00 rollover); renamed from `daily_summary` so it is never mistaken for civil-date values. |
+| `upstream_daily` | (`source`, `account_id`, `metric`, `local_date`), `value` | Daily values the source computed (Google Health daily roll-ups, daily resting heart rate), keyed by civil date and never mapped to an engine day. May be a view over civil-date `event` rows. |
+| `derived_feature` | (`feature_id`, `window`, `anchor_date`) PK, `value`, `status` (OK/UNKNOWN/STALE), `lineage`, `catalog_version`, `computed_ms` | Rolling windows. |
+| `dirty_day` | `engine_day` PK, `generation` | Written in the ingest transaction for every engine day that an inserted, updated or deleted interval overlaps; feature refresh clears a day by compare-and-clear on `generation`. |
+| `metric_source_policy` | `metric`, `source`, `priority`, `valid_from_ms`, `valid_to_ms` | Which source is canonical for a metric over time; the query-time fusion reads it (§10). |
+| `source_coverage` | (`connector_id`, `stream`, `account_id`) PK, `coverage_through_ms`, `device_last_sync_ms`, `updated_ms` | How far a synced stream is complete. Advanced in the same transaction as the data it covers; never moves backward. |
+| `collector_coverage` | `collector`, `from_ms`, `to_ms` (NULL while open), `cause` | Intervals in which an Android collector was running (§6.5). |
+| `insight` | `id`, `kind`, `title`, `finding`, `support_json`, `period_start/end`, `strength`, `origin` (LOCAL/AI), `lineage`, `created_ms`, `state` | AI-worded text is stored only after `AiTextPolicy` accepts it (§9.5). |
+| `jitai_definition` | `id` PK, `version` (current), `kind` (INTERVENTION/SUPPRESSION), `category`, `json` (canonical `JitaiDefinition`), `enabled`, `state`, `created_by` (USER_MANUAL/AI_NATURAL_LANGUAGE/AI_DISCOVERED/RULE_TEMPLATE), `created/modified_ms`, `expires_ms` | One row per JITAI, holding its current version; only these rows are evaluation candidates. |
+| `jitai_definition_history` | (`id`, `version`) PK, `json` | Every saved version; immutable. |
+| `jitai_runtime` | `jitai_id` PK, `snoozed_until_ms`, `snoozed_until_elapsed_ms`, `boot_count`, `snooze_mode`, `consecutive_ignored` | Snooze and backoff state (§11.6). |
+| `jitai_timer` | `id` PK, `due_at_ms` (indexed), `kind` (SLOT/PREFETCH/OUTCOME/SNOOZE/BACKSTOP), `jitai_id`, `version`, `slot`, `created_ms` | Planned decision points and follow-ups (§11.7). Changing, disabling, deleting or expiring a definition deletes its rows in the same transaction. |
+| `jitai_decision` | `decision_key` UNIQUE, `jitai_id`, `jitai_version`, `trigger_type`, `engine_day`, `zone_id`, `local_date_time`, `decided_ms`, `decided_elapsed_ms`, `boot_count`, `state` (R10 §8.3 enum plus CARD_PENDING; §11.5), `gate_reason`, lease (elapsed ms + boot count), `channel`, `content_ref`, `delivery_nonce`, `snapshot_json`, `trace_json`, `delivered_ms`, `response`, `responded_ms` | Two-phase delivery record [R10 §8]. Indexes: (`jitai_id`,`state`,`decided_ms`), (`state`,`decided_ms`), (`engine_day`,`channel`,`state`). The content-free columns (key, JITAI id, engine day, decided wall/elapsed/boot, state, channel, response) are the delivery ledger: kept 400 days and exempt from retention and from "delete intervention history" (§5.5). |
+| `intervention_outcome` | `decision_key` PK, `response` (the catalog's `last_response` enum), `at_ms`, `metric_json` | The first response wins (`UPDATE ... WHERE response = 'NONE'`). |
+| `jitai_eval_log` | `id`, `at_ms`, `trigger`, `result`, `trace_json` | Retention 30 d. A trace is written only when the result changes. |
+| `ai_text_pool` | `id`, `jitai_id`, `content_hash`, `text`, `consent_version`, `categories`, `snapshot_hash`, `created_ms`, `expires_ms` (at most 24 h after creation) | Pooled AI text for `ai_text` content (§11.5). Purged on every consent change, rule edit, retention run and deletion. |
 | `connector_state` | `connector_id` PK, `enabled`, `connection`, `permission_summary`, `last_success_ms`, `last_attempt_ms`, `last_error_code`, `sync_state` | |
-| `sync_cursor` | (`connector_id`, `stream`) PK, `last_success_cursor`, `last_attempt_cursor`, `sync_start_ms`, `sync_end_ms`, `last_error` | Committed in the same transaction as the data it covers. |
-| `google_health_state` | `account_hint`, `granted_scopes`, `connected_ms`, `disconnected_ms`, `last_full_resync_ms` | No tokens. |
-| `ai_request` | `id`, `purpose`, `categories`, `time_range`, `raw_events_sent` (bool), `aggregates_sent` (bool), `model`, `status`, `error_code`, `created_ms`, `bytes_sent` | Metadata only; no payload copy. |
+| `sync_cursor` | (`connector_id`, `account_id`, `stream`) PK, `synced_through_ms`, `synced_through_elapsed_ms`, `synced_through_boot_count`, `backfilled_from_ms`, `next_allowed_at_ms`, `consecutive_failures`, `fetch_generation`, `import_floor_ms` | Written in the same transaction as the data it covers, with `max()` and a fetch-generation compare-and-set (§5.6). `import_floor_ms` = max(now - retention, last deletion instant). |
+| `google_health_state` | `health_user_id`, `account_hint`, `granted_scopes`, `connected_ms`, `disconnected_ms`, `last_full_resync_ms` | No tokens. |
+| `ai_request` | `id`, `purpose`, `categories`, `time_range`, `raw_events_sent` (bool), `aggregates_sent` (bool), `model`, `status`, `error_code`, `created_ms`, `bytes_sent` | Metadata only; no payload copy. One row per send, background sends included (the user-visible log of §9.3 reads them); `categories` equal the categories present in the request body. |
 | `ai_result_meta` | `request_id`, `schema`, `valid`, `validation_errors`, `produced_entity_id` | |
 | `media_artifact` | `id`, `created_ms`, `source_jitai_id`, `decision_key`, `method` (LOCAL_RENDER/TTS/MEDIA3), `local_uri`, `mime`, `size_bytes`, `expires_ms` | Files live in app-private storage; cleanup by quota and age. |
 | `user_goal` | `id`, `text`, `metric`, `target`, `created_ms`, `active` | |
 | `user_log` | `id`, `at_ms`, `kind` (mood/energy/note), `value`, `note` | Manual input; also mirrored as `USER_LOG` events. |
 | `permission_snapshot` | `capability_id`, `state`, `blockers`, `at_ms` | Written on change only. |
-| `diagnostic_log` | `id`, `at_ms`, `severity`, `component`, `event_code`, `message` (sanitized) | Ring buffer, 5,000 rows. |
+| `engine_state` | `key` PK, `value` | The JITAI evaluation watermark, a dirty flag set by every trigger-relevant ingest, a random `db_generation`. |
+| `diagnostic_log` | `id`, `at_ms`, `severity`, `component`, `event_code`, `fields` | Ring buffer, 5,000 rows. Structured, allow-listed entries: closed-enum keys, values limited to enums, numbers, durations and HTTP status. No free-text message column (§14). |
 
-Settings that are not records live in DataStore (retention choice, AI category toggles, quiet hours, global caps,
-collection profile, onboarding state, install id).
+Rows that come from Google Health carry the account id; feature, insight and AI-context queries read only the active
+account's rows (§7.2). Derived rows (`engine_day_summary`, `derived_feature`, `insight`, proposal evidence) carry
+`lineage`, the union of their inputs' data categories and source families (§9.2), so consent gating and deletion can
+follow them.
+
+Settings that are not records live in DataStore (retention choice, quiet hours, global caps, collection profile,
+onboarding state, install id). AI consent is a dedicated store of `ConsentGrant(category, purpose, consentVersion,
+grantedAt, accountSub)` records (§9.1), not a set of toggles.
 
 Migrations: schema exported to `core/database/schemas/`; every version bump ships a `Migration` (or
-`AutoMigration`) and a migration test. Destructive fallback is never enabled.
+`AutoMigration`) and a migration test. Migrations add columns or indexes only: a changed projection becomes a new
+column, never a rewrite inside a `Migration`. Destructive fallback is never enabled.
 
 ### 5.3 Identity and deduplication
 
-`dedupKey` is deterministic per source: Android usage `usage|<pkg>|<eventType>|<timestampMs>|<instanceHash>`;
-notification `notif|<sbnKeyHash>|<postTime>|<posted/removed>`; Google Health `gh|<dataType>|<dataPoint.name>` for
-identifiable types and `gh|<dataType>|<start>|<end>|<dataSourceHash>` otherwise; battery samples
-`battery|<minuteBucket>`. Ingestion is `INSERT ... ON CONFLICT(dedup_key) DO UPDATE` only when the payload hash
-changed (late or corrected records), otherwise ignore. Same sync twice, overlapping windows, partial retry and late
-records therefore converge to the same rows.
+`dedupKey` is deterministic per source. It is stored as a 64-bit hash (`dedup_hash` INTEGER UNIQUE), with a
+collision check against the stored key.
+- Android usage: (timestampMs, type, package, class) plus an occurrence index among identical tuples.
+- Notifications: `notif|<keyHash>|<firstPostMs>`, one POSTED row per notification key; later updates fold into that
+  row's `updateCount` and `lastUpdateEpochMs`; REMOVED is recorded with its reason.
+- Battery: transitions `battery|<kind>|<eventMs>`; snapshots `battery|sample|<5-min bucket>`.
+- Calendar `cal|<event_id>|<begin>`; activity recognition `ar|<activity>|<transition>|<eventMs>`; user logs
+  `log|<id>`.
+- Health Connect: `hc|<metadata.id>`; a `DeletionChange` deletes by that key.
+- Google Health: `gh|<accountId>|<stream>|<dataPoint.name>` for identifiable points, otherwise the interval or
+  sample time in place of the name. Optional fields such as `dataSource.platform` or the application never enter the
+  key or the payload hash.
+
+Two write paths (§5.6). `commit()` serves append-only Android sources: it inserts new keys and updates a row only when
+its payload hash changed. `replaceWindow(source, start, end, events, cursor, coverage, account)` serves windowed
+upstream sources and has diff semantics: afterwards the stored set for that source and account in [start, end) equals
+`events`. It dedupes the batch by key (the newest upstream update wins), deletes stored keys that were not returned,
+inserts new keys and updates only rows whose payload hash changed and whose upstream update time is not older;
+unchanged rows stay untouched (no `change_seq` or dirty-day churn). The same sync twice, overlapping windows, partial
+retries, late or corrected records, upstream deletions and re-segmentation therefore converge to the upstream state.
 
 ### 5.4 Encryption at rest
 
 Decision [R04 §3.2]: the database is encrypted with SQLCipher for Android 4.19.1 through Room 3's `SQLCipherDriver`
-in every app variant (JVM and Robolectric tests use the unencrypted driver). Reason: credential-encrypted storage is
+in every app variant (JVM and Robolectric tests use `BundledSQLiteDriver`). Reason: credential-encrypted storage is
 readable from first unlock until reboot, so file-based encryption alone does not protect a copied lifelog database,
 and a wrapped key gives crypto-erasure on deletion.
-- Key: a random 32-byte data key, sealed by a Tink `AndroidKeystore` AEAD under alias `agentle.kek.db.v1` with AAD
-  `agentle/db-dek/v1|agentle.db`, written atomically (tmp, fsync, rename) to `noBackupFilesDir/keys/db-dek.v1.bin`,
-  passed to SQLCipher as a raw `x'<64 hex>'` key (no PBKDF2).
+- Key: a random 32-byte data key, sealed by an AES-256-GCM Android Keystore key under alias `agentle.kek.db.v1`
+  (Tink `AndroidKeystore.getAead`) with AAD `agentle/db-dek/v1|agentle.db`, written atomically (tmp, fsync, rename)
+  to `noBackupFilesDir/keys/db-dek.v1.bin`, passed to SQLCipher as a raw `x'<64 hex>'` key (no PBKDF2).
 - Keystore keys never require user authentication or an unlocked device: workers run while the phone is locked.
-  One retry on a Keystore failure, then the "local data unreadable" reset flow; never a plaintext fallback.
-- SQLCipher's SQL statement logging is disabled before its first class loads; `PRAGMA secure_delete=ON` and
-  `cipher_log_level=NONE` on every open.
-- Tokens and the SIWC client registration live in a separate Tink-sealed vault (`agentle.kek.vault.v1`), never in
+- Unwrap failures are classified. Permanent: `KeyPermanentlyInvalidatedException`; a missing alias while the wrapped
+  key file exists; `AEADBadTagException` on the wrapped key; "file is not a database" after a successful unwrap.
+  Everything else (for example `KeyStoreException`, or `InvalidKeyException`/`ProviderException` wrapping a Keystore
+  system error, timeouts) is transient.
+- The key is unwrapped lazily, off the main thread, in the database provider, never in `Application.onCreate`. A
+  background component never deletes anything: workers retry later, receivers finish, collectors skip the write and
+  record a coverage gap (§6.5), and a consecutive-failure counter lives in `noBackupFilesDir`. The "local data
+  unreadable" reset runs only from a visible activity after explicit user confirmation, and only for a permanent
+  failure or failures across at least two boots; it quarantines the data key file by renaming it. Never a plaintext
+  fallback.
+- SQLCipher's SQL statement logging is disabled before its first class loads. Every connection sets
+  `PRAGMA secure_delete=ON`, `cipher_log_level=NONE`, WAL, `synchronous=NORMAL`, `journal_size_limit` and
+  `busy_timeout` explicitly.
+- Tokens and the SIWC client registration live in a separate vault sealed under `agentle.kek.vault.v1`, never in
   the database (§14).
 
 ### 5.5 Retention and deletion
 
-Retention: keep indefinitely (default) / 30 d / 90 d / 1 y, applied per event family by a daily worker; JITAI
-definitions, decision rows needed for active cooldowns/caps (last 8 days) and user goals are exempt.
-Deletion actions are separate, each a single transaction plus file deletion, each verified by a post-delete count
-query returned to the UI: delete wearable data, delete Android-collected data, delete insights, delete intervention
-history, delete generated media (rows + files), delete all personal data (all tables except schema metadata, plus
-media files, plus token vault, plus DataStore personal keys). Disconnecting the wearable never deletes data;
-deleting never disconnects.
+Retention: keep indefinitely (default) / 30 d / 90 d / 1 y, applied per event family by a daily worker. Exempt:
+JITAI definitions, user goals and the content-free delivery ledger (§5.2), which is kept 400 days because caps,
+cooldowns, decision keys and intervention-history features count on it. A retention run writes the affected streams'
+`import_floor_ms` and purges `ai_text_pool`. A day removed by retention or deletion reads as Missing, never as zero.
+
+Deletion follows lineage. `DataCategoryRegistry` lists every (table, category predicate) pair that can hold a
+category: every `@Entity`, every derived table and every JSON column; a test fails when a table in the exported Room
+schema is not registered. Every deletion increments a DataEpoch, and every writer checks it inside its transaction and
+aborts if it changed, so a write that started before a deletion cannot put deleted data back. Deletion actions:
+- Per category or source family (for example wearable data, Android-collected data, one AI data category): runs in
+  chunks of at most 500 rows per transaction under the epoch guard, with progress kept in the deletion marker, so a
+  stopped worker resumes. It deletes the primary rows and every derived row whose lineage includes the category,
+  rewrites JITAI snapshot, trace and outcome JSON with a deleted marker (the engine's scrub function, §11.4), purges
+  `ai_text_pool`, writes `import_floor_ms` for the category's streams and revokes the category's AI consent grants.
+  It ends with `wal_checkpoint(TRUNCATE)`, checking the busy flag and retrying. The flow asks "Also stop
+  collecting/syncing?"; if collection continues, only data from now on comes back.
+- Delete insights: insight rows, including their AI text.
+- Delete intervention history: removes traces, snapshots, content, `ai_text_pool` rows and outcome metrics. The
+  delivery ledger stays, so caps, cooldowns and decision keys keep counting and today's nudges cannot fire again.
+- Delete generated media: rows, files and share copies.
+- Delete everything, in this order: (1) write a `deletion_in_progress` marker file in `noBackupFilesDir`; (2) stop
+  producers: cancel work and disable the notification listener component (`setComponentEnabledSetting(...,
+  DISABLED)`); (3) revoke remote sessions through a port while credentials exist (ChatGPT through
+  `SiwcSessionManager.disconnect()`, §8.2; Google through `GoogleHealthAuthorizer.revoke()`, §7.1); if revocation
+  fails, report "remote disconnection could not be confirmed" with the manual path; (4) drain writers through the
+  epoch guard; (5) close Room; (6) delete the database, `-wal`, `-shm` and `-journal` files; (7) delete the data key
+  file and both Keystore aliases (crypto-erasure); (8) delete media and DataStore files; (9) verify counts; (10)
+  `clearApplicationUserData()`. No row deletes and no VACUUM on this path. A marker found at app start resumes the
+  flow.
+- Verification counts every registry pair, numeric derived rows included, and the counts are shown to the user. Tests
+  add an independent checker that walks `sqlite_master` and scans every column, JSON included, for seeded markers
+  (§17).
+- Never delete `-wal`/`-shm` of an open database. VACUUM runs only as charging+idle maintenance, after a free-space
+  check (at least 2.2 times the database size), with `temp_store=FILE` and `SQLITE_TMPDIR=cacheDir`.
+
+Disconnecting the wearable never deletes data.
+
+### 5.6 Write path, change tracking and coverage
+
+- Every event write goes through one serialized writer with transactions of at most 500 rows; collectors and the
+  notification listener batch into it in process.
+- `commit(events, cursor, coverage)` and `replaceWindow(...)` (§5.3) write the data, the stream's cursor and its
+  coverage in one transaction. A cursor write carries the fetch generation it read; the sink applies `max()` and
+  stores generation + 1, or rejects the whole call (`CommitResult.rejected`) if another run moved the cursor, so an
+  older window never moves a cursor backward. Records older than the stream's `import_floor_ms` are dropped silently;
+  a dropped record is normal, never an error or a reason to retry.
+- The same transaction takes `change_seq` values for inserts, semantic updates and tombstones, sets the
+  `engine_state` dirty flag when a trigger-relevant event changed, and writes `dirty_day` rows for every engine day a
+  changed interval overlaps. Unchanged rows produce none of these.
+- `clampFutureCursors(now)`: any cursor later than now + 5 min (a bad clock at boot) is clamped to now - overlap,
+  and a coverage gap is recorded. The reconciler calls it at boot, on `TIME_SET` and before each sync run (§13).
+- JITAI decisions commit through a decision-commit runner: a process-wide mutex plus one IMMEDIATE write
+  transaction in which the caller re-reads the gate counts, inserts the decision and advances the evaluation
+  watermark (§11.4). A read-transaction runner gives each feature resolve one consistent database snapshot.
 
 ## 6. Connectors and the Permission Center
 
