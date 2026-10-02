@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="onboarding_title">Welcome to Agentle</string>
+    <string name="onboarding_welcome_body">Agentle helps you understand your days from the data your phone already has, and can nudge you at the right moment with your own rules.</string>
+    <string name="onboarding_start">Get started</string>
+    <string name="onboarding_next">Continue</string>
+    <string name="onboarding_back">Back</string>
+    <string name="onboarding_promises_title">Our promises</string>
+    <string name="onboarding_promise_local_title">Your data stays on this phone</string>
+    <string name="onboarding_promise_local_body">Everything Agentle collects is stored locally and encrypted. There is no Agentle cloud.</string>
+    <string name="onboarding_promise_ai_title">AI is optional</string>
+    <string name="onboarding_promise_ai_body">Agentle works fully without AI. You can connect ChatGPT later if you want.</string>
+    <string name="onboarding_promise_permissions_title">You choose each permission</string>
+    <string name="onboarding_promise_permissions_body">Every data source asks separately, and you can turn each one off at any time in the Permission Center.</string>
+    <string name="onboarding_promise_sharing_title">Nothing leaves without you</string>
+    <string name="onboarding_promise_sharing_body">Data leaves the phone only when you choose to send selected context to AI.</string>
+    <string name="onboarding_sources_title">Pick your sources</string>
+    <string name="onboarding_sources_body">Optional. You can connect or change these at any time.</string>
+    <string name="onboarding_source_phone">This phone</string>
+    <string name="onboarding_source_phone_body">App usage, activity, battery and other signals from Android.</string>
+    <string name="onboarding_source_wearable">Wearable (Google Health)</string>
+    <string name="onboarding_source_wearable_body">Steps, sleep and heart rate from your watch or tracker. Connect it later in Data Sources.</string>
+    <string name="onboarding_source_chatgpt">ChatGPT</string>
+    <string name="onboarding_source_chatgpt_body">Optional AI insights with your ChatGPT account. Connect it later.</string>
+    <string name="onboarding_primer_notifications_title">Notifications</string>
+    <string name="onboarding_primer_notifications_body">Agentle shows your nudges as notifications. Without them, nudges wait as cards in the app.</string>
+    <string name="onboarding_primer_activity_title">Physical activity</string>
+    <string name="onboarding_primer_activity_body">Lets Agentle notice when you walk, run, cycle or sit still, so rules can react to movement. Nothing leaves the phone.</string>
+    <string name="onboarding_primer_step">Permission %1$d of %2$d</string>
+    <string name="onboarding_primer_allow">Continue to Android\'s question</string>
+    <string name="onboarding_primer_retry">Ask again</string>
+    <string name="onboarding_primer_not_now">Not now</string>
+    <string name="onboarding_primer_denied">Not allowed. Agentle works without it; you can change this later.</string>
+    <string name="onboarding_primer_denied_permanently">Android will not ask again. You can allow it in Android Settings.</string>
+    <string name="onboarding_open_settings">Open Android Settings</string>
+    <string name="onboarding_summary_title">You are set</string>
+    <string name="onboarding_summary_body">This is what Agentle can use now. Change anything later in the Permission Center.</string>
+    <string name="onboarding_summary_not_asked">Not asked</string>
+    <string name="onboarding_summary_sources">Sources you picked</string>
+    <string name="onboarding_summary_no_sources">None yet</string>
+    <string name="onboarding_finish">Go to the dashboard</string>
+    <string name="onboarding_error_dismiss">Dismiss</string>
+</resources>
