@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Notification channels, one per intervention category (R10 §8.5). -->
+    <string name="interventions_channel_group">Nudges</string>
+    <string name="interventions_channel_physical_activity">Movement nudges</string>
+    <string name="interventions_channel_sleep_wind_down">Wind-down nudges</string>
+    <string name="interventions_channel_digital_wellbeing">Screen-time nudges</string>
+    <string name="interventions_channel_stress_break">Break nudges</string>
+    <string name="interventions_channel_general">Other nudges</string>
+    <string name="interventions_channel_description">Suggestions from your JITAIs</string>
+
+    <!-- The lock-screen (public) version: always generic. -->
+    <string name="interventions_public_title">Agentle</string>
+    <string name="interventions_public_text">Agentle has a suggestion</string>
+
+    <!-- Notification actions. -->
+    <string name="interventions_action_listen">Listen</string>
+    <string name="interventions_action_watch">Watch</string>
+    <string name="interventions_action_not_now">Not now</string>
+    <string name="interventions_action_stop">Stop this JITAI</string>
+    <string name="interventions_snooze_30_minutes">Snooze 30 min</string>
+    <string name="interventions_snooze_60_minutes">Snooze 1 h</string>
+    <string name="interventions_snooze_120_minutes">Snooze 2 h</string>
+    <string name="interventions_snooze_until_window_end">Not now</string>
+    <string name="interventions_snooze_until_tomorrow">Tomorrow</string>
+
+    <!-- Pictures. -->
+    <string name="interventions_picture_description">Picture for this nudge</string>
+</resources>

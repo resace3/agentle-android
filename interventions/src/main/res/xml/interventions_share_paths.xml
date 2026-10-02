@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider has no no-backup root, so "Share" copies a file to cacheDir/share/ first (R09 §9.1). -->
+<paths>
+    <cache-path
+        name="share"
+        path="share/" />
+</paths>
