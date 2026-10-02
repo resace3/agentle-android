@@ -25,6 +25,17 @@ public fun interface AppLabelResolver {
 
     /** The label of an installed app, for the rendered sentence. */
     public fun labelOf(packageName: String): String? = launcherApps().firstOrNull { it.packageName == packageName }?.label
+
+    public companion object {
+        /** No launcher-visible apps: every `appLabel` asks the user (C01 with the full picker). */
+        public val NONE: AppLabelResolver = AppLabelResolver { emptyList() }
+
+        /** A fixed app list: the fake for tests, previews and the rule editor's sample data (no package manager). */
+        public fun of(apps: List<InstalledApp>): AppLabelResolver {
+            val fixed = apps.toList()
+            return AppLabelResolver { fixed }
+        }
+    }
 }
 
 /** Result of resolving an `appLabel` (R10 §13.4 steps 3-5). */
