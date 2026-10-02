@@ -20,6 +20,7 @@ import kotlin.time.Duration.Companion.seconds
  * Not exported; only the allow-listed system actions reach the scheduler, as a reconcile request (debounced except
  * BOOT and PACKAGE_REPLACED). Does no work itself: it only enqueues, inside a bounded goAsync window.
  */
+@Suppress("InjectDispatcher") // a receiver has no injection point; the work is a bounded enqueue
 public class SystemEventReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val reason = reasonFor(intent.action) ?: return
@@ -45,8 +46,6 @@ public class SystemEventReceiver : BroadcastReceiver() {
         /** API 37 `Intent.ACTION_TIMEZONE_OFFSET_CHANGED`; a literal so the module compiles against older SDKs. */
         public const val ACTION_TIMEZONE_OFFSET_CHANGED: String = "android.intent.action.TIMEZONE_OFFSET_CHANGED"
         private val ENQUEUE_BUDGET = 8.seconds
-        // A receiver has no injection point for a dispatcher; the work is a bounded enqueue.
-        @Suppress("InjectDispatcher")
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         /** The allow-list; anything else (including a null action) is ignored. */
