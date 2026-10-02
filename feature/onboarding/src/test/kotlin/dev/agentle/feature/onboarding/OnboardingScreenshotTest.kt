@@ -66,5 +66,9 @@ class OnboardingScreenshotTest {
 
     @Test fun summary_dark_fontScale2() = capture(summary, true, 2f)
 
-    @Test fun error_light() = capture(state(OnboardingStep.SOURCES).copy(error = dev.agentle.core.common.AppError.DatabaseError()), false, 1f)
+    @Test fun error_light() = capture(
+        state(OnboardingStep.SOURCES).copy(error = dev.agentle.core.common.AppError.DatabaseError()),
+        false,
+        1f,
+    )
 }

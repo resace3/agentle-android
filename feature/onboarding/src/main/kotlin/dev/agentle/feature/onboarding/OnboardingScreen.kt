@@ -102,7 +102,9 @@ internal fun OnboardingScreen(state: OnboardingUiState, actions: OnboardingActio
         val modifier = Modifier.padding(padding).fillMaxSize()
         when {
             state.loading -> LoadingState(modifier)
+
             state.error != null -> OnboardingError(state.error, actions, modifier)
+
             else -> Column(
                 modifier = modifier.verticalScroll(rememberScrollState()).padding(AgentleSpacing.screenGutter),
                 verticalArrangement = Arrangement.spacedBy(AgentleSpacing.l),
@@ -200,10 +202,12 @@ private fun PermissionPrimer(state: OnboardingUiState, actions: OnboardingAction
             Body(stringResource(R.string.onboarding_primer_denied_permanently))
             PrimaryButton(stringResource(R.string.onboarding_open_settings), actions.openSettings)
         }
+
         PermissionState.DENIED -> {
             Body(stringResource(R.string.onboarding_primer_denied))
             PrimaryButton(stringResource(R.string.onboarding_primer_retry), actions.request)
         }
+
         else -> PrimaryButton(stringResource(R.string.onboarding_primer_allow), actions.request)
     }
     OutlinedButton(onClick = actions.skip, modifier = Modifier.fillMaxWidth().heightIn(min = AgentleSpacing.minTouchTarget)) {

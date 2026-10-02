@@ -69,13 +69,14 @@ class OnboardingJourneyTest {
         val owner = object : ActivityResultRegistryOwner {
             override val activityResultRegistry: ActivityResultRegistry = registry
         }
+        val viewModel = OnboardingViewModel(port, 37)
         compose.setContent {
             CompositionLocalProvider(
                 LocalActivityResultRegistryOwner provides owner,
                 LocalPermissionRationale provides PermissionRationale { rationale() },
             ) {
                 AgentleTestFrame {
-                    OnboardingRoute(OnboardingViewModel(port, 37), onFinished = { navigator.resetTo(AppRoute.Dashboard) })
+                    OnboardingRoute(viewModel, onFinished = { navigator.resetTo(AppRoute.Dashboard) })
                 }
             }
         }

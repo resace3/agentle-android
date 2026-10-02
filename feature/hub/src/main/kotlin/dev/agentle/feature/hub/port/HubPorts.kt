@@ -31,7 +31,13 @@ public enum class TodayMetricKind { STEPS, ACTIVE_MINUTES, SLEEP_MINUTES, SCREEN
 public data class ActiveJitai(val id: String, val name: String, val nextPossibleDelivery: Instant?, val blockedReason: String? = null)
 
 /** An intervention that could not be shown as a notification and waits in the app (decision key from the engine). */
-public data class PendingIntervention(val decisionKey: String, val jitaiId: String, val title: String, val text: String, val createdAt: Instant)
+public data class PendingIntervention(
+    val decisionKey: String,
+    val jitaiId: String,
+    val title: String,
+    val text: String,
+    val createdAt: Instant,
+)
 
 /**
  * Everything the Dashboard shows.

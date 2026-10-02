@@ -10,12 +10,12 @@ import dev.agentle.feature.onboarding.port.OnboardingSource
 import dev.agentle.feature.onboarding.port.OnboardingStep
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -41,7 +41,8 @@ class OnboardingViewModelTest {
 
     private fun TestScope.effectsOf(vm: OnboardingViewModel): List<OnboardingEffect> {
         val effects = mutableListOf<OnboardingEffect>()
-        backgroundScope.launch(dispatcher) { vm.effect.toList(effects) }
+        backgroundScope.launch(dispatcher) { vm.effect.collect { effects += it } }
+        runCurrent()
         return effects
     }
 
