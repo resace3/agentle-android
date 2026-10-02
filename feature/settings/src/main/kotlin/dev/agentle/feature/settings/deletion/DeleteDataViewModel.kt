@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -95,9 +96,12 @@ internal class DeleteDataViewModel @Inject constructor(private val port: Deletio
     private val reloads = MutableStateFlow(0)
     private val local = MutableStateFlow(Local())
 
+    /** The latest "delete everything" state seen from the port; guards read it instead of the lagging [state]. */
+    private val latestDeleteAll = MutableStateFlow<DeleteAllState>(DeleteAllState.Idle)
+
     val state: StateFlow<DeleteDataUiState> = combine(
         reloads.reloading { port.overview },
-        port.deleteAllState.onStart { emit(DeleteAllState.Idle) }.catch { emit(DeleteAllState.Idle) },
+        port.deleteAllState.onStart { emit(DeleteAllState.Idle) }.catch { emit(DeleteAllState.Idle) }.onEach { latestDeleteAll.value = it },
         local,
     ) { overview, deleteAll, pending ->
         DeleteDataUiState(
@@ -121,7 +125,7 @@ internal class DeleteDataViewModel @Inject constructor(private val port: Deletio
             DeleteDataAction.ConfirmDelete -> confirmDelete()
             DeleteDataAction.DismissDelete -> local.update { it.copy(request = null) }
             DeleteDataAction.DismissReport -> local.update { it.copy(report = null) }
-            DeleteDataAction.RequestDeleteEverything -> if (!state.value.busy) local.update { it.copy(confirmingDeleteAll = true) }
+            DeleteDataAction.RequestDeleteEverything -> local.updateIf({ !it.busy() }) { it.copy(confirmingDeleteAll = true) }
             DeleteDataAction.DismissDeleteEverything -> local.update { it.copy(confirmingDeleteAll = false) }
             DeleteDataAction.ConfirmDeleteEverything -> deleteEverything()
             DeleteDataAction.FinishDeleteEverything -> finish()
@@ -129,18 +133,18 @@ internal class DeleteDataViewModel @Inject constructor(private val port: Deletio
     }
 
     private fun requestDelete(target: DeletionTarget) {
-        val current = state.value
-        if (current.busy) return
-        val item = current.overview.valueOrNull()?.items?.firstOrNull { it.target == target } ?: return
-        local.update { it.copy(request = DeleteRequest(item)) }
+        val item = state.value.overview.valueOrNull()?.items?.firstOrNull { it.target == target } ?: return
+        local.updateIf({ !it.busy() }) { it.copy(request = DeleteRequest(item)) }
     }
 
     private fun confirmDelete() {
         val request = local.value.request ?: return
-        if (state.value.busy) return
         val target = request.item.target
         val stopCollecting = request.stopCollecting && request.item.collection == CollectionControl.ACTIVE
-        local.update { it.copy(request = null, deleting = target, report = null) }
+        val started = local.updateIf({ it.request == request && !it.busy() }) {
+            it.copy(request = null, deleting = target, report = null)
+        }
+        if (!started) return
         viewModelScope.launch {
             val result = port.delete(target, stopCollecting)
             local.update { it.copy(deleting = null, report = (result as? Outcome.Success)?.value) }
@@ -149,10 +153,8 @@ internal class DeleteDataViewModel @Inject constructor(private val port: Deletio
     }
 
     private fun deleteEverything() {
-        val current = state.value
-        val canStart = current.deleteAll is DeleteAllState.Idle || current.deleteAll is DeleteAllState.Failed
-        if (!canStart || current.startingDeleteAll || current.deleting != null) return
-        local.update { it.copy(confirmingDeleteAll = false, startingDeleteAll = true, report = null) }
+        val started = local.updateIf({ !it.busy() }) { it.copy(confirmingDeleteAll = false, startingDeleteAll = true, report = null) }
+        if (!started) return
         viewModelScope.launch {
             val result = port.deleteEverything()
             local.update { it.copy(startingDeleteAll = false) }
@@ -161,8 +163,8 @@ internal class DeleteDataViewModel @Inject constructor(private val port: Deletio
     }
 
     private fun finish() {
-        if (state.value.deleteAll !is DeleteAllState.Verified || local.value.finishing) return
-        local.update { it.copy(finishing = true) }
+        if (latestDeleteAll.value !is DeleteAllState.Verified) return
+        if (!local.updateIf({ !it.finishing }) { it.copy(finishing = true) }) return
         viewModelScope.launch {
             when (val result = port.finishDeleteEverything()) {
                 // On a device the process ends inside the call; where it returns, the app restarts at onboarding.
@@ -173,6 +175,21 @@ internal class DeleteDataViewModel @Inject constructor(private val port: Deletio
                     report(result.error)
                 }
             }
+        }
+    }
+
+    /** True while a delete runs or "delete everything" is starting or in progress (Failed can be resumed). */
+    private fun Local.busy(): Boolean {
+        val all = latestDeleteAll.value
+        return deleting != null || startingDeleteAll || !(all is DeleteAllState.Idle || all is DeleteAllState.Failed)
+    }
+
+    /** Checks [condition] and applies [transform] atomically; false when the condition did not hold. */
+    private inline fun MutableStateFlow<Local>.updateIf(condition: (Local) -> Boolean, transform: (Local) -> Local): Boolean {
+        while (true) {
+            val current = value
+            if (!condition(current)) return false
+            if (compareAndSet(current, transform(current))) return true
         }
     }
 }

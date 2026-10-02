@@ -111,6 +111,10 @@ internal class FakeDeletionPort(overview: DeletionOverview = Fixtures.overview) 
     val deletes = mutableListOf<Pair<DeletionTarget, Boolean>>()
     var deleteEverythingCalls = 0
     var finishCalls = 0
+
+    /** When true, deleteEverything() suspends until [release] completes, so "starting" can be observed. */
+    var holdDeleteEverything = false
+    val release = kotlinx.coroutines.CompletableDeferred<Unit>()
     var finishResult: Outcome<Unit> = Outcome.Success(Unit)
     override val overview: Flow<Outcome<DeletionOverview>> = overviewFlow
     override val deleteAllState: Flow<DeleteAllState> = stateFlow
@@ -122,6 +126,7 @@ internal class FakeDeletionPort(overview: DeletionOverview = Fixtures.overview) 
 
     override suspend fun deleteEverything(): Outcome<Unit> {
         deleteEverythingCalls++
+        if (holdDeleteEverything) release.await()
         stateFlow.value = DeleteAllState.Running(DeleteAllStep.WRITE_MARKER, emptySet(), resumed = false)
         return Outcome.Success(Unit)
     }

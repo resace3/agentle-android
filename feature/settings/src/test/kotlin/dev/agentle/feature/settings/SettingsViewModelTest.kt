@@ -188,4 +188,26 @@ class SettingsViewModelTest {
         vm.onAction(DebugAction.GenerateDataset)
         assertThat(port.calls).isEqualTo(1)
     }
+
+    @Test
+    fun `confirming delete everything twice back to back starts it once`() = runTest {
+        val port = FakeDeletionPort().apply { holdDeleteEverything = true }
+        val vm = DeleteDataViewModel(port, TestZonePort())
+        collect(vm.state)
+        vm.onAction(DeleteDataAction.ConfirmDeleteEverything)
+        vm.onAction(DeleteDataAction.ConfirmDeleteEverything)
+        assertThat(port.deleteEverythingCalls).isEqualTo(1)
+    }
+
+    @Test
+    fun `a per-target delete is refused while delete everything is starting`() = runTest {
+        val port = FakeDeletionPort().apply { holdDeleteEverything = true }
+        val vm = DeleteDataViewModel(port, TestZonePort())
+        collect(vm.state)
+        vm.onAction(DeleteDataAction.ConfirmDeleteEverything)
+        vm.onAction(DeleteDataAction.RequestDelete(DeletionTarget.Insights))
+        assertThat(vm.state.value.request).isNull()
+        vm.onAction(DeleteDataAction.ConfirmDelete)
+        assertThat(port.deletes).isEmpty()
+    }
 }
