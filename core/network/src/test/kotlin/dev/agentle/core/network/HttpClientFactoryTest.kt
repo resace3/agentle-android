@@ -66,6 +66,57 @@ class HttpClientFactoryTest {
     }
 
     @Test
+    fun `an allow-listed host is reached whatever the case of the entry`() {
+        server.enqueue(MockResponse.Builder().code(200).body("{}").build())
+        val host = server.url("/").host
+        val client = HttpClientFactory.create(egressConfig(setOf(host.uppercase())), logger)
+        client.newCall(Request.Builder().url(server.url("/v4/x")).build()).execute().use { assertThat(it.code).isEqualTo(200) }
+        assertThat(server.requestCount).isEqualTo(1)
+    }
+
+    @Test
+    fun `a host outside the allow-list is refused before any connection`() {
+        val client = HttpClientFactory.create(egressConfig(setOf("health.googleapis.com")), logger)
+        val e = assertThrows<EgressNotAllowedException> {
+            client.newCall(Request.Builder().url(server.url("/v4/x")).build()).execute()
+        }
+        assertThat(e.host).isEqualTo(server.url("/").host)
+        assertThat(e.message).doesNotContain("/v4/x")
+        assertThat(server.requestCount).isEqualTo(0)
+    }
+
+    @Test
+    fun `a client with an allow-list hands a redirect back instead of following it`() {
+        val host = server.url("/").host
+        server.enqueue(MockResponse.Builder().code(302).addHeader("Location", otherLoopbackUrl("/next")).build())
+        val client = HttpClientFactory.create(egressConfig(setOf(host)), logger)
+        client.newCall(Request.Builder().url(server.url("/v4/x")).build()).execute().use { assertThat(it.code).isEqualTo(302) }
+        assertThat(server.requestCount).isEqualTo(1)
+    }
+
+    @Test
+    fun `a redirect hop to a host outside the allow-list is blocked at the network layer`() {
+        val host = server.url("/").host
+        server.enqueue(MockResponse.Builder().code(302).addHeader("Location", otherLoopbackUrl("/next")).build())
+        server.enqueue(MockResponse.Builder().code(200).body("{}").build())
+        val client = HttpClientFactory.create(egressConfig(setOf(host)), logger).newBuilder().followRedirects(true).build()
+        assertThrows<EgressNotAllowedException> {
+            client.newCall(Request.Builder().url(server.url("/v4/x")).build()).execute()
+        }
+        assertThat(server.requestCount).isEqualTo(1)
+    }
+
+    private fun egressConfig(allowedHosts: Set<String>) =
+        HttpClientConfig("Agentle/0.1", allowCleartextLoopback = true, allowedHosts = allowedHosts)
+
+    /** The same server under its other loopback name, so the redirect target is a different host. */
+    private fun otherLoopbackUrl(path: String): String {
+        val url = server.url(path)
+        val other = if (url.host == "localhost") "127.0.0.1" else "localhost"
+        return url.newBuilder().host(other).build().toString()
+    }
+
+    @Test
     fun `loopback detection never trusts names other than localhost`() {
         assertThat(TransportSecurityInterceptor.isLoopback("127.0.0.1")).isTrue()
         assertThat(TransportSecurityInterceptor.isLoopback("::1")).isTrue()

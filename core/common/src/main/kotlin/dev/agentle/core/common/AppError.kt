@@ -61,7 +61,7 @@ public sealed class AppError(public val code: String, public open val detail: St
 
     public data class Unexpected(override val detail: String? = null) : AppError("unexpected", detail)
 
-    override fun toString(): String = "AppError($code${detail?.let { ": $it" } ?: ""})"
+    override fun toString(): String = "AppError($code${detail?.let { ": $it" }.orEmpty()})"
 }
 
 /** Thrown inside coroutines when a typed error must cross a boundary that only speaks exceptions. */
