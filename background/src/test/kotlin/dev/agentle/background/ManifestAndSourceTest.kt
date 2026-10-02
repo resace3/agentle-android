@@ -2,6 +2,7 @@ package dev.agentle.background
 
 import android.content.Intent
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import dev.agentle.background.receiver.SystemEventReceiver
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -73,7 +74,7 @@ class ManifestAndSourceTest {
     @Test
     fun `no bare REPLACE import hides a periodic REPLACE`() {
         val bare = Regex("""import androidx\.work\.Existing\w*Policy\.(REPLACE|CANCEL_AND_REENQUEUE|\*)""")
-        sources.forEach { (file, text) -> assertThat(bare.containsMatchIn(text)).named(file.name).isFalse() }
+        sources.forEach { (file, text) -> assertWithMessage(file.name).that(bare.containsMatchIn(text)).isFalse() }
     }
 
     @Test

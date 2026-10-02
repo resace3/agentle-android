@@ -48,6 +48,7 @@ class BudgetSimulationTest {
 
     private class Result(val secondsPerDay: Double, val runs: Map<String, Int>)
 
+    @Suppress("LoopWithTooManyJumpStatements") // a scheduler loop reads clearest with early skips
     private suspend fun simulate(profile: CollectionProfile, failing: Boolean, days: Int = 7): Result {
         val h = Harness()
         h.profile.value = profile
