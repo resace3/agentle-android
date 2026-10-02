@@ -96,9 +96,11 @@ class LiveWriterTest {
         repeat(10) { i ->
             net.recordNetwork(network(i), airplaneMode = false, at = t.clock.now(), via = out)
             writer.flush()
+            t.clock.advanceBy(1.seconds)
         }
+        // Three tokens: WIFI, CELLULAR, WIFI. Every later change to CELLULAR is dropped; WIFI is then the last state.
         assertThat(t.writer.rows).hasSize(3)
-        assertThat(out.dropped).isEqualTo(7)
+        assertThat(out.dropped).isEqualTo(4)
     }
 
     @Test
