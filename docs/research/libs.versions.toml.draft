@@ -1,0 +1,261 @@
+# Agentle version catalog - DRAFT, verified 2026-10-01 by Agent 7 (architecture + dependency verification).
+#
+# Destination: gradle/libs.versions.toml. Companion report: docs/research/07-architecture-and-versions.md.
+# "s2.4" etc. point to report sections; [KEYS] are the source keys defined in report section 1:
+#   [MC]  Maven Central maven-metadata.xml / POM (fetched 2026-10-01)   [GPP] Gradle Plugin Portal metadata
+#   [AX:<lib>] https://developer.android.com/jetpack/androidx/releases/<lib>   [BOM-MAP] Compose BOM mapping page
+#   [AGP-93]/[AGP-94]/[KGP-COMPAT]/[ROOM3-RN]/[AUTHZ]/[PS]/[NIA]/[CS] etc. as listed in the report.
+# Policy: latest STABLE unless a comment justifies otherwise. Pre-releases in this file: detekt 2.0.0-alpha.6
+# (required with AGP 9, s7.1) and the optional Health Connect test artifact (no stable exists).
+# "UNVERIFIED" = could not be confirmed from repository metadata or an official page from this environment
+# (Google Maven itself is unreachable here, so AndroidX/AGP/Play versions come from official release pages).
+#
+# Build-time verification (s5): every Maven Central / Plugin Portal entry used by the JVM-only check
+# (/tmp/claude-0/spike/jvm-check) resolved and passed tests on Gradle 9.7.1 and 9.8.0. Entries hosted only on
+# Google Maven (AGP, AndroidX, Play services, desugar) are version-verified from release pages but NOT
+# build-verified here.
+#
+# Not catalog entries, but part of the same toolchain decision (s2.1):
+#   Gradle wrapper 9.7.1:
+#     distributionUrl=https\://services.gradle.org/distributions/gradle-9.7.1-bin.zip
+#     distributionSha256Sum=acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a
+#     (value from nowinandroid's wrapper at a49ed25 [NIA]; the spike wrapper uses the same value)
+#     Gradle 9.8.0 (2026-09-24) is the newest stable but lies outside KGP 2.4.20's tested range (max 9.7.0).
+#   JDK 21 runs Gradle and unit tests (Robolectric SDK 36/37 need Java 21); bytecode target 17.
+#   Settings plugin (no catalog accessors in settings.gradle.kts, copy the literal):
+#     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"   # [GPP] 1.0.0 is the latest
+#   Gradle properties: android.newDsl and android.builtInKotlin stay at their AGP 9 defaults (true); no opt-outs.
+
+[versions]
+# ---------------------------------------------------------------- SDK levels (read by build-logic)
+compileSdk = "37"                    # Android 17; AGP 9.3 and 9.4 support up to API 37 [AGP-ABOUT]
+targetSdk = "37"
+minSdk = "29"                        # PROVISIONAL: doc 01 recommends 29, doc 02 prefers 31 (29 acceptable).
+                                     # No library below needs more than 24 (s8.7). The spike used 28.
+
+# ---------------------------------------------------------------- Build toolchain
+agp = "9.3.3"                        # [AGP-93] latest 9.3 patch (fixes 10 R8/D8 issues). Newest stable is 9.4.0
+                                     # (Sept 2026) [AGP-94], not yet in KGP 2.4.20's tested AGP range (8.5.2-9.3.1)
+                                     # [KGP-COMPAT]. Re-check when Kotlin 2.5.0 ships (planned Dec 2026).
+kotlin = "2.4.20"                    # [MC] 2026-09-07. Newest pre-release 2.5.0-Beta1 (2026-09-23), not used.
+ksp = "2.3.12"                       # [MC] 2026-09-09; KSP2 is versioned independently of Kotlin since 2.3.0 [KSP-QS]
+
+# ---------------------------------------------------------------- AndroidX / Compose (Google Maven)
+composeBom = "2026.09.00"            # [BOM-MAP] compose 1.12.1, material3 1.4.0, material3-adaptive 1.3.0
+activityCompose = "1.13.0"           # [AX:activity] (1.14.0-alpha03 not used)
+coreKtx = "1.19.1"                   # [AX:core]
+lifecycle = "2.11.0"                 # [AX:lifecycle] incl. lifecycle-viewmodel-navigation3 (2.12.0-alpha04 not used)
+navigation3 = "1.2.0"                # [AX:navigation3] (1.3.0-alpha01 not used). Nav 2 (2.10.2) is not used.
+androidxHilt = "1.4.0"               # [AX:hilt] hilt-work, hilt-compiler, hilt-lifecycle-viewmodel-compose
+room3 = "3.0.3"                      # [ROOM3-RN] stable; 3.1.0-alpha01 not used. Room 2.8.5 is the fallback (s4).
+sqlite = "2.7.1"                     # [AX:sqlite] sqlite-bundled (prod) / sqlite-framework (Robolectric tests)
+datastore = "1.2.1"                  # [AX:datastore] (1.3.0-alpha11 not used)
+work = "2.12.0"                      # [AX:work] minSdk 24. work-runtime-ktx is empty since 2.9.0: use work-runtime.
+paging = "3.5.1"                     # [AX:paging]
+media3 = "1.11.1"                    # [AX:media3] transformer/effect for video composition (docs 03/04 decide use)
+browser = "1.10.0"                   # [AX:browser] Custom Tabs / Auth Tab for the ChatGPT sign-in flow (doc 06)
+healthConnect = "1.1.0"              # [AX:health-connect] stable; 1.2.0-alpha06 only if doc 05 needs its APIs
+healthConnectTesting = "1.0.0-alpha04" # [AX:health-connect] PRE-RELEASE, test-only (FakeHealthConnectClient);
+                                     # no stable exists. Use only if :connectors:healthconnect is built.
+credentials = "1.6.0"                # [AX:credentials] OPTIONAL: only for Sign in with Google (not needed for
+                                     # AuthorizationClient). 1.7.0-alpha03 not used.
+androidxTestCore = "1.7.0"           # [AX:test] core-ktx
+androidxTestRunner = "1.7.0"         # [AX:test]
+androidxTestRules = "1.7.0"          # [AX:test]
+androidxTestExtJunit = "1.3.0"       # [AX:test] junit-ktx
+androidxTestExtTruth = "1.7.0"       # [AX:test]
+espresso = "3.7.0"                   # [AX:test]
+
+# ---------------------------------------------------------------- Google Play services / Google Maven-only
+playServicesAuth = "22.0.0"          # [AUTHZ] official authorization guide snippet; doc 05 cites GMS release notes
+                                     # (2026-08-26). Latest-ness UNVERIFIED (Google Maven metadata unreachable).
+playServicesLocation = "21.4.0"      # UNVERIFIED as latest: seen in Google's platform-samples catalog [PS]
+desugarJdkLibs = "2.1.5"             # [DESUGAR-CL] OPTIONAL: only if coreLibraryDesugaring is enabled (not needed
+                                     # for java.time with minSdk >= 26)
+# googleid (com.google.android.libraries.identity.googleid): UNVERIFIED, the official page says "<latest version>";
+# only needed for Sign in with Google, so it is left out.
+
+# ---------------------------------------------------------------- DI
+hilt = "2.60.1"                      # [MC] 2026-07-06 (Dagger + Hilt + Hilt Gradle plugin). Add
+                                     # ksp(kotlin-metadata-jvm) next to the compiler (s5.3 W3, verified s5.2).
+
+# ---------------------------------------------------------------- Kotlin libraries
+kotlinxCoroutines = "1.11.0"         # [MC] 2026-05-07
+kotlinxSerialization = "1.11.0"      # [MC] 2026-04-09; 1.12.0-RC (2026-09-04) not used
+kotlinxDatetime = "0.8.0"            # [MC][KDT-CL] Instant/Clock come from kotlin.time; never the -0.6.x-compat artifact
+kotlinxCollectionsImmutable = "0.5.2" # [MC] 2026-08-28
+
+# ---------------------------------------------------------------- Networking
+okhttp = "5.5.0"                     # [MC] 2026-08-16 (okhttp, logging-interceptor, mockwebserver3*)
+retrofit = "3.0.0"                   # [MC] 2025-05-15; its POM asks for OkHttp 4.12.0, resolution takes 5.5.0
+                                     # (verified in the JVM check)
+
+# ---------------------------------------------------------------- Security, images, leak detection
+tink = "1.23.0"                      # [MC] 2026-07-09 tink-android (Keystore-wrapped AEAD). security-crypto is
+                                     # deprecated [AX:security]: do not add it.
+sqlcipher = "4.19.1"                 # [MC][SQLCIPHER] OPTIONAL: only if DB encryption is required; SQLCipherDriver
+                                     # for Room 3
+coil = "3.6.3"                       # [MC][COIL-CL] 3.6.3 fixes R8 with AGP 9.4.0. coil-network-okhttp's POM asks for
+                                     # OkHttp 4.12.0; with 5.5.0 at runtime: UNVERIFIED here.
+leakcanary = "2.14"                  # [MC] debugImplementation only; 3.0-alpha-9 (minSdk 26) not used
+
+# ---------------------------------------------------------------- Testing
+junit4 = "4.13.2"                    # [MC] Robolectric / AndroidX Test / Compose UI tests run on JUnit 4
+junitBom = "6.1.3"                   # [MC] 2026-08-07 JUnit 6 (Jupiter + Platform) for pure-JVM modules
+robolectric = "4.17"                 # [MC] 2026-09-10; SDK 23-37, SDK 36/37 need Java 21 [ROBO-JAR]
+roborazzi = "1.76.0"                 # [MC] 2026-09-29
+truth = "1.4.5"                      # [MC] the one assertion library (AssertK 0.28.1 has had no release since 2024-04)
+turbine = "1.2.1"                    # [MC]
+mockk = "1.14.11"                    # [MC] 2026-05-29; boundaries only, prefer fakes
+
+# ---------------------------------------------------------------- Static analysis, formatting, coverage, SBOM
+detekt = "2.0.0-alpha.6"             # [MC][GPP] PRE-RELEASE, justified: detekt 1.23.8's Gradle plugin uses the legacy
+                                     # AGP API (BaseExtension/BaseVariant) that AGP 9 hides (s7.1). Plugin id dev.detekt.
+ktlint = "1.8.0"                     # [MC][KTLINT-CL] used through Spotless: kotlin { ktlint(libs.versions.ktlint.get()) }
+spotless = "8.10.3"                  # [MC] 2026-09-25
+kover = "0.9.11"                     # [MC][KOVER-CL] 2026-09-29
+cyclonedx = "3.4.1"                  # [GPP] 2026-08-11 SBOM per release
+
+[libraries]
+# ---------------------------------------------------------------- AndroidX core / lifecycle / navigation
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycle" }
+androidx-navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "navigation3" }
+androidx-navigation3-ui = { module = "androidx.navigation3:navigation3-ui", version.ref = "navigation3" }
+
+# ---------------------------------------------------------------- Compose (versions from the BOM)
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
+compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+
+# ---------------------------------------------------------------- DI (Hilt / Dagger)
+hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
+hilt-core = { module = "com.google.dagger:hilt-core", version.ref = "hilt" }                 # JVM modules [NIA]
+hilt-compiler = { module = "com.google.dagger:hilt-compiler", version.ref = "hilt" }         # ksp
+hilt-android-testing = { module = "com.google.dagger:hilt-android-testing", version.ref = "hilt" }
+# ksp next to hilt-compiler: Dagger 2.60.1 bundles kotlin-metadata-jvm 2.3.21; this aligns it with Kotlin (s5.3 W3)
+kotlin-metadata-jvm = { module = "org.jetbrains.kotlin:kotlin-metadata-jvm", version.ref = "kotlin" }
+androidx-hilt-work = { module = "androidx.hilt:hilt-work", version.ref = "androidxHilt" }
+androidx-hilt-compiler = { module = "androidx.hilt:hilt-compiler", version.ref = "androidxHilt" }  # ksp, for @HiltWorker
+androidx-hilt-lifecycle-viewmodel-compose = { module = "androidx.hilt:hilt-lifecycle-viewmodel-compose", version.ref = "androidxHilt" }
+
+# ---------------------------------------------------------------- Persistence
+androidx-room3-runtime = { module = "androidx.room3:room3-runtime", version.ref = "room3" }
+androidx-room3-compiler = { module = "androidx.room3:room3-compiler", version.ref = "room3" }   # ksp
+androidx-room3-paging = { module = "androidx.room3:room3-paging", version.ref = "room3" }
+androidx-room3-testing = { module = "androidx.room3:room3-testing", version.ref = "room3" }   # MigrationTestHelper [ROOM3-REF]
+androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqlite" }
+androidx-sqlite-framework = { module = "androidx.sqlite:sqlite-framework", version.ref = "sqlite" }
+androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
+androidx-datastore = { module = "androidx.datastore:datastore", version.ref = "datastore" }    # typed (serialized) stores
+androidx-paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "paging" }
+androidx-paging-compose = { module = "androidx.paging:paging-compose", version.ref = "paging" }
+
+# ---------------------------------------------------------------- Background work
+androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }
+androidx-work-testing = { module = "androidx.work:work-testing", version.ref = "work" }
+
+# ---------------------------------------------------------------- Media, browser, health, identity
+androidx-media3-transformer = { module = "androidx.media3:media3-transformer", version.ref = "media3" }
+androidx-media3-effect = { module = "androidx.media3:media3-effect", version.ref = "media3" }
+androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
+androidx-media3-ui-compose = { module = "androidx.media3:media3-ui-compose", version.ref = "media3" }
+androidx-browser = { module = "androidx.browser:browser", version.ref = "browser" }
+androidx-health-connect-client = { module = "androidx.health.connect:connect-client", version.ref = "healthConnect" }
+androidx-health-connect-testing = { module = "androidx.health.connect:connect-testing", version.ref = "healthConnectTesting" }
+androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }
+androidx-credentials-play-services-auth = { module = "androidx.credentials:credentials-play-services-auth", version.ref = "credentials" }
+play-services-auth = { module = "com.google.android.gms:play-services-auth", version.ref = "playServicesAuth" }
+play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "playServicesLocation" }
+android-desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+
+# ---------------------------------------------------------------- Kotlin libraries
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
+kotlinx-collections-immutable = { module = "org.jetbrains.kotlinx:kotlinx-collections-immutable", version.ref = "kotlinxCollectionsImmutable" }
+
+# ---------------------------------------------------------------- Networking
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+okhttp-logging-interceptor = { module = "com.squareup.okhttp3:logging-interceptor", version.ref = "okhttp" }  # debug only, redacting
+okhttp-mockwebserver3 = { module = "com.squareup.okhttp3:mockwebserver3", version.ref = "okhttp" }          # fakes + tests
+okhttp-mockwebserver3-junit4 = { module = "com.squareup.okhttp3:mockwebserver3-junit4", version.ref = "okhttp" }  # Robolectric tests
+okhttp-mockwebserver3-junit5 = { module = "com.squareup.okhttp3:mockwebserver3-junit5", version.ref = "okhttp" }  # JVM tests (@StartStop)
+retrofit = { module = "com.squareup.retrofit2:retrofit", version.ref = "retrofit" }
+retrofit-kotlinx-serialization = { module = "com.squareup.retrofit2:converter-kotlinx-serialization", version.ref = "retrofit" }
+
+# ---------------------------------------------------------------- Security, images, leak detection
+tink-android = { module = "com.google.crypto.tink:tink-android", version.ref = "tink" }
+sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipher" }
+coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
+coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
+leakcanary-android = { module = "com.squareup.leakcanary:leakcanary-android", version.ref = "leakcanary" }
+
+# ---------------------------------------------------------------- Testing
+junit4 = { module = "junit:junit", version.ref = "junit4" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junitBom" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }                    # version from junit-bom
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" } # testRuntimeOnly, from junit-bom
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+roborazzi = { module = "io.github.takahirom.roborazzi:roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { module = "io.github.takahirom.roborazzi:roborazzi-compose", version.ref = "roborazzi" }
+roborazzi-junit-rule = { module = "io.github.takahirom.roborazzi:roborazzi-junit-rule", version.ref = "roborazzi" }
+androidx-test-core = { module = "androidx.test:core-ktx", version.ref = "androidxTestCore" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTestRunner" }
+androidx-test-rules = { module = "androidx.test:rules", version.ref = "androidxTestRules" }
+androidx-test-ext-junit = { module = "androidx.test.ext:junit-ktx", version.ref = "androidxTestExtJunit" }
+androidx-test-ext-truth = { module = "androidx.test.ext:truth", version.ref = "androidxTestExtTruth" }
+androidx-test-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }
+truth = { module = "com.google.truth:truth", version.ref = "truth" }
+turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
+mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
+
+# ---------------------------------------------------------------- build-logic only (compileOnly in build-logic/convention)
+android-gradleApiPlugin = { module = "com.android.tools.build:gradle-api", version.ref = "agp" }   # Google Maven [NIA]
+kotlin-gradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+compose-gradlePlugin = { module = "org.jetbrains.kotlin:compose-compiler-gradle-plugin", version.ref = "kotlin" }
+ksp-gradlePlugin = { module = "com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin", version.ref = "ksp" }
+hilt-gradlePlugin = { module = "com.google.dagger:hilt-android-gradle-plugin", version.ref = "hilt" }
+# Plugin-marker coordinates (<id>:<id>.gradle.plugin); the implementation artifact name is UNVERIFIED here.
+room3-gradlePlugin = { module = "androidx.room3:androidx.room3.gradle.plugin", version.ref = "room3" }
+detekt-gradlePlugin = { module = "dev.detekt:detekt-gradle-plugin", version.ref = "detekt" }
+spotless-gradlePlugin = { module = "com.diffplug.spotless:spotless-plugin-gradle", version.ref = "spotless" }
+kover-gradlePlugin = { module = "org.jetbrains.kotlinx:kover-gradle-plugin", version.ref = "kover" }
+roborazzi-gradlePlugin = { module = "io.github.takahirom.roborazzi:roborazzi-gradle-plugin", version.ref = "roborazzi" }
+
+[plugins]
+# Declared once in the root build.gradle.kts with `apply false` (puts every plugin on one classpath, as [NIA]).
+# kotlin-jvm `apply false` at the root also pins KGP 2.4.20 for AGP's built-in Kotlin (s3 item 2).
+# There is deliberately NO org.jetbrains.kotlin.android alias: AGP 9 built-in Kotlin forbids applying it.
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+androidx-room3 = { id = "androidx.room3", version.ref = "room3" }                 # room3 { schemaDirectory(...) }
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+cyclonedx = { id = "org.cyclonedx.bom", version.ref = "cyclonedx" }
+
+# Convention plugins from the included build build-logic (report s8.3); no version.
+agentle-android-application = { id = "agentle.android.application" }
+agentle-android-library = { id = "agentle.android.library" }
+agentle-android-compose = { id = "agentle.android.compose" }
+agentle-jvm-library = { id = "agentle.jvm.library" }
+agentle-hilt = { id = "agentle.hilt" }
+agentle-room = { id = "agentle.room" }
+agentle-quality = { id = "agentle.quality" }
+agentle-kover = { id = "agentle.kover" }

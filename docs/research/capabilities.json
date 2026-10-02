@@ -1,1 +1,1436 @@
-[]
+[
+  {
+    "id": "app_usage_events",
+    "name": "App usage events (foreground app transitions)",
+    "category": "Apps",
+    "androidApis": [
+      "UsageStatsManager.queryEvents(long, long) (21)",
+      "UsageStatsManager.queryEvents(UsageEventsQuery) (35)",
+      "UsageEvents.Event ACTIVITY_RESUMED/ACTIVITY_PAUSED/ACTIVITY_STOPPED (29)",
+      "UsageEvents.Event MOVE_TO_FOREGROUND/MOVE_TO_BACKGROUND (21, deprecated 29)",
+      "UsageEvents.Event FOREGROUND_SERVICE_START/STOP (29)",
+      "AppOpsManager.checkOpNoThrow(OPSTR_GET_USAGE_STATS, ...) (19; OPSTR_GET_USAGE_STATS 21)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "usage_access",
+    "minSdk": 21,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "activity_resumed",
+      "activity_paused",
+      "activity_stopped",
+      "foreground_service_start",
+      "foreground_service_stop",
+      "user_interaction",
+      "configuration_change",
+      "shortcut_invocation",
+      "standby_bucket_changed",
+      "foreground_app_session"
+    ],
+    "notes": "Declare PACKAGE_USAGE_STATS (appop); the user grants Usage access in Settings. Events are kept \"only ... for a few days\": poll every 1-6 h and on app start, persist with a high-water mark and a 10-minute overlap. Queries return null while the user is locked. Sideloads: ECM restricted settings. ACTIVITY_* events need 29, so minSdk 29 avoids the MOVE_TO_* path. queryAppUsageDuration (37.2) needs QUERY_APP_USAGE (internal|role) and is not usable. See sections 3.1, 5.3 B, 7 and 8.3."
+  },
+  {
+    "id": "app_usage_aggregates",
+    "name": "App usage daily aggregates",
+    "category": "Apps",
+    "androidApis": [
+      "UsageStatsManager.queryUsageStats (21)",
+      "UsageStatsManager.queryAndAggregateUsageStats (21)",
+      "UsageStats.getTotalTimeInForeground (21)",
+      "UsageStats.getTotalTimeVisible/getLastTimeVisible/getTotalTimeForegroundServiceUsed (29)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "usage_access",
+    "minSdk": 21,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "app_usage_summary"
+    ],
+    "notes": "Backfill after install and daily summaries; aggregate retention per interval is undocumented. Same grant and states as app_usage_events. See section 3.2."
+  },
+  {
+    "id": "app_standby_bucket",
+    "name": "App standby bucket (own app and other apps)",
+    "category": "Apps",
+    "androidApis": [
+      "UsageStatsManager.getAppStandbyBucket() (28)",
+      "UsageEvents.Event.STANDBY_BUCKET_CHANGED (28)",
+      "UsageStatsManager.STANDBY_BUCKET_RESTRICTED (30)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 28,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "EVENT"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "standby_bucket_sample",
+      "standby_bucket_changed"
+    ],
+    "notes": "Own bucket needs no permission and feeds the collector-health panel. Other apps' bucket changes come from usage events and need usage access; whether devices return them is UNVERIFIED. See sections 3.3 and 8.1."
+  },
+  {
+    "id": "installed_apps_inventory",
+    "name": "Installed apps inventory (labels, categories, install source)",
+    "category": "Apps",
+    "androidApis": [
+      "PackageManager.getInstalledApplications (1)",
+      "PackageManager.getChangedPackages (26)",
+      "ApplicationInfo.category (26)",
+      "PackageManager.getInstallSourceInfo (30)",
+      "<queries> manifest element (30)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "EVENT"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "app_inventory_snapshot",
+      "package_changed",
+      "package_fully_removed",
+      "package_data_cleared"
+    ],
+    "notes": "Package visibility on target 30+: declare a <queries> intent for ACTION_MAIN + CATEGORY_LAUNCHER; never declare QUERY_ALL_PACKAGES. Play: alternative broad-visibility methods only for user-facing core functionality; inventory never sold or shared. PACKAGE_FULLY_REMOVED and PACKAGE_DATA_CLEARED are manifest-exempt; other package broadcasts need runtime receivers or getChangedPackages polling. Private-space apps may be invisible (UNVERIFIED). See sections 3.4, 8.1, 9.1."
+  },
+  {
+    "id": "network_data_usage",
+    "name": "Per-app and device data usage",
+    "category": "Apps",
+    "androidApis": [
+      "NetworkStatsManager.querySummaryForDevice/querySummaryForUser/querySummary/queryDetailsForUid (23)",
+      "NetworkStatsManager.queryDetailsForUidTag (24)",
+      "NetworkStatsManager.registerUsageCallback (24)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "usage_access",
+    "minSdk": 23,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "network_usage_summary"
+    ],
+    "notes": "Device-wide and other-app stats need usage access; own UID needs none on 24+. Pass null subscriberId on 29+ so READ_PHONE_STATE is not needed. Retention undocumented: persist per-day buckets. Robolectric 4.17 has no shadow: wrap it behind an interface. See section 3.5."
+  },
+  {
+    "id": "accessibility_event_stream",
+    "name": "Accessibility event stream (not used)",
+    "category": "Apps",
+    "androidApis": [
+      "AccessibilityService (4)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 4,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "DECLARATION_REQUIRED",
+    "plannedStatus": "DOCUMENT_UNAVAILABLE",
+    "eventTypes": [],
+    "notes": "Not built. Play: the Accessibility API cannot be requested for \"an app that autonomously initiates, plans, and executes actions or decisions\"; non-accessibility tools need disclosure, consent and a declaration. OPSTR_BIND_ACCESSIBILITY_SERVICE is ECM-protected for sideloads. Accessibility is not a specialAccess enum value. Permission Center: RESTRICTED_BY_ANDROID with blocker NOT_IN_THIS_BUILD, labelled \"Not used by Agentle\". See sections 3.6, 5.5 and 9.1."
+  },
+  {
+    "id": "screen_interactive_events",
+    "name": "Screen on/off (interactive state)",
+    "category": "Device State",
+    "androidApis": [
+      "UsageEvents.Event.SCREEN_INTERACTIVE/SCREEN_NON_INTERACTIVE (28)",
+      "UsageStatsManager.queryEventStats (28)",
+      "Intent.ACTION_SCREEN_ON/ACTION_SCREEN_OFF (1, registered receivers only)",
+      "PowerManager.isInteractive (20)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "usage_access",
+    "minSdk": 20,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "screen_interactive",
+      "screen_non_interactive",
+      "screen_on",
+      "screen_off"
+    ],
+    "notes": "History needs usage access (28+ events); without it the state is PARTIALLY_ALLOWED (live runtime-receiver events only, deferred while cached on 14+). minSdk is the permissionless isInteractive snapshot. See sections 3.7, 8.1."
+  },
+  {
+    "id": "unlock_keyguard_events",
+    "name": "Keyguard and unlock-related events",
+    "category": "Device State",
+    "androidApis": [
+      "UsageEvents.Event.KEYGUARD_SHOWN/KEYGUARD_HIDDEN (28)",
+      "Intent.ACTION_USER_PRESENT (3)",
+      "Intent.ACTION_USER_UNLOCKED (24)",
+      "KeyguardManager.isKeyguardLocked (16)",
+      "KeyguardManager.isDeviceLocked (22)",
+      "KeyguardManager.isDeviceSecure (23)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "usage_access",
+    "minSdk": 3,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "keyguard_shown",
+      "keyguard_hidden",
+      "user_present",
+      "user_unlocked"
+    ],
+    "notes": "KEYGUARD_HIDDEN semantics are undocumented: label it \"keyguard dismissed\", not \"unlock\". ACTION_USER_PRESENT is not manifest-exempt. addKeyguardLockedStateListener (33) and addDeviceLockedStateListener (36.1) need the privileged SUBSCRIBE_TO_KEYGUARD_LOCKED_STATE and are not available. See section 3.8."
+  },
+  {
+    "id": "display_state",
+    "name": "Display power state and brightness",
+    "category": "Device State",
+    "androidApis": [
+      "Display.getState (20)",
+      "DisplayManager.registerDisplayListener (17)",
+      "DisplayManager event-mask listener with EVENT_TYPE_DISPLAY_STATE (36)",
+      "DisplayManager.EVENT_TYPE_DISPLAY_BRIGHTNESS (36.1)",
+      "Settings.System.SCREEN_BRIGHTNESS/SCREEN_OFF_TIMEOUT (1), SCREEN_BRIGHTNESS_MODE (8)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 17,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "display_state_changed",
+      "display_brightness_changed",
+      "display_sample"
+    ],
+    "notes": "Listener works only while the process is alive; sample getState() from workers. Gate 36.1 constants with Build.VERSION.SDK_INT_FULL. See sections 3.9, 8.2."
+  },
+  {
+    "id": "battery_state",
+    "name": "Battery level, charging state and source, charging and low-battery events",
+    "category": "Device State",
+    "androidApis": [
+      "Intent.ACTION_BATTERY_CHANGED sticky intent (1; BatteryManager.EXTRA_* 5)",
+      "BatteryManager.getIntProperty (21)",
+      "BatteryManager.isCharging (23)",
+      "BatteryManager.computeChargeTimeRemaining (28)",
+      "Intent.ACTION_POWER_CONNECTED/ACTION_POWER_DISCONNECTED (4)",
+      "Intent.ACTION_BATTERY_LOW (1)/ACTION_BATTERY_OKAY (4)",
+      "BatteryManager.ACTION_CHARGING/ACTION_DISCHARGING (23)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "EVENT"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "battery_sample",
+      "power_connected",
+      "power_disconnected",
+      "battery_low",
+      "battery_okay",
+      "charging_started",
+      "charging_stopped"
+    ],
+    "notes": "Read the sticky intent with registerReceiver(null, filter). Doc conflict: Intent docs say low/okay/connected/disconnected reach manifest receivers, but they are not on the exemption list: treat as runtime-only and sample from workers. See section 3.10."
+  },
+  {
+    "id": "power_save_idle_state",
+    "name": "Battery saver, Doze, light idle, low-power standby",
+    "category": "Device State",
+    "androidApis": [
+      "PowerManager.isPowerSaveMode (21)",
+      "PowerManager.isDeviceIdleMode (23)",
+      "PowerManager.isDeviceLightIdleMode (33)",
+      "PowerManager.isLowPowerStandbyEnabled (33)",
+      "PowerManager.getLocationPowerSaveMode (28)",
+      "PowerManager.ACTION_POWER_SAVE_MODE_CHANGED (21)",
+      "PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED (23)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 21,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "EVENT"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "power_save_mode_changed",
+      "device_idle_mode_changed",
+      "device_light_idle_mode_changed",
+      "power_state_sample"
+    ],
+    "notes": "The change broadcasts are registered-receiver only; sample from workers. Gate 33 APIs. See section 3.11."
+  },
+  {
+    "id": "thermal_status",
+    "name": "Thermal status and headroom",
+    "category": "Device State",
+    "androidApis": [
+      "PowerManager.getCurrentThermalStatus (29)",
+      "PowerManager.addThermalStatusListener (29)",
+      "PowerManager.getThermalHeadroom (30)",
+      "PowerManager.getThermalHeadroomThresholds (35)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 29,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "EVENT"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "thermal_status_changed",
+      "thermal_sample"
+    ],
+    "notes": "Return values on devices without thermal data are UNVERIFIED (may map to UNSUPPORTED_ON_DEVICE). See section 3.12."
+  },
+  {
+    "id": "storage_stats",
+    "name": "Device storage",
+    "category": "Device State",
+    "androidApis": [
+      "StorageStatsManager.getTotalBytes/getFreeBytes (26)",
+      "StatFs.getAvailableBytes/getTotalBytes (18)",
+      "StorageStatsManager.queryStatsForUid/queryStatsForPackage (26, own app)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 18,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "storage_sample"
+    ],
+    "notes": "Daily sample. Other packages' storage needs PACKAGE_USAGE_STATS; not collected. See section 3.13."
+  },
+  {
+    "id": "boot_shutdown_events",
+    "name": "Boot and shutdown events",
+    "category": "Device State",
+    "androidApis": [
+      "Intent.ACTION_BOOT_COMPLETED (1)",
+      "Intent.ACTION_LOCKED_BOOT_COMPLETED (24)",
+      "UsageEvents.Event.DEVICE_STARTUP/DEVICE_SHUTDOWN (29)",
+      "Settings.Global.BOOT_COUNT (24)",
+      "Intent.ACTION_SHUTDOWN (4; registered receivers only since 28)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "HISTORICAL"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "boot_completed",
+      "locked_boot_completed",
+      "device_startup",
+      "device_shutdown"
+    ],
+    "notes": "Needs RECEIVE_BOOT_COMPLETED (normal). History needs usage access (29+). Android 13 target: not delivered while the user has set \"restricted\" background usage; Android 15: delivered when leaving the stopped state; target 35: no dataSync and other FGS types from BOOT_COMPLETED. The boot receiver only enqueues WorkManager work and re-registers PendingIntents. See sections 3.14, 8.1, 8.4."
+  },
+  {
+    "id": "network_connectivity",
+    "name": "Connectivity state, network type, transitions, data saver",
+    "category": "Device State",
+    "androidApis": [
+      "ConnectivityManager.registerDefaultNetworkCallback (24)",
+      "ConnectivityManager.registerNetworkCallback(NetworkRequest, PendingIntent) (23)",
+      "NetworkCapabilities transports and capabilities (21+)",
+      "ConnectivityManager.getRestrictBackgroundStatus (24)",
+      "TelephonyManager.getDataNetworkType (24)",
+      "TelephonyCallback.DisplayInfoListener (31)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 23,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "network_available",
+      "network_lost",
+      "network_capabilities_changed",
+      "restrict_background_changed",
+      "network_sample"
+    ],
+    "notes": "Needs ACCESS_NETWORK_STATE (normal). Cellular generation needs READ_PHONE_STATE (dangerous; see call_state) or READ_BASIC_PHONE_STATE (33, normal); otherwise record \"cellular\" only. PendingIntent callbacks are cancelled by a force-stop on 15+: re-register. See sections 3.15, 8.1."
+  },
+  {
+    "id": "wifi_connection_metadata",
+    "name": "Wi-Fi link info without identity",
+    "category": "Device State",
+    "androidApis": [
+      "NetworkCapabilities.getTransportInfo (29) returning WifiInfo (31+)",
+      "WifiManager.getConnectionInfo (1, deprecated 31; used on 29-30)",
+      "WifiInfo.getRssi (1)",
+      "WifiInfo.getFrequency (21)",
+      "WifiInfo.getWifiStandard (30)",
+      "WifiInfo.getCurrentSecurityType (31)",
+      "WifiManager.isWifiEnabled (1)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "wifi_link_sample",
+      "wifi_state_changed"
+    ],
+    "notes": "Needs ACCESS_WIFI_STATE (normal). WifiInfo implements TransportInfo only from 31; on 29-30 use getConnectionInfo. SSID and BSSID are redacted without location permission (see wifi_network_identity). WIFI_STATE_CHANGED_ACTION is not delivered to manifest receivers for target 26+. See section 3.16."
+  },
+  {
+    "id": "wifi_network_identity",
+    "name": "Wi-Fi SSID/BSSID (place inference)",
+    "category": "Location",
+    "androidApis": [
+      "ConnectivityManager.NetworkCallback(FLAG_INCLUDE_LOCATION_INFO) (31)",
+      "WifiInfo.getSSID/getBSSID (1)",
+      "WifiManager.getConnectionInfo (1, used on 29-30)"
+    ],
+    "runtimePermissions": [
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_BACKGROUND_LOCATION"
+    ],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "FOREGROUND_ONLY",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "DEFER",
+    "eventTypes": [
+      "wifi_network_changed"
+    ],
+    "notes": "Needs fine location and location services on; SSID in the background also needs ACCESS_BACKGROUND_LOCATION (hard restricted, Play declaration). NEARBY_WIFI_DEVICES does not cover the current SSID. Deferred together with location_background. Store only salted hashes. See sections 3.17, 9.1."
+  },
+  {
+    "id": "airplane_mode",
+    "name": "Airplane mode",
+    "category": "Device State",
+    "androidApis": [
+      "Settings.Global.AIRPLANE_MODE_ON (17)",
+      "Intent.ACTION_AIRPLANE_MODE_CHANGED (1)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "airplane_mode_changed",
+      "airplane_mode_sample"
+    ],
+    "notes": "The broadcast is not manifest-exempt: runtime receiver plus polling from workers. Settings.System.AIRPLANE_MODE_ON is the deprecated pre-17 key. See section 3.18."
+  },
+  {
+    "id": "bluetooth_adapter_state",
+    "name": "Bluetooth adapter state",
+    "category": "Bluetooth",
+    "androidApis": [
+      "BluetoothAdapter.isEnabled/getState (5)",
+      "BluetoothAdapter.ACTION_STATE_CHANGED (5)",
+      "Settings.Global.BLUETOOTH_ON (17)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 5,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "bluetooth_state_changed",
+      "bluetooth_state_sample"
+    ],
+    "notes": "No runtime permission on 31+. Declare BLUETOOTH (normal) with maxSdkVersion 30 for older devices. ACTION_STATE_CHANGED is not manifest-exempt. Null adapter or no FEATURE_BLUETOOTH maps to UNSUPPORTED_ON_DEVICE. See section 3.19."
+  },
+  {
+    "id": "bluetooth_connected_devices",
+    "name": "Bonded and connected Bluetooth devices",
+    "category": "Bluetooth",
+    "androidApis": [
+      "BluetoothAdapter.getBondedDevices (5)",
+      "BluetoothAdapter.getProfileProxy + BluetoothProfile.getConnectedDevices (11)",
+      "BluetoothDevice.ACTION_ACL_CONNECTED/ACTION_ACL_DISCONNECTED (5)",
+      "BluetoothA2dp/BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED (11)",
+      "BluetoothAdapter.getProfileConnectionState (14)"
+    ],
+    "runtimePermissions": [
+      "android.permission.BLUETOOTH_CONNECT"
+    ],
+    "specialAccess": null,
+    "minSdk": 5,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "bluetooth_acl_connected",
+      "bluetooth_acl_disconnected",
+      "bluetooth_profile_connection_changed",
+      "bluetooth_bonded_devices_sample"
+    ],
+    "notes": "BLUETOOTH_CONNECT is the runtime permission on 31+ (NEARBY_DEVICES group); on 29-30 the normal BLUETOOTH permission covers it. ACL and profile connection broadcasts are manifest-exempt. Target 34 enforces BLUETOOTH_CONNECT for getProfileConnectionState. Store a salted MAC hash and device class only. See sections 3.20, 8.1."
+  },
+  {
+    "id": "bluetooth_nearby_scan",
+    "name": "Nearby Bluetooth devices (scan)",
+    "category": "Bluetooth",
+    "androidApis": [
+      "BluetoothLeScanner.startScan (21)",
+      "BluetoothAdapter.startDiscovery (5)"
+    ],
+    "runtimePermissions": [
+      "android.permission.BLUETOOTH_SCAN",
+      "android.permission.ACCESS_FINE_LOCATION"
+    ],
+    "specialAccess": null,
+    "minSdk": 5,
+    "backgroundSupport": "WITH_FOREGROUND_SERVICE",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "DEFER",
+    "eventTypes": [
+      "bluetooth_scan_result"
+    ],
+    "notes": "BLUETOOTH_SCAN (31) with usesPermissionFlags=\"neverForLocation\" avoids ACCESS_FINE_LOCATION; fine location is always needed on 30 and lower. Deferred: low value, battery cost, co-location privacy risk. See section 3.21."
+  },
+  {
+    "id": "audio_volume_ringer",
+    "name": "Stream volumes, mute, ringer mode, audio mode",
+    "category": "Device State",
+    "androidApis": [
+      "AudioManager.getStreamVolume/getStreamMaxVolume/getRingerMode/getMode (1)",
+      "AudioManager.isStreamMute (23)",
+      "AudioManager.getStreamMinVolume/getStreamVolumeDb (28)",
+      "AudioManager.addOnModeChangedListener (31)",
+      "AudioManager.RINGER_MODE_CHANGED_ACTION (1)",
+      "AudioManager.STREAM_ASSISTANT (37)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "EVENT"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "volume_sample",
+      "ringer_mode_changed",
+      "audio_mode_changed"
+    ],
+    "notes": "No public volume-changed broadcast (undocumented): poll. Android 17 background audio hardening restricts volume setters, not getters; Agentle only reads. Map MODE_ASSISTANT_CONVERSATION (36.1). See sections 3.22, 8.3."
+  },
+  {
+    "id": "audio_output_devices",
+    "name": "Audio output devices (headset, Bluetooth audio)",
+    "category": "Device State",
+    "androidApis": [
+      "AudioManager.getDevices(GET_DEVICES_OUTPUTS) (23)",
+      "AudioManager.registerAudioDeviceCallback (23)",
+      "AudioManager.getAudioDevicesForAttributes (33)",
+      "Intent.ACTION_HEADSET_PLUG (1)",
+      "AudioManager.ACTION_AUDIO_BECOMING_NOISY (3)",
+      "AudioDeviceInfo.TYPE_BLE_HEARING_AID (37)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "audio_device_added",
+      "audio_device_removed",
+      "headset_plug",
+      "audio_becoming_noisy"
+    ],
+    "notes": "No permission for AudioManager. ACTION_HEADSET_PLUG is registered-only. Bluetooth headset connection events come from bluetooth_connected_devices (BLUETOOTH_CONNECT). See section 3.23."
+  },
+  {
+    "id": "timezone_time_changes",
+    "name": "Time zone, time and DST offset changes",
+    "category": "Device State",
+    "androidApis": [
+      "Intent.ACTION_TIMEZONE_CHANGED (1)",
+      "Intent.ACTION_TIME_CHANGED (1)",
+      "Intent.ACTION_TIMEZONE_OFFSET_CHANGED (37)",
+      "Settings.Global.AUTO_TIME/AUTO_TIME_ZONE (17)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "timezone_changed",
+      "time_set",
+      "timezone_offset_changed"
+    ],
+    "notes": "TIMEZONE_CHANGED and TIME_SET are manifest-exempt. ACTION_TIMEZONE_OFFSET_CHANGED (Android 17, seasonal offset changes) is not on the exemption list; manifest delivery is UNVERIFIED: register at runtime and also compare offsets on each worker run. See sections 3.24, 8.3."
+  },
+  {
+    "id": "locale_time_format",
+    "name": "Locale and 12/24-hour time format",
+    "category": "Device State",
+    "androidApis": [
+      "Intent.ACTION_LOCALE_CHANGED (7)",
+      "LocaleManager.getSystemLocales (33)",
+      "LocaleList.getDefault (24)",
+      "DateFormat.is24HourFormat (3)",
+      "Settings.System.TIME_12_24 (1)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 3,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "locale_changed",
+      "time_format_sample"
+    ],
+    "notes": "LOCALE_CHANGED is manifest-exempt. No 12/24-hour change broadcast is documented: poll. See section 3.25."
+  },
+  {
+    "id": "next_alarm_clock",
+    "name": "Next alarm clock (wake-time signal)",
+    "category": "Device State",
+    "androidApis": [
+      "AlarmManager.getNextAlarmClock (21)",
+      "AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED (21)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 21,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "next_alarm_clock_changed",
+      "next_alarm_clock_sample"
+    ],
+    "notes": "No permission. The broadcast is on the exemption list, but the reference says registered receivers only: use a runtime receiver plus polling. See section 3.26."
+  },
+  {
+    "id": "background_execution_exemption",
+    "name": "Background execution status (battery optimization, restriction, hibernation)",
+    "category": "Device State",
+    "androidApis": [
+      "PowerManager.isIgnoringBatteryOptimizations (23)",
+      "ActivityManager.isBackgroundRestricted (28)",
+      "UsageStatsManager.getAppStandbyBucket (28)",
+      "PackageManagerCompat.getUnusedAppRestrictionsStatus (androidx)",
+      "Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS (23)",
+      "IntentCompat.createManageUnusedAppRestrictionsIntent (androidx)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "battery_optimization",
+    "minSdk": 23,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "background_status_sample"
+    ],
+    "notes": "Diagnostic prerequisite, not collection. Do not declare REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (Play allows direct requests only when the core function is adversely affected); link the list screen. User \"restricted\" state (13+) stops FGS, alarms and jobs. Hibernation (31+) resets permissions. See sections 3.27, 5.3 D, 8.1, 9.1."
+  },
+  {
+    "id": "activity_recognition_transitions",
+    "name": "Activity transitions (still, walking, running, cycling, in vehicle)",
+    "category": "Activity",
+    "androidApis": [
+      "ActivityRecognitionClient.requestActivityTransitionUpdates (Google Play services)",
+      "ActivityTransitionResult (Google Play services)"
+    ],
+    "runtimePermissions": [
+      "android.permission.ACTIVITY_RECOGNITION"
+    ],
+    "specialAccess": null,
+    "minSdk": 29,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "activity_transition_enter",
+      "activity_transition_exit"
+    ],
+    "notes": "Google Play services API with no platform API level; minSdk 29 is the runtime ACTIVITY_RECOGNITION level and the app floor (lower bound UNVERIFIED). Also declare com.google.android.gms.permission.ACTIVITY_RECOGNITION. The PendingIntent must be mutable and explicit (target 34 throws for mutable implicit intents) and re-registered after boot or force-stop. UNAVAILABLE without current Play services. See sections 3.28, 8.1."
+  },
+  {
+    "id": "step_count_recording_api",
+    "name": "Step count via the Recording API on mobile",
+    "category": "Activity",
+    "androidApis": [
+      "FitnessLocal.getLocalRecordingClient (play-services-fitness 21.2.0)",
+      "LocalRecordingClient.subscribe/readData (LocalDataType.TYPE_STEP_COUNT_DELTA)"
+    ],
+    "runtimePermissions": [
+      "android.permission.ACTIVITY_RECOGNITION"
+    ],
+    "specialAccess": null,
+    "minSdk": 29,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "step_count_delta"
+    ],
+    "notes": "Accountless, on-device; data since the latest subscription is accessible for up to 10 days. The page states no minimum API (UNVERIFIED); 29 is the app floor. Step source for devices without Health Connect on-device steps. See section 3.29."
+  },
+  {
+    "id": "step_counter_sensor",
+    "name": "Step counter and detector sensors",
+    "category": "Activity",
+    "androidApis": [
+      "Sensor.TYPE_STEP_COUNTER/TYPE_STEP_DETECTOR (19)",
+      "SensorManager.registerListener (3)"
+    ],
+    "runtimePermissions": [
+      "android.permission.ACTIVITY_RECOGNITION"
+    ],
+    "specialAccess": null,
+    "minSdk": 19,
+    "backgroundSupport": "WITH_FOREGROUND_SERVICE",
+    "collectionModes": [
+      "CONTINUOUS"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "DEFER",
+    "eventTypes": [
+      "step_counter_reading",
+      "step_detected"
+    ],
+    "notes": "Background apps get no sensor events (28+), so background counting needs a health-type FGS. Deferred: Health Connect on-device steps and the Recording API cover it. See section 3.30."
+  },
+  {
+    "id": "motion_sensors",
+    "name": "Accelerometer, gyroscope, magnetometer, rotation vector",
+    "category": "Sensors",
+    "androidApis": [
+      "SensorManager.registerListener (3)",
+      "Sensor.TYPE_ACCELEROMETER/TYPE_GYROSCOPE/TYPE_MAGNETIC_FIELD (3)",
+      "Sensor.TYPE_GRAVITY/TYPE_LINEAR_ACCELERATION/TYPE_ROTATION_VECTOR (9)",
+      "Sensor.TYPE_SIGNIFICANT_MOTION (18)",
+      "SensorManager.getOrientation (3)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 3,
+    "backgroundSupport": "WITH_FOREGROUND_SERVICE",
+    "collectionModes": [
+      "CONTINUOUS"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT_DEBUG_ONLY",
+    "eventTypes": [
+      "accelerometer_sample",
+      "gyroscope_sample",
+      "magnetic_field_sample",
+      "rotation_vector_sample",
+      "significant_motion"
+    ],
+    "notes": "No background events on 28+; target 31+ is rate-limited to 200 Hz without HIGH_SAMPLING_RATE_SENSORS. Production background sampling would need an FGS whose type fits the purpose. Debug builds only. See sections 3.52, 8.1."
+  },
+  {
+    "id": "ambient_proximity_sensors",
+    "name": "Ambient light, proximity, pressure",
+    "category": "Sensors",
+    "androidApis": [
+      "Sensor.TYPE_LIGHT/TYPE_PROXIMITY/TYPE_PRESSURE (3)",
+      "SensorManager.registerListener (3)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 3,
+    "backgroundSupport": "FOREGROUND_ONLY",
+    "collectionModes": [
+      "CONTINUOUS"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT_DEBUG_ONLY",
+    "eventTypes": [
+      "light_sample",
+      "proximity_sample",
+      "pressure_sample"
+    ],
+    "notes": "On-change sensors get no background events (28+) and no FGS type fits passive logging. Foreground snapshots in debug builds only. See section 3.53."
+  },
+  {
+    "id": "location_foreground",
+    "name": "Location while in use",
+    "category": "Location",
+    "androidApis": [
+      "LocationManager.getCurrentLocation (30)",
+      "LocationManager.requestSingleUpdate (9, deprecated 30; used on 29)",
+      "LocationManager.isLocationEnabled (28)",
+      "Fused Location Provider (Google Play services)"
+    ],
+    "runtimePermissions": [
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.ACCESS_FINE_LOCATION"
+    ],
+    "specialAccess": null,
+    "minSdk": 9,
+    "backgroundSupport": "FOREGROUND_ONLY",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "location_fix"
+    ],
+    "notes": "Request COARSE by default; FINE is optional (users can grant approximate only on 31+, giving PARTIALLY_ALLOWED). Android 17 location button (USE_LOCATION_BUTTON, normal) is for one-time precise actions; Play requires it for that case from 2027-01-27. UNAVAILABLE when location services are off. See sections 3.31, 8.3, 9.1."
+  },
+  {
+    "id": "location_background",
+    "name": "Location in the background",
+    "category": "Location",
+    "androidApis": [
+      "LocationManager.getCurrentLocation (30)",
+      "LocationManager.requestSingleUpdate (9, deprecated 30)",
+      "Fused Location Provider (Google Play services)"
+    ],
+    "runtimePermissions": [
+      "android.permission.ACCESS_COARSE_LOCATION",
+      "android.permission.ACCESS_FINE_LOCATION",
+      "android.permission.ACCESS_BACKGROUND_LOCATION"
+    ],
+    "specialAccess": null,
+    "minSdk": 29,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "EVENT"
+    ],
+    "playPolicy": "DECLARATION_REQUIRED",
+    "plannedStatus": "DEFER",
+    "eventTypes": [
+      "location_fix"
+    ],
+    "notes": "ACCESS_BACKGROUND_LOCATION (29) is hard restricted; on 30+ \"Allow all the time\" is granted only in Settings. Play: only for core, user-beneficial features, with the declaration form. Deferred until product commits to place-based JITAIs. See sections 3.32, 9.1, 10.1."
+  },
+  {
+    "id": "notification_events_metadata",
+    "name": "Notification post and removal events (package, time, category, channel)",
+    "category": "Notifications",
+    "androidApis": [
+      "NotificationListenerService (18)",
+      "NotificationListenerService.onNotificationPosted (18; RankingMap variant 21)",
+      "NotificationListenerService.onNotificationRemoved with reason (26)",
+      "NotificationListenerService.getActiveNotifications (18)",
+      "NotificationManager.isNotificationListenerAccessGranted (27)",
+      "NotificationListenerService.requestRebind (24)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "notification_listener",
+    "minSdk": 18,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "notification_posted",
+      "notification_removed",
+      "notification_snapshot"
+    ],
+    "notes": "The service is declared with BIND_NOTIFICATION_LISTENER_SERVICE; the user enables Notification access. Unsupported on low-RAM devices running 29 or lower and ignored in work profiles. ECM restricted settings for sideloads. Store Ranking.getSummarization (36.1) when present. See sections 3.33, 5.3 C."
+  },
+  {
+    "id": "notification_content",
+    "name": "Notification titles and text (opt-in)",
+    "category": "Notifications",
+    "androidApis": [
+      "Notification.extras with EXTRA_TITLE/EXTRA_TEXT (19), EXTRA_BIG_TEXT (21), EXTRA_MESSAGES (24) (via NotificationListenerService)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "notification_listener",
+    "minSdk": 19,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "notification_content"
+    ],
+    "notes": "Opt-in, off by default, per-app allowlist; may be downgraded to IMPLEMENT_DEBUG_ONLY (open question 10.1). Android 15 redacts OTP content for untrusted listeners (PARTIALLY_ALLOWED); RECEIVE_SENSITIVE_NOTIFICATIONS is not available. Exclude the default SMS and dialer packages by default (Play SMS \"derive\" clause, interpretation UNVERIFIED). Android 17 \"restricted message access\" effect UNVERIFIED. See sections 3.34, 8.3, 9.1."
+  },
+  {
+    "id": "dnd_state",
+    "name": "Do Not Disturb and interruption filter",
+    "category": "Notifications",
+    "androidApis": [
+      "NotificationManager.getCurrentInterruptionFilter (23)",
+      "NotificationManager.getConsolidatedNotificationPolicy (30)",
+      "NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED (23)",
+      "NotificationManager.ACTION_CONSOLIDATED_NOTIFICATION_POLICY_CHANGED (35)",
+      "NotificationListenerService.onInterruptionFilterChanged (21)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 21,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "PERIODIC"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "interruption_filter_changed",
+      "dnd_policy_changed",
+      "dnd_sample"
+    ],
+    "notes": "Reading needs no DND access; Agentle does not request dnd_policy_access. Background changes arrive through the notification listener callback when granted; otherwise poll. minSdk 21 is the listener callback; the filter getter is 23. See section 3.35."
+  },
+  {
+    "id": "post_notifications_jitai",
+    "name": "Posting JITAI notifications (prerequisite)",
+    "category": "Notifications",
+    "androidApis": [
+      "NotificationManager.notify (1)",
+      "NotificationManager.areNotificationsEnabled (24)",
+      "NotificationChannel (26)",
+      "NotificationManager.areNotificationsPaused (29)",
+      "NotificationManager.ACTION_APP_BLOCK_STATE_CHANGED (28)",
+      "NotificationManager.ACTION_NOTIFICATION_CHANNEL_BLOCK_STATE_CHANGED (28)"
+    ],
+    "runtimePermissions": [
+      "android.permission.POST_NOTIFICATIONS"
+    ],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "jitai_posted",
+      "jitai_opened",
+      "jitai_dismissed",
+      "app_notification_block_changed",
+      "notification_channel_block_changed"
+    ],
+    "notes": "POST_NOTIFICATIONS is a runtime permission on 33+ only. Blocked channels give PARTIALLY_ALLOWED; a suspended app gives UNAVAILABLE. Android 17 target: stricter memory checks for custom-view notifications, so use standard templates. See sections 3.36, 8.3."
+  },
+  {
+    "id": "exact_alarm_jitai_scheduling",
+    "name": "Exact JITAI timing (prerequisite)",
+    "category": "Notifications",
+    "androidApis": [
+      "AlarmManager.setExactAndAllowWhileIdle (23)",
+      "AlarmManager.canScheduleExactAlarms (31)",
+      "AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED (31)",
+      "Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM (31)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "exact_alarm",
+    "minSdk": 23,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "exact_alarm_permission_changed",
+      "jitai_alarm_fired"
+    ],
+    "notes": "SCHEDULE_EXACT_ALARM (31, appop) is user-granted and denied by default for new installs on 14+. Never declare USE_EXACT_ALARM (Play: alarm, timer and calendar apps only). Fallback: inexact setWindow. The 37 OnAlarmListener variant can be cancelled when the process has no running components, so JITAIs keep the PendingIntent variant. See sections 3.37, 8.3, 9.1."
+  },
+  {
+    "id": "media_sessions_now_playing",
+    "name": "Active media sessions (now playing)",
+    "category": "Media",
+    "androidApis": [
+      "MediaSessionManager.getActiveSessions(ComponentName) (21)",
+      "MediaSessionManager.addOnActiveSessionsChangedListener (21)",
+      "MediaController.getMetadata/getPlaybackState (21)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": "notification_listener",
+    "minSdk": 21,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "DEFER",
+    "eventTypes": [
+      "active_sessions_changed",
+      "playback_state_changed",
+      "media_metadata_changed"
+    ],
+    "notes": "Allowed for an enabled notification listener that passes its own ComponentName. Cheap add-on once notification_events_metadata is stable. See section 3.38."
+  },
+  {
+    "id": "media_images_video_metadata",
+    "name": "Photo and video metadata (MediaStore)",
+    "category": "Media",
+    "androidApis": [
+      "MediaStore.Images/MediaStore.Video (1)",
+      "MediaStore.MediaColumns.DATE_TAKEN/OWNER_PACKAGE_NAME (29)",
+      "MediaStore.getGeneration (30)",
+      "JobInfo.Builder.addTriggerContentUri (24)"
+    ],
+    "runtimePermissions": [
+      "android.permission.READ_MEDIA_IMAGES",
+      "android.permission.READ_MEDIA_VIDEO",
+      "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+      "android.permission.READ_EXTERNAL_STORAGE"
+    ],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "EVENT",
+      "HISTORICAL"
+    ],
+    "playPolicy": "DECLARATION_REQUIRED",
+    "plannedStatus": "IMPLEMENT_DEBUG_ONLY",
+    "eventTypes": [
+      "media_item_added",
+      "media_snapshot"
+    ],
+    "notes": "READ_MEDIA_IMAGES/VIDEO (33), READ_MEDIA_VISUAL_USER_SELECTED (34; partial access gives PARTIALLY_ALLOWED), READ_EXTERNAL_STORAGE with maxSdkVersion 32; optional ACCESS_MEDIA_LOCATION (29) for EXIF location. Play allows the media permissions only when pickers are insufficient, with a declaration, so this stays out of the Play build. OWNER_PACKAGE_NAME is redacted on 14+. See sections 3.39, 9.1."
+  },
+  {
+    "id": "media_audio_metadata",
+    "name": "Audio file metadata (MediaStore)",
+    "category": "Media",
+    "androidApis": [
+      "MediaStore.Audio (1)"
+    ],
+    "runtimePermissions": [
+      "android.permission.READ_MEDIA_AUDIO",
+      "android.permission.READ_EXTERNAL_STORAGE"
+    ],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "DEFER",
+    "eventTypes": [
+      "media_snapshot"
+    ],
+    "notes": "READ_MEDIA_AUDIO (33) or READ_EXTERNAL_STORAGE (maxSdkVersion 32). No audio-specific Play rule was found (UNVERIFIED). Deferred: low value. See section 3.40."
+  },
+  {
+    "id": "calendar_events",
+    "name": "Calendar events and busy blocks",
+    "category": "Calendar",
+    "androidApis": [
+      "CalendarContract.Instances (14)",
+      "JobInfo.TriggerContentUri on CalendarContract.Events.CONTENT_URI (24)",
+      "CalendarContract.ACTION_EVENT_REMINDER (14)"
+    ],
+    "runtimePermissions": [
+      "android.permission.READ_CALENDAR"
+    ],
+    "specialAccess": null,
+    "minSdk": 14,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "EVENT",
+      "HISTORICAL"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "calendar_instance_snapshot",
+      "calendar_changed"
+    ],
+    "notes": "Query Instances with a time range (expands recurrences); store busy/free blocks, titles only on opt-in. Content-URI job trigger plus a daily sync. EVENT_REMINDER delivery to non-calendar apps is UNVERIFIED. See section 3.41."
+  },
+  {
+    "id": "health_connect_records",
+    "name": "Health Connect records (activity, heart, sleep, vitals, body)",
+    "category": "Health",
+    "androidApis": [
+      "HealthConnectClient (Jetpack; Health Connect app on 28-33)",
+      "HealthConnectManager (34)",
+      "HealthConnectClient.getSdkStatus (Jetpack)",
+      "PermissionController.createRequestPermissionResultContract (Jetpack)",
+      "PermissionController.getGrantedPermissions (Jetpack)"
+    ],
+    "runtimePermissions": [
+      "android.permission.health.READ_STEPS",
+      "android.permission.health.READ_DISTANCE",
+      "android.permission.health.READ_EXERCISE",
+      "android.permission.health.READ_ACTIVE_CALORIES_BURNED",
+      "android.permission.health.READ_TOTAL_CALORIES_BURNED",
+      "android.permission.health.READ_HEART_RATE",
+      "android.permission.health.READ_RESTING_HEART_RATE",
+      "android.permission.health.READ_HEART_RATE_VARIABILITY",
+      "android.permission.health.READ_SLEEP",
+      "android.permission.health.READ_OXYGEN_SATURATION",
+      "android.permission.health.READ_RESPIRATORY_RATE",
+      "android.permission.health.READ_WEIGHT"
+    ],
+    "specialAccess": "health_connect",
+    "minSdk": 28,
+    "backgroundSupport": "FOREGROUND_ONLY",
+    "collectionModes": [
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "DECLARATION_REQUIRED",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "health_records_batch"
+    ],
+    "notes": "Health permissions are requested through the Health Connect contract, not the generic dialog. Framework module on 34+; Health Connect app from Play on 28-33 (SDK supports 26, app needs 28). Needs the privacy-policy rationale activity and the Play health apps declaration; no headless access. Subset grants give PARTIALLY_ALLOWED. Details in doc 05. See sections 3.42, 5.3 D, 9.1."
+  },
+  {
+    "id": "health_connect_background_read",
+    "name": "Health Connect background reads",
+    "category": "Health",
+    "androidApis": [
+      "HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_IN_BACKGROUND (Jetpack)",
+      "HealthConnectClient.features.getFeatureStatus (Jetpack)"
+    ],
+    "runtimePermissions": [
+      "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND"
+    ],
+    "specialAccess": "health_connect",
+    "minSdk": 28,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC"
+    ],
+    "playPolicy": "DECLARATION_REQUIRED",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "health_records_batch"
+    ],
+    "notes": "Platform permission constant is 35 (34 ext 13). Gate on getFeatureStatus == FEATURE_STATUS_AVAILABLE, never on SDK level; availability on Health Connect APK devices (28-33) is UNVERIFIED. Without it, reads only while in the foreground (FOREGROUND_ONLY). Replaces BODY_SENSORS_BACKGROUND for target 36. See sections 3.43, 8.2."
+  },
+  {
+    "id": "health_connect_history_read",
+    "name": "Health Connect history older than 30 days",
+    "category": "Health",
+    "androidApis": [
+      "HealthConnectFeatures.FEATURE_READ_HEALTH_DATA_HISTORY (Jetpack)",
+      "HealthConnectClient.readRecords (Jetpack)"
+    ],
+    "runtimePermissions": [
+      "android.permission.health.READ_HEALTH_DATA_HISTORY"
+    ],
+    "specialAccess": "health_connect",
+    "minSdk": 28,
+    "backgroundSupport": "FOREGROUND_ONLY",
+    "collectionModes": [
+      "HISTORICAL"
+    ],
+    "playPolicy": "DECLARATION_REQUIRED",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "health_records_backfill"
+    ],
+    "notes": "Platform permission constant is 35 (34 ext 13); gate on the feature status (APK availability UNVERIFIED). Without it apps read up to 30 days before the first grant (PARTIALLY_ALLOWED). See section 3.44."
+  },
+  {
+    "id": "health_connect_on_device_steps",
+    "name": "Health Connect on-device step counting",
+    "category": "Health",
+    "androidApis": [
+      "Health Connect on-device steps (API 34 + SDK extension 20)",
+      "SdkExtensions.getExtensionVersion (30)",
+      "HealthConnectManager.getCurrentDeviceDataSource (37.0, or 34 with U extension 22 per the SDK database; the guide says extension 11)"
+    ],
+    "runtimePermissions": [
+      "android.permission.health.READ_STEPS"
+    ],
+    "specialAccess": "health_connect",
+    "minSdk": 34,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "DECLARATION_REQUIRED",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "steps_record"
+    ],
+    "notes": "Needs API 34 with extension 20+; otherwise UNSUPPORTED_ON_DEVICE and fall back to step_count_recording_api. Data is batched about once a minute; attribution changed in June 2026 (use getCurrentDeviceDataSource). Doc conflict: the guide says getCurrentDeviceDataSource needs U extension 11, the SDK database says U extension 22 or API 37.0; gate on 22 (UNVERIFIED on devices). Without it, read aggregates with no DataOrigin filter, which include on-device steps. Background reads need health_connect_background_read. See section 3.45."
+  },
+  {
+    "id": "body_sensor_heart_rate",
+    "name": "Heart-rate sensor on the phone",
+    "category": "Health",
+    "androidApis": [
+      "Sensor.TYPE_HEART_RATE (20)",
+      "SensorManager.registerListener (3)"
+    ],
+    "runtimePermissions": [
+      "android.permission.health.READ_HEART_RATE",
+      "android.permission.BODY_SENSORS"
+    ],
+    "specialAccess": null,
+    "minSdk": 20,
+    "backgroundSupport": "WITH_FOREGROUND_SERVICE",
+    "collectionModes": [
+      "CONTINUOUS"
+    ],
+    "playPolicy": "DECLARATION_REQUIRED",
+    "plannedStatus": "DEFER",
+    "eventTypes": [
+      "heart_rate_sample"
+    ],
+    "notes": "Target 36: READ_HEART_RATE replaces BODY_SENSORS on Android 16+ devices; BODY_SENSORS still applies on 35 and lower. Mobile apps must show the privacy-policy rationale or lose the permission. Play reviews all body sensor requests. Deferred: phones rarely have the sensor; wearable data comes through Health Connect or Fitbit. See sections 3.46, 8.2, 9.1."
+  },
+  {
+    "id": "call_state",
+    "name": "Call state (idle, ringing, in call) without numbers",
+    "category": "Communication",
+    "androidApis": [
+      "TelephonyCallback.CallStateListener (31)",
+      "TelephonyManager.registerTelephonyCallback (31)",
+      "TelephonyManager.ACTION_PHONE_STATE_CHANGED (3)",
+      "AudioManager.getMode (1)",
+      "AudioManager.addOnModeChangedListener (31)"
+    ],
+    "runtimePermissions": [
+      "android.permission.READ_PHONE_STATE"
+    ],
+    "specialAccess": null,
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "SENSITIVE",
+    "plannedStatus": "IMPLEMENT",
+    "eventTypes": [
+      "call_state_changed",
+      "audio_mode_changed"
+    ],
+    "notes": "ACTION_PHONE_STATE_CHANGED is manifest-exempt and needs READ_PHONE_STATE; Agentle never requests READ_CALL_LOG, so no numbers. Permissionless fallback: AudioManager.getMode (MODE_IN_CALL, MODE_IN_COMMUNICATION). UNSUPPORTED_ON_DEVICE without FEATURE_TELEPHONY_CALLING (33) or FEATURE_TELEPHONY. See section 3.47."
+  },
+  {
+    "id": "call_log_metadata",
+    "name": "Call log metadata (not available)",
+    "category": "Communication",
+    "androidApis": [
+      "CallLog.Calls (1)"
+    ],
+    "runtimePermissions": [
+      "android.permission.READ_CALL_LOG"
+    ],
+    "specialAccess": "default_dialer",
+    "minSdk": 1,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "RESTRICTED_DEFAULT_HANDLER_ONLY",
+    "plannedStatus": "DOCUMENT_UNAVAILABLE",
+    "eventTypes": [],
+    "notes": "Not built and never declared in the Play manifest. READ_CALL_LOG is hard restricted; Play allows it only for the default Phone or Assistant handler or a listed exception, and names research and social-graph profiling as invalid. ROLE_DIALER is ECM-protected for sideloads. Permission Center state: RESTRICTED_BY_ANDROID with blocker NOT_IN_THIS_BUILD. See sections 3.48, 5.3 D, 9.1."
+  },
+  {
+    "id": "sms_metadata",
+    "name": "SMS metadata (not available)",
+    "category": "Communication",
+    "androidApis": [
+      "Telephony.Sms (19)",
+      "Telephony.Sms.Intents.SMS_RECEIVED_ACTION (19)"
+    ],
+    "runtimePermissions": [
+      "android.permission.READ_SMS",
+      "android.permission.RECEIVE_SMS"
+    ],
+    "specialAccess": "default_sms_handler",
+    "minSdk": 19,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "EVENT",
+      "HISTORICAL"
+    ],
+    "playPolicy": "RESTRICTED_DEFAULT_HANDLER_ONLY",
+    "plannedStatus": "DOCUMENT_UNAVAILABLE",
+    "eventTypes": [],
+    "notes": "Not built and never declared in the Play manifest. Hard-restricted permissions, default SMS handler only on Play, ECM-protected for sideloads. Permission Center state: RESTRICTED_BY_ANDROID with blocker NOT_IN_THIS_BUILD. Android 17 withholds OTP messages for three hours (all apps for WebOTP/Retriever formats; target 37 for standard SMS). See sections 3.49, 5.3 D, 8.3, 9.1."
+  },
+  {
+    "id": "contacts_metadata",
+    "name": "Contacts metadata (counts, last-updated)",
+    "category": "Communication",
+    "androidApis": [
+      "ContactsContract (5)",
+      "ContactsContract.ContactsColumns.CONTACT_LAST_UPDATED_TIMESTAMP (18)",
+      "ContactsContract.DeletedContacts (18)"
+    ],
+    "runtimePermissions": [
+      "android.permission.READ_CONTACTS"
+    ],
+    "specialAccess": null,
+    "minSdk": 5,
+    "backgroundSupport": "YES",
+    "collectionModes": [
+      "PERIODIC",
+      "HISTORICAL"
+    ],
+    "playPolicy": "DECLARATION_REQUIRED",
+    "plannedStatus": "DEFER",
+    "eventTypes": [
+      "contacts_snapshot",
+      "contact_updated",
+      "contact_deleted"
+    ],
+    "notes": "From 2027-01-27 Play allows READ_CONTACTS for apps targeting 17+ only if the Contact Picker is insufficient, with a declaration. Target 37: CP2 removes account PII columns from the Data view and enforces strict SQL without READ_CONTACTS. Deferred. See sections 3.50, 8.3, 9.1."
+  },
+  {
+    "id": "contacts_picker_selection",
+    "name": "Contacts chosen in the system contacts picker",
+    "category": "Communication",
+    "androidApis": [
+      "ContactsPickerSessionContract.ACTION_PICK_CONTACTS (37)",
+      "ContactsPickerSessionContract.EXTRA_PICK_CONTACTS_REQUESTED_DATA_FIELDS (37)"
+    ],
+    "runtimePermissions": [],
+    "specialAccess": null,
+    "minSdk": 37,
+    "backgroundSupport": "NONE",
+    "collectionModes": [
+      "EVENT"
+    ],
+    "playPolicy": "NONE",
+    "plannedStatus": "DEFER",
+    "eventTypes": [
+      "contacts_picked"
+    ],
+    "notes": "Permission-free; returns a session URI with temporary read access, so persist immediately. Below 37 the state is UNSUPPORTED_ON_DEVICE. Deferred until a \"key people\" feature exists. See sections 3.51, 8.3."
+  }
+]
