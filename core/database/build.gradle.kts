@@ -51,7 +51,10 @@ val printRoomSchema =
     }
 tasks.matching { it.name == "testDebugUnitTest" }.configureEach { finalizedBy(printRoomSchema) }
 
-// Print as late as possible, so the markers land near the end of the CI log.
+// Print as late as possible (after the slow tasks of every project), so the markers land near the end of the CI log.
 printRoomSchema.configure {
-    mustRunAfter(tasks.matching { it.name.startsWith("lint") || it.name == "detekt" || it.name.startsWith("spotless") })
+    val late = listOf("lint", "test", "assemble", "detekt", "spotless", "verify", "compile")
+    rootProject.allprojects.forEach { other ->
+        mustRunAfter(other.tasks.matching { task -> task.name != "printRoomSchema" && late.any { task.name.startsWith(it) } })
+    }
 }

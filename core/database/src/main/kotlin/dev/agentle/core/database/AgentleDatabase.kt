@@ -21,6 +21,8 @@ import dev.agentle.core.database.entity.DedupCollisionEntity
 import dev.agentle.core.database.entity.DerivedFeatureEntity
 import dev.agentle.core.database.entity.DiagnosticLogEntity
 import dev.agentle.core.database.entity.DirtyDayEntity
+import dev.agentle.core.database.entity.DiscoveryProposalEntity
+import dev.agentle.core.database.entity.DiscoveryRunEntity
 import dev.agentle.core.database.entity.EngineDaySummaryEntity
 import dev.agentle.core.database.entity.EngineStateEntity
 import dev.agentle.core.database.entity.EventEntity
@@ -39,6 +41,7 @@ import dev.agentle.core.database.entity.JitaiTimerEntity
 import dev.agentle.core.database.entity.KnownPlaceEntity
 import dev.agentle.core.database.entity.MediaArtifactEntity
 import dev.agentle.core.database.entity.MetricSourcePolicyEntity
+import dev.agentle.core.database.entity.PatternMuteEntity
 import dev.agentle.core.database.entity.PermissionSnapshotEntity
 import dev.agentle.core.database.entity.SourceCoverageEntity
 import dev.agentle.core.database.entity.SyncCursorEntity
@@ -70,6 +73,9 @@ import dev.agentle.core.database.entity.UserLogEntity
         MetricSourcePolicyEntity::class,
         DerivedFeatureEntity::class,
         InsightEntity::class,
+        DiscoveryRunEntity::class,
+        DiscoveryProposalEntity::class,
+        PatternMuteEntity::class,
         JitaiDefinitionEntity::class,
         JitaiDefinitionHistoryEntity::class,
         JitaiRuntimeEntity::class,

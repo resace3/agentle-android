@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 
 /** The schema opens on the test driver, seeds its bookkeeping rows and round-trips an event. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [37])
 class DatabaseSmokeTest {
     private lateinit var database: AgentleDatabase
     private lateinit var transactions: DatabaseTransactions

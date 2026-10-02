@@ -18,7 +18,7 @@ import java.security.ProviderException
  * Robolectric part with the JCE fake behind the KEK port).
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [37])
 class DatabaseKeyManagerTest {
     @get:Rule val temp = TemporaryFolder()
 

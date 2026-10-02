@@ -7,15 +7,27 @@ import androidx.room3.Index
 import androidx.room3.PrimaryKey
 
 /**
- * Per engine day (04:00 rollover) aggregates (round 2 correction 2: renamed from `daily_summary`). `lineage` holds the
- * deletion tokens of the inputs (`|F:GH_API|C:ACTIVITY|`).
+ * Per engine day (04:00 rollover) aggregates (round 2 correction 2: renamed from `daily_summary`). `metric` is the row
+ * key (the feature id, or a feature ref key with its subject); `status` is FINAL, PROVISIONAL, PARTIAL or MISSING with
+ * `missing_reason` for MISSING; `source` is the one source used, when exactly one was; `catalog_version` is the daily
+ * feature catalog version that computed the row. `lineage` holds the deletion tokens of the inputs
+ * (`|F:GH_API|C:ACTIVITY|`).
  */
-@Entity(tableName = "engine_day_summary", primaryKeys = ["engine_day", "metric"])
+@Entity(
+    tableName = "engine_day_summary",
+    primaryKeys = ["engine_day", "metric"],
+    indices = [Index(value = ["status", "engine_day"], name = "index_engine_day_summary_status_day")],
+)
 data class EngineDaySummaryEntity(
     @ColumnInfo(name = "engine_day") val engineDay: String,
     val metric: String,
+    @ColumnInfo(name = "feature_id") val featureId: String,
     val value: Double?,
     val coverage: Double?,
+    val status: String,
+    @ColumnInfo(name = "missing_reason") val missingReason: String?,
+    val source: String?,
+    @ColumnInfo(name = "catalog_version") val catalogVersion: Int,
     @ColumnInfo(name = "computed_ms") val computedMs: Long,
     val lineage: String,
 )
@@ -60,16 +72,25 @@ data class MetricSourcePolicyEntity(
     @ColumnInfo(name = "valid_to_ms") val validToMs: Long?,
 )
 
-/** A rolling-window feature value; `feature_window` is the window id (`7d`, `28d`, ...). */
-@Entity(tableName = "derived_feature", primaryKeys = ["feature_id", "feature_window", "anchor_date"])
+/**
+ * A rolling-window feature value over the `window_days` days ending at and including `anchor_date` (the column is not
+ * called `window`, an SQL keyword). `covered_days` counts the final days the value used.
+ */
+@Entity(
+    tableName = "derived_feature",
+    primaryKeys = ["feature_id", "window_days", "anchor_date"],
+    indices = [Index(value = ["anchor_date"], name = "index_derived_feature_anchor")],
+)
 data class DerivedFeatureEntity(
     @ColumnInfo(name = "feature_id") val featureId: String,
-    @ColumnInfo(name = "feature_window") val window: String,
+    @ColumnInfo(name = "window_days") val windowDays: Int,
     @ColumnInfo(name = "anchor_date") val anchorDate: String,
     val value: Double?,
     @ColumnInfo(name = "value_text") val valueText: String?,
     /** OK, UNKNOWN or STALE. */
     val status: String,
+    @ColumnInfo(name = "covered_days") val coveredDays: Int,
+    @ColumnInfo(name = "catalog_version") val catalogVersion: Int,
     @ColumnInfo(name = "computed_ms") val computedMs: Long,
     val lineage: String,
 )
@@ -90,4 +111,40 @@ data class InsightEntity(
     @ColumnInfo(name = "created_ms") val createdMs: Long,
     val state: String,
     val lineage: String,
+)
+
+/**
+ * One weekly run of the pattern-discovery pipeline (docs/research/10 §14): the run as JSON (findings over aggregates,
+ * never raw events), kept for the persistence check against the previous weekly run. `last_night` is the ISO date of
+ * the run's last night.
+ */
+@Entity(tableName = "discovery_run", indices = [Index(value = ["run_at_ms"], name = "index_discovery_run_at")])
+data class DiscoveryRunEntity(
+    @PrimaryKey @ColumnInfo(name = "run_id") val runId: String,
+    @ColumnInfo(name = "run_at_ms") val runAtMs: Long,
+    @ColumnInfo(name = "last_night") val lastNight: String,
+    @ColumnInfo(name = "family_version") val familyVersion: Int,
+    val json: String,
+    val lineage: String,
+)
+
+/** A discovered JITAI proposal (docs/research/10 §14.7-14.8): PROPOSED, APPROVED or DECLINED. */
+@Entity(tableName = "discovery_proposal", indices = [Index(value = ["status", "created_ms"], name = "index_discovery_proposal_status")])
+data class DiscoveryProposalEntity(
+    @PrimaryKey @ColumnInfo(name = "proposal_id") val proposalId: String,
+    @ColumnInfo(name = "pattern_id") val patternId: String,
+    @ColumnInfo(name = "hypothesis_id") val hypothesisId: String,
+    val tier: String,
+    @ColumnInfo(name = "created_ms") val createdMs: Long,
+    val status: String,
+    @ColumnInfo(name = "proposal_json") val proposalJson: String,
+    @ColumnInfo(name = "decided_ms") val decidedMs: Long?,
+    val lineage: String,
+)
+
+/** A muted discovery pattern: "Not now" until `until_ms`, "Never suggest this" with `until_ms` null. */
+@Entity(tableName = "pattern_mute")
+data class PatternMuteEntity(
+    @PrimaryKey @ColumnInfo(name = "pattern_id") val patternId: String,
+    @ColumnInfo(name = "until_ms") val untilMs: Long?,
 )

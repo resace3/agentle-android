@@ -11,7 +11,7 @@ import org.robolectric.annotation.Config
  * must keep decoding with the current code. A change that breaks one of these needs a migration, not a new golden.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [37])
 class DataStoreGoldenTest {
     private fun golden(name: String): String =
         checkNotNull(javaClass.classLoader?.getResource("golden/$name")) { "missing golden $name" }.readText()

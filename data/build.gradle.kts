@@ -19,6 +19,7 @@ dependencies {
     api(project(":jitai:engine"))
     api(project(":ai:api"))
     api(project(":ai:context"))
+    api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     testImplementation(project(":core:testing"))
     testImplementation(project(":fakes"))

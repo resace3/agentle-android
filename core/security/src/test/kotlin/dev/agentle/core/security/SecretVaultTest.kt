@@ -20,7 +20,7 @@ import java.security.KeyStoreException
  * binding, permanent failures wipe and ask for sign-in, transient failures change nothing, no keyset in shared prefs.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [37])
 class SecretVaultTest {
     @get:Rule val temp = TemporaryFolder()
 

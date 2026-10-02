@@ -20,7 +20,7 @@ import kotlin.time.Duration.Companion.hours
 
 /** Unlock-failure counting, install identity, crypto-erasure and failure classification (red team lifecycle-battery-08). */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [37])
 class SecurityStateTest {
     @get:Rule val temp = TemporaryFolder()
 

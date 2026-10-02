@@ -18,7 +18,7 @@ import java.io.File
  * decorator other modules test with.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [37])
 class SecurityGoldenTest {
     @get:Rule val temp = TemporaryFolder()
 

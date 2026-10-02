@@ -176,6 +176,11 @@ object DataCategoryRegistry {
         TableRule("metric_source_policy", exemption = "source priorities (configuration)"),
         TableRule("derived_feature") { scope, _ -> listOf(byLineage("derived_feature", scope)) },
         TableRule("insight", jsonColumns = setOf("support_json")) { scope, _ -> allOrLineage("insight", scope, DataCategory.INSIGHTS) },
+        TableRule("discovery_run", jsonColumns = setOf("json")) { scope, _ -> allOrLineage("discovery_run", scope, DataCategory.INSIGHTS) },
+        TableRule("discovery_proposal", jsonColumns = setOf("proposal_json")) { scope, _ ->
+            allOrLineage("discovery_proposal", scope, DataCategory.INSIGHTS)
+        },
+        TableRule("pattern_mute", exemption = "the user's suggestion preferences (pattern ids); removed only by delete-all"),
         TableRule("jitai_definition", exemption = "the user's rules; removed only by delete-all"),
         TableRule(
             "jitai_definition_history",

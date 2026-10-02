@@ -46,6 +46,8 @@ data class JitaiRuntimeEntity(
     @ColumnInfo(name = "snoozed_until_elapsed_ms") val snoozedUntilElapsedMs: Long?,
     @ColumnInfo(name = "snoozed_until_boot") val snoozedUntilBoot: Int?,
     @ColumnInfo(name = "snooze_mode") val snoozeMode: String?,
+    /** The decision whose `RE_EVALUATE_AFTER` follow-up is pending. */
+    @ColumnInfo(name = "follow_up_of") val followUpOf: String?,
     @ColumnInfo(name = "consecutive_ignored") val consecutiveIgnored: Int,
     @ColumnInfo(name = "last_event_eval_ms") val lastEventEvalMs: Long?,
     @ColumnInfo(name = "last_event_eval_elapsed_ms") val lastEventEvalElapsedMs: Long?,
@@ -54,6 +56,8 @@ data class JitaiRuntimeEntity(
     @ColumnInfo(name = "pending_event_type") val pendingEventType: String?,
     @ColumnInfo(name = "pending_event_ms") val pendingEventMs: Long?,
     @ColumnInfo(name = "pending_activity_state") val pendingActivityState: String?,
+    /** Result signature of the latest evaluation-log entry written with a trace (an equal result is logged without one). */
+    @ColumnInfo(name = "last_eval_signature") val lastEvalSignature: String?,
     @ColumnInfo(name = "updated_ms") val updatedMs: Long,
 )
 
@@ -89,6 +93,12 @@ data class JitaiDecisionEntity(
     @ColumnInfo(name = "zone_id") val zoneId: String,
     @ColumnInfo(name = "local_date_time") val localDateTime: String,
     @ColumnInfo(name = "engine_day") val engineDay: String,
+    /** The nominal decision time the key names (slot start, event time, follow-up time); null on rows without one. */
+    @ColumnInfo(name = "nominal_ms") val nominalMs: Long?,
+    /** The delivery deadline on both clocks, anchored at the nominal time; null for rows that never deliver. */
+    @ColumnInfo(name = "deadline_ms") val deadlineMs: Long?,
+    @ColumnInfo(name = "deadline_elapsed_ms") val deadlineElapsedMs: Long?,
+    @ColumnInfo(name = "deadline_boot") val deadlineBoot: Int?,
     val reason: String?,
     @ColumnInfo(name = "reason_detail") val reasonDetail: String?,
     @ColumnInfo(name = "conditions_result") val conditionsResult: String?,
@@ -156,7 +166,10 @@ data class JitaiEvalLogEntity(
 /**
  * A pending JITAI wake-up (round 3 correction 1). One unique WorkManager work targets min(`due_at_ms`); changing,
  * disabling, deleting or expiring a definition deletes its timers in the same transaction. `kind` is SLOT, PREFETCH,
- * OUTCOME, SNOOZE or BACKSTOP.
+ * OUTCOME, SNOOZE or BACKSTOP; `jitai_id` and `version` are null for the BACKSTOP row. `slot` is the decision point of
+ * SLOT and PREFETCH rows in the engine's text form, `decision_key` the slot's, follow-up's or outcome's key,
+ * `original_key` the snoozed decision of a SNOOZE row, `role` the outcome role, `feature_ids` the remote features of a
+ * PREFETCH row (comma separated) and `deferrals` how often a SLOT was deferred.
  */
 @Entity(
     tableName = "jitai_timer",
@@ -169,8 +182,13 @@ data class JitaiTimerEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "due_at_ms") val dueAtMs: Long,
     val kind: String,
-    @ColumnInfo(name = "jitai_id") val jitaiId: String,
-    val version: Int,
+    @ColumnInfo(name = "jitai_id") val jitaiId: String?,
+    val version: Int?,
     val slot: String?,
+    @ColumnInfo(name = "decision_key") val decisionKey: String?,
+    @ColumnInfo(name = "original_key") val originalKey: String?,
+    val role: String?,
+    @ColumnInfo(name = "feature_ids") val featureIds: String,
+    val deferrals: Int,
     @ColumnInfo(name = "created_ms") val createdMs: Long,
 )

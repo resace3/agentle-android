@@ -107,6 +107,13 @@ interface JitaiDao {
     @Query("SELECT * FROM jitai_decision WHERE state IN (:states) ORDER BY seq")
     suspend fun inStates(states: List<String>): List<JitaiDecisionEntity>
 
+    /** The newest rows in [states], newest first by insertion order (never by wall time). */
+    @Query("SELECT * FROM jitai_decision WHERE state IN (:states) ORDER BY seq DESC LIMIT :limit")
+    suspend fun recentInStates(states: List<String>, limit: Int): List<JitaiDecisionEntity>
+
+    @Query("SELECT * FROM jitai_decision WHERE category = :category AND state IN (:states) ORDER BY seq DESC LIMIT :limit")
+    suspend fun recentOfCategory(category: String, states: List<String>, limit: Int): List<JitaiDecisionEntity>
+
     @Query("SELECT * FROM jitai_decision WHERE decided_ms >= :fromMs ORDER BY seq DESC LIMIT :limit")
     suspend fun recent(fromMs: Long, limit: Int): List<JitaiDecisionEntity>
 
@@ -194,6 +201,12 @@ interface JitaiDao {
 
     @Query("SELECT * FROM jitai_timer WHERE jitai_id = :jitaiId ORDER BY due_at_ms, id")
     suspend fun timersOf(jitaiId: String): List<JitaiTimerEntity>
+
+    @Query("SELECT * FROM jitai_timer ORDER BY due_at_ms, id")
+    suspend fun timers(): List<JitaiTimerEntity>
+
+    @Query("DELETE FROM jitai_timer")
+    suspend fun deleteAllTimers(): Int
 
     @Query("SELECT * FROM jitai_timer WHERE due_at_ms <= :atMs ORDER BY due_at_ms, id")
     suspend fun dueTimers(atMs: Long): List<JitaiTimerEntity>

@@ -131,6 +131,55 @@ interface EventDao {
     )
     suspend fun samplesOverlapping(type: Long, accounts: List<Long>, fromMs: Long, toMs: Long): List<SampleRow>
 
+    /**
+     * Events of [types] and [accounts] overlapping `[fromMs, toMs)` (the analytics `EventQuery`): intervals by
+     * `start < to AND end > from` (index on (type, end_ms)), points by their start (index on (type, start_ms)).
+     */
+    @Query(
+        "SELECT * FROM event WHERE type IN (:types) AND account IN (:accounts) AND (" +
+            "(end_ms IS NOT NULL AND end_ms > :fromMs AND start_ms < :toMs) OR " +
+            "(end_ms IS NULL AND start_ms >= :fromMs AND start_ms < :toMs)) ORDER BY start_ms, seq",
+    )
+    suspend fun overlappingOfTypes(types: List<Long>, accounts: List<Long>, fromMs: Long, toMs: Long): List<EventEntity>
+
+    /** As [overlappingOfTypes], restricted to [sources] (index on (source, start_ms) for points). */
+    @Query(
+        "SELECT * FROM event WHERE type IN (:types) AND source IN (:sources) AND account IN (:accounts) AND (" +
+            "(end_ms IS NOT NULL AND end_ms > :fromMs AND start_ms < :toMs) OR " +
+            "(end_ms IS NULL AND start_ms >= :fromMs AND start_ms < :toMs)) ORDER BY start_ms, seq",
+    )
+    suspend fun overlappingOfTypesFromSources(
+        types: List<Long>,
+        sources: List<Long>,
+        accounts: List<Long>,
+        fromMs: Long,
+        toMs: Long,
+    ): List<EventEntity>
+
+    /** As [overlappingOfTypes], restricted to one [subject] (package, place class, activity, metric). */
+    @Query(
+        "SELECT * FROM event WHERE subject = :subject AND type IN (:types) AND account IN (:accounts) AND (" +
+            "(end_ms IS NOT NULL AND end_ms > :fromMs AND start_ms < :toMs) OR " +
+            "(end_ms IS NULL AND start_ms >= :fromMs AND start_ms < :toMs)) ORDER BY start_ms, seq",
+    )
+    suspend fun overlappingOfTypesWithSubject(types: List<Long>, subject: String, accounts: List<Long>, fromMs: Long, toMs: Long): List<EventEntity>
+
+    /** Interval events of [type] whose end lies in `[fromMs, toMs)` (sleep is attributed by its end; index on (type, end_ms)). */
+    @Query(
+        "SELECT * FROM event WHERE type = :type AND account IN (:accounts) AND end_ms >= :fromMs AND end_ms < :toMs " +
+            "ORDER BY end_ms, seq",
+    )
+    suspend fun byTypeEndingIn(type: Long, accounts: List<Long>, fromMs: Long, toMs: Long): List<EventEntity>
+
+    @Query(
+        "SELECT * FROM event WHERE type = :type AND account IN (:accounts) AND local_date >= :fromDate AND local_date <= :toDate " +
+            "ORDER BY local_date, seq",
+    )
+    suspend fun byTypeOnDatesForAccounts(type: Long, accounts: List<Long>, fromDate: String, toDate: String): List<EventEntity>
+
+    @Query("SELECT * FROM event WHERE source = :source AND start_ms >= :fromMs AND start_ms < :toMs ORDER BY start_ms, seq")
+    suspend fun bySourceStartingIn(source: Long, fromMs: Long, toMs: Long): List<EventEntity>
+
     @Query("SELECT * FROM event WHERE type = :type ORDER BY start_ms DESC, seq DESC LIMIT 1")
     suspend fun latestOfType(type: Long): EventEntity?
 

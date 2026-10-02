@@ -22,7 +22,7 @@ import java.io.File
  * toggle-off racing an in-flight request.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [37])
 class AiConsentStoreTest {
     @get:Rule
     val temp = TemporaryFolder()

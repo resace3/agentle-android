@@ -20,7 +20,7 @@ import java.io.File
  * every table of the exported schema has a rule, every JSON column is declared, and exempt tables never get steps.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [37])
 class SchemaRegistryTest {
     private lateinit var database: AgentleDatabase
 

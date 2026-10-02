@@ -21,8 +21,14 @@ interface AiDao {
     @Insert
     suspend fun insertRequest(row: AiRequestEntity)
 
-    @Query("UPDATE ai_request SET status = :status, error_code = :errorCode, model = :model WHERE id = :id")
-    suspend fun finishRequest(id: String, status: String, errorCode: String?, model: String?): Int
+    @Query(
+        "UPDATE ai_request SET status = :status, error_code = :errorCode, model = :model, " +
+            "provider_request_id = COALESCE(:providerRequestId, provider_request_id) WHERE id = :id",
+    )
+    suspend fun finishRequest(id: String, status: String, errorCode: String?, model: String?, providerRequestId: String?): Int
+
+    @Query("SELECT * FROM ai_request WHERE id = :id")
+    suspend fun request(id: String): AiRequestEntity?
 
     @Query("SELECT * FROM ai_request ORDER BY created_ms DESC LIMIT :limit")
     suspend fun recentRequests(limit: Int): List<AiRequestEntity>
@@ -53,8 +59,25 @@ interface AiDao {
     )
     suspend fun pooled(jitaiId: String, nowMs: Long): List<AiTextPoolEntity>
 
+    /** Unused, unexpired items written for the rule content [contentHash] (index on content_hash). */
+    @Query(
+        "SELECT * FROM ai_text_pool WHERE content_hash = :contentHash AND used_decision_key IS NULL AND expires_ms > :nowMs " +
+            "ORDER BY created_ms, id",
+    )
+    suspend fun pooledByContent(contentHash: String, nowMs: Long): List<AiTextPoolEntity>
+
     @Query("SELECT * FROM ai_text_pool WHERE id = :id")
     suspend fun pooledItem(id: String): AiTextPoolEntity?
+
+    /** Items of [jitaiId] written for other rule content than [keepContentHash] (every item of it when null). */
+    @Query("DELETE FROM ai_text_pool WHERE jitai_id = :jitaiId AND (:keepContentHash IS NULL OR content_hash != :keepContentHash)")
+    suspend fun purgePool(jitaiId: String, keepContentHash: String?): Int
+
+    @Query("DELETE FROM ai_text_pool WHERE created_ms < :beforeMs")
+    suspend fun purgePoolCreatedBefore(beforeMs: Long): Int
+
+    @Query("SELECT COUNT(*) FROM ai_text_pool")
+    suspend fun poolSize(): Long
 
     @Query("UPDATE ai_text_pool SET used_decision_key = :decisionKey, used_ms = :atMs WHERE id = :id AND used_decision_key IS NULL")
     suspend fun markUsed(id: String, decisionKey: String, atMs: Long): Int

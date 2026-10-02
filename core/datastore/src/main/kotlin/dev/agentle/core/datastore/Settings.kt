@@ -23,7 +23,8 @@ data class AppSettings(
     val debug: DebugOptions = DebugOptions(),
 ) {
     /** These settings with every value inside its allowed range. */
-    fun sanitized(): AppSettings = copy(version = CURRENT_VERSION, quietHours = quietHours.sanitized(), jitai = jitai.sanitized())
+    fun sanitized(): AppSettings =
+        copy(version = CURRENT_VERSION, retention = retention.sanitized(), quietHours = quietHours.sanitized(), jitai = jitai.sanitized())
 
     companion object {
         const val CURRENT_VERSION: Int = 1
@@ -53,7 +54,21 @@ data class RetentionSettings(
     val userLogs: RetentionPeriod = RetentionPeriod.FOREVER,
     /** Agentle's records: insights, intervention content, evaluation logs and generated media. */
     val agentle: RetentionPeriod = RetentionPeriod.FOREVER,
-)
+    /**
+     * Days that captured personal text (notification titles and texts, calendar titles) is kept, whatever the periods
+     * above (red team privacy-ai-16): the text fields are cleared when they age out and the content-free event stays.
+     * Default [DEFAULT_CONTENT_TEXT_DAYS], at most [MAX_CONTENT_TEXT_DAYS].
+     */
+    val contentTextDays: Int = DEFAULT_CONTENT_TEXT_DAYS,
+) {
+    fun sanitized(): RetentionSettings = copy(contentTextDays = contentTextDays.coerceIn(MIN_CONTENT_TEXT_DAYS, MAX_CONTENT_TEXT_DAYS))
+
+    companion object {
+        const val DEFAULT_CONTENT_TEXT_DAYS: Int = 7
+        const val MIN_CONTENT_TEXT_DAYS: Int = 1
+        const val MAX_CONTENT_TEXT_DAYS: Int = 30
+    }
+}
 
 /**
  * Quiet hours (R10 §9.3): `HH:mm`, half-open, crossing midnight when [end] is before [start]. Default 22:00-07:00, on.

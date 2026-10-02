@@ -13,7 +13,7 @@ import java.io.IOException
 
 /** Atomic small-file writes (tmp, fsync, rename) used for wrapped keys, vault blobs and security state. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [37])
 class AtomicFilesTest {
     @get:Rule val temp = TemporaryFolder()
 

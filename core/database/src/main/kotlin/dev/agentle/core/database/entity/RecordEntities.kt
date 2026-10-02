@@ -5,7 +5,13 @@ import androidx.room3.Entity
 import androidx.room3.Index
 import androidx.room3.PrimaryKey
 
-/** Metadata of one AI request; never a copy of the payload (docs/ARCHITECTURE.md §5.2). */
+/**
+ * Metadata of one AI request; never a copy of the payload (docs/ARCHITECTURE.md §5.2; red team privacy-ai-13).
+ * `payload_sha256` is the hex SHA-256 of the exact body bytes sent, so a user or auditor can match a request without
+ * storing it; `initiator` is USER or BACKGROUND; `account_sub_hash` is a salted hash of the ChatGPT account (never the
+ * raw `sub`); `prompt_version` names the app-constant instructions; `provider_request_id` is the provider's request id
+ * (OpenAI `x-request-id`) when it returned one.
+ */
 @Entity(tableName = "ai_request", indices = [Index(value = ["created_ms"], name = "index_ai_request_created")])
 data class AiRequestEntity(
     @PrimaryKey val id: String,
@@ -22,6 +28,11 @@ data class AiRequestEntity(
     @ColumnInfo(name = "created_ms") val createdMs: Long,
     @ColumnInfo(name = "bytes_sent") val bytesSent: Long,
     @ColumnInfo(name = "consent_version") val consentVersion: Int?,
+    @ColumnInfo(name = "payload_sha256") val payloadSha256: String?,
+    val initiator: String,
+    @ColumnInfo(name = "account_sub_hash") val accountSubHash: String?,
+    @ColumnInfo(name = "prompt_version") val promptVersion: String?,
+    @ColumnInfo(name = "provider_request_id") val providerRequestId: String?,
 )
 
 @Entity(tableName = "ai_result_meta")
@@ -37,19 +48,24 @@ data class AiResultMetaEntity(
 
 /**
  * AI-written intervention texts waiting to be used (round 1 correction 3; R10 §3.3): at most 24 hours old, purged on
- * every consent change, retention run and deletion. `categories` are the data categories the request used, as
- * `|C:<CATEGORY>|` tokens; an item is delivered only under the consent version it was generated with.
+ * every consent change, retention run and deletion. The pool is keyed by `content_hash`, the content hash of the rule
+ * version the text was written for, so an edited rule never delivers text written for its old version. `categories`
+ * are the data categories the request used, as `|C:<CATEGORY>|` tokens; an item is delivered only under the consent
+ * version it was generated with.
  */
 @Entity(
     tableName = "ai_text_pool",
     indices = [
-        Index(value = ["jitai_id"], name = "index_ai_text_pool_jitai"),
+        Index(value = ["content_hash"], name = "index_ai_text_pool_content_hash"),
+        Index(value = ["jitai_id", "content_hash"], name = "index_ai_text_pool_jitai_content"),
+        Index(value = ["created_ms"], name = "index_ai_text_pool_created"),
         Index(value = ["expires_ms"], name = "index_ai_text_pool_expires"),
     ],
 )
 data class AiTextPoolEntity(
     @PrimaryKey val id: String,
     @ColumnInfo(name = "jitai_id") val jitaiId: String,
+    @ColumnInfo(name = "content_hash") val contentHash: String,
     val title: String,
     val body: String,
     @ColumnInfo(name = "consent_version") val consentVersion: Int,
