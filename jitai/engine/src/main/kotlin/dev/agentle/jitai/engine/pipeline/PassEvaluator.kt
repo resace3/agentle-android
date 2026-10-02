@@ -57,6 +57,9 @@ public object PassEvaluator {
     /** `device_interactive`, read for G06 (`ALLOW_WHEN_INTERACTIVE` needs a definite TRUE). */
     public val INTERACTIVE: FeatureRef = FeatureRef("device_interactive")
 
+    /** Missing reasons of remote data that a sync can resolve (`daily_at` staleness retry). */
+    private val RETRYABLE_MISSING = setOf(MissingReason.NOT_SYNCED, MissingReason.NO_DATA)
+
     /** Effective SUPPRESSION rules at [t] (R10 §6.5: armed and not expired). */
     public fun suppressions(definitions: List<JitaiDefinition>, t: Instant): List<JitaiDefinition> =
         definitions.filter { it.kind == JitaiKind.SUPPRESSION && Effectiveness.isEffective(it, t) }
@@ -134,8 +137,9 @@ public object PassEvaluator {
     }
 
     /**
-     * The remote features to sync when [evaluation] is UNKNOWN **only** because remote health data is Stale or
-     * `NOT_SYNCED` (R10 §8.2 `daily_at` staleness retry); null when a retry cannot help.
+     * The remote features to sync when [evaluation] is UNKNOWN **only** because remote health data is Stale, `NOT_SYNCED`
+     * or `NO_DATA` (R10 §8.2 `daily_at` staleness retry; §12.D6 retries a day without any step interval too, since a
+     * sync can still bring it); null when a retry cannot help (no permission, disconnected source, local collectors).
      */
     public fun retryableStaleness(evaluation: CandidateEvaluation): Set<String>? {
         if (evaluation.outcome != DecisionState.UNKNOWN) return null
@@ -148,7 +152,7 @@ public object PassEvaluator {
                 else -> false
             }
             val state = node.value?.state
-            remote && (state == ValueState.STALE || (state == ValueState.MISSING && node.value?.reason == MissingReason.NOT_SYNCED))
+            remote && (state == ValueState.STALE || (state == ValueState.MISSING && node.value?.reason in RETRYABLE_MISSING))
         }
         return if (retryable) unknownLeaves.mapNotNull { it.feature }.toSortedSet() else null
     }

@@ -116,6 +116,9 @@ public class FakeDeliveryPort : DeliveryPort {
     public var throwOnPost: Boolean = false
     public var isActiveFails: Boolean = false
 
+    /** Runs at the start of every [prepare] (for example to read the row state before the claim). */
+    public var onPrepare: (suspend (RenderedIntervention) -> Unit)? = null
+
     public fun activeTags(): Set<String> = active.keys.toSet()
 
     public fun activeNotification(tag: String): RenderedIntervention? = active[tag]
@@ -127,6 +130,7 @@ public class FakeDeliveryPort : DeliveryPort {
 
     override suspend fun prepare(intervention: RenderedIntervention): PrepareResult {
         yield()
+        onPrepare?.invoke(intervention)
         val available = when (intervention.channel) {
             DeliveryChannel.VOICE -> ttsAvailable
             DeliveryChannel.IMAGE, DeliveryChannel.VIDEO -> mediaAvailable

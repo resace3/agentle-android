@@ -487,23 +487,26 @@ public class JitaiEngine(
         return runPass(PassKind.SNOOZE_FOLLOW_UP, context, listOf(point))
     }
 
-    private class Prepared(val snapshot: FeatureSnapshot?, val evaluations: List<CandidateEvaluation>)
+    /** A prepared pass: the database [generation] it read from, its snapshot and the evaluated points. */
+    private class Prepared(val generation: String, val snapshot: FeatureSnapshot?, val evaluations: List<CandidateEvaluation>)
 
     /**
      * Steps 2-4 of R10 §8.1 inside one read transaction (red team database-sync-05): drop points whose key exists, resolve
-     * every feature once, then evaluate the rules and the SUPPRESSION rules against that one snapshot.
+     * every feature once, then evaluate the rules and the SUPPRESSION rules against that one snapshot. The database
+     * generation is read first, so a commit after a restore or replacement of the database is rejected (database-sync-04).
      */
     private suspend fun prepare(context: Context, points: List<DecisionPoint>, missedKeys: List<String>): Prepared {
-        if (points.isEmpty()) return Prepared(null, emptyList())
+        val generation = ports.store.engineState().getOrThrow().dbGeneration
+        if (points.isEmpty()) return Prepared(generation, null, emptyList())
         val suppressions = PassEvaluator.suppressions(context.definitions, context.now.wall)
         val (open, snapshot) = ports.store.readSnapshot { view ->
             val existing = view.existingKeys(points.map { it.key } + missedKeys)
             val open = points.filter { it.key !in existing }.distinctBy { it.key }
             open to if (open.isEmpty()) null else ports.features.resolve(PassEvaluator.refs(open, suppressions), context.now.wall)
         }.getOrThrow()
-        if (snapshot == null) return Prepared(null, emptyList())
+        if (snapshot == null) return Prepared(generation, null, emptyList())
         val blocking = PassEvaluator.blocking(suppressions, snapshot, context.zone, evaluator)
-        return Prepared(snapshot, open.map { PassEvaluator.evaluate(it, snapshot, blocking, evaluator) })
+        return Prepared(generation, snapshot, open.map { PassEvaluator.evaluate(it, snapshot, blocking, evaluator) })
     }
 
     /** Prepare, commit, deliver, plan outcomes. Null when an event pass lost the watermark race. */
@@ -542,7 +545,6 @@ public class JitaiEngine(
         }
         val randomized = prepared.evaluations.any { it.eligible && MicroRandomization.probability(it.point.definition.experiment) != null }
         val salt = if (randomized) ports.settings.installSalt().getOrThrow() else null
-        val generation = ports.store.engineState().getOrThrow().dbGeneration
         val request = CommitRequest(
             now = context.now,
             zone = context.zone,
@@ -556,7 +558,7 @@ public class JitaiEngine(
             runtime = runtime,
             watermark = watermark,
         )
-        val committed = when (val result = ports.store.commit(generation) { tx -> resolver.commit(tx, request) }.getOrThrow()) {
+        val committed = when (val result = ports.store.commit(prepared.generation) { tx -> resolver.commit(tx, request) }.getOrThrow()) {
             CommitResult.Stale -> return null
             is CommitResult.Committed -> result
         }
