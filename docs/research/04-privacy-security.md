@@ -97,7 +97,7 @@ Related docs: 01 (capabilities, Play policy, minSdk), 02 (background execution, 
     - Disable the recents screenshot on API 33+ [REF-ACT] and use `Modifier.sensitiveContent()` [COMPOSE-SC].
     - Notifications use `VISIBILITY_PRIVATE` plus a generic public version [REF-NOTIF].
 12. **Tests.**
-    - Section 4 lists 40 automated tests, including the five required ones:
+    - Section 4 lists 50 automated tests, including the five required ones:
       - SEC-LOG-01: no tokens in logs.
       - SEC-AI-01: AI categories fail closed.
       - SEC-DEL-01: deleted data is gone.
@@ -1354,7 +1354,7 @@ Levels:
 | SEC-REL-03 | CI | Gradle dependency verification (`verification-metadata.xml`) on; vulnerability scan of the resolved release classpath (tool choice UNVERIFIED) | No unreviewed findings |
 | SEC-CODE-01 | CI (static) | No `@RawQuery` built from strings [R-SQLINJ]; no `java.util.Random` or `kotlin.random` in security code [R-PRNG]; no Java serialization; no custom `TrustManager` or `HostnameVerifier` [R-TRUST]; no `MODE_WORLD_*` | Rule passes |
 
-That is 47 rows: 40 core tests plus the SEC-OAUTH and SEC-REL checks. The five required tests are SEC-LOG-01,
+That is 50 rows: 42 core tests plus 5 SEC-OAUTH and 3 SEC-REL checks. The five required tests are SEC-LOG-01,
 SEC-AI-01, SEC-DEL-01, SEC-IPC-01 and SEC-AI-03.
 
 ---

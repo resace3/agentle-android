@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- prod: HTTPS only. The Sign in with ChatGPT loopback listener is a local socket the app itself serves to the
-     browser; the app never makes cleartext requests. -->
+<!-- prod: HTTPS only, system CAs only. Apps targeting API 37 get an implicit cleartext allowance for localhost unless
+     they configure it, so loopback is denied explicitly (docs/research/04-privacy-security.md §3.9). The Sign in with
+     ChatGPT loopback listener is a socket the app serves to the browser; the app itself never sends cleartext. -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">::1</domain>
+    </domain-config>
 </network-security-config>

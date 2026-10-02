@@ -26,6 +26,7 @@ internal fun Project.configureAndroidCommon(extension: CommonExtension) {
         lint.checkDependencies = false
         lint.warningsAsErrors = false
         lint.xmlReport = true
+        lint.textReport = true
         lint.sarifReport = true
         val lintConfig = rootProject.file("config/lint/lint.xml")
         if (lintConfig.exists()) lint.lintConfig = lintConfig
@@ -61,6 +62,18 @@ internal fun Project.configureAndroidCommon(extension: CommonExtension) {
         systemProperty("robolectric.alwaysIncludeVariantMarkersInTestName", "true")
         systemProperty("robolectric.logging.enabled", "false")
         systemProperty("user.timezone", "UTC")
+        // Robolectric's SDK 36/37 runtimes reach into JDK internals (java.io.FileDescriptor and friends) on JDK 21.
+        jvmArgs(
+            "--add-opens=java.base/java.io=ALL-UNNAMED",
+            "--add-opens=java.base/java.lang=ALL-UNNAMED",
+            "--add-opens=java.base/java.lang.reflect=ALL-UNNAMED",
+            "--add-opens=java.base/java.nio=ALL-UNNAMED",
+            "--add-opens=java.base/java.util=ALL-UNNAMED",
+            "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+            "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
+        )
+        // Hilt and Compose generate test sources, so modules without tests yet would fail Gradle 9's no-tests check.
+        failOnNoDiscoveredTests.set(false)
         maxHeapSize = "2g"
         testLogging {
             events("failed", "skipped")

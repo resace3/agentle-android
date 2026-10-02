@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Personal data, tokens and media never leave the device through cloud backup or device transfer. -->
+<!-- Personal data, tokens and media never leave the device through cloud backup or device transfer. allowBackup=false
+     alone does not stop device-to-device transfer on some devices for apps targeting 31+, so every domain is excluded
+     explicitly, including the device-protected (direct boot) ones (docs/research/04-privacy-security.md §3.3). -->
 <data-extraction-rules>
-    <cloud-backup>
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
         <exclude domain="root" />
         <exclude domain="file" />
         <exclude domain="database" />
         <exclude domain="sharedpref" />
         <exclude domain="external" />
+        <exclude domain="device_root" />
+        <exclude domain="device_file" />
+        <exclude domain="device_database" />
+        <exclude domain="device_sharedpref" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="root" />
@@ -14,5 +20,9 @@
         <exclude domain="database" />
         <exclude domain="sharedpref" />
         <exclude domain="external" />
+        <exclude domain="device_root" />
+        <exclude domain="device_file" />
+        <exclude domain="device_database" />
+        <exclude domain="device_sharedpref" />
     </device-transfer>
 </data-extraction-rules>

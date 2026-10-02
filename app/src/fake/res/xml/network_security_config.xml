@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- fake: the in-process fake servers listen on loopback over plain HTTP; nothing else is allowed in cleartext. -->
+<!-- fake (debug only; fakeRelease is disabled): the in-process fake servers listen on loopback over plain HTTP.
+     Nothing else is allowed in cleartext, and user-installed CAs are not trusted. -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="false">127.0.0.1</domain>
         <domain includeSubdomains="false">localhost</domain>
