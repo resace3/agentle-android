@@ -33,7 +33,7 @@ internal object Fixtures {
     val MAPS = InstalledApp("com.google.android.apps.maps", "Maps", 10)
     val INSTALLED: List<InstalledApp> = listOf(INSTAGRAM, YOUTUBE, MAPS)
 
-    val apps: AppLabelResolver = AppLabelResolver { INSTALLED }
+    val apps: AppLabelResolver = AppLabelResolver.of(INSTALLED)
 
     /** R10 §12 F0: quiet hours off, global caps 6 / 30. */
     val F0_SETTINGS = ValidationSettings(quietHours = null)

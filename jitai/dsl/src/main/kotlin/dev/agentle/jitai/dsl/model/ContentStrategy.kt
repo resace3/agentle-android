@@ -7,6 +7,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.serializer
 
 /**
  * How the message is produced (R10 §3.3); sealed with discriminator `type`. Placeholders `{{feature_id}}` are allowed
@@ -60,15 +61,20 @@ public val ContentStrategy.wireType: String
         is ContentStrategy.LocalMedia -> "local_media"
     }
 
-/** Writes a [ContentStrategy.Template] field with its `"type": "template"` discriminator, as the schema requires. */
+/**
+ * Writes a [ContentStrategy.Template] field with its `"type": "template"` discriminator, as the schema requires. The
+ * strategy serializer is looked up lazily (it contains this serializer) through the library's `serializer<T>()`.
+ */
 internal object TemplateFieldSerializer : KSerializer<ContentStrategy.Template> {
-    override val descriptor: SerialDescriptor get() = ContentStrategy.serializer().descriptor
+    private val strategy: KSerializer<ContentStrategy> by lazy { serializer<ContentStrategy>() }
+
+    override val descriptor: SerialDescriptor get() = strategy.descriptor
 
     override fun serialize(encoder: Encoder, value: ContentStrategy.Template) {
-        encoder.encodeSerializableValue(ContentStrategy.serializer(), value)
+        encoder.encodeSerializableValue(strategy, value)
     }
 
     override fun deserialize(decoder: Decoder): ContentStrategy.Template =
-        decoder.decodeSerializableValue(ContentStrategy.serializer()) as? ContentStrategy.Template
+        decoder.decodeSerializableValue(strategy) as? ContentStrategy.Template
             ?: throw SerializationException("expected a template")
 }
