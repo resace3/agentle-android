@@ -55,13 +55,14 @@ class EngineResponseRecorder(private val engine: JitaiEngine, private val store:
         ResponseStatus.NOT_FOUND -> ResponseVerdict.NOT_FOUND
         ResponseStatus.REJECTED -> ResponseVerdict.REJECTED
         ResponseStatus.INVALID_OPTION -> ResponseVerdict.INVALID_OPTION
+        ResponseStatus.NOT_DISPLAYED -> ResponseVerdict.NOT_DISPLAYED
     }
 }
 
 /** Whether a "Stop this JITAI" may disable: the decision exists, the nonce matches and it still takes responses. */
 object StopGate {
     val RESPONDABLE: Set<DecisionState> =
-        setOf(DecisionState.DELIVERING, DecisionState.DELIVERED, DecisionState.DELIVERY_UNCERTAIN, DecisionState.CARD_PENDING)
+        setOf(DecisionState.DELIVERING, DecisionState.DELIVERED, DecisionState.DELIVERY_UNCERTAIN)
 
     fun accepts(record: DecisionRecord?, nonce: String?): Boolean = record != null &&
         record.state in RESPONDABLE &&

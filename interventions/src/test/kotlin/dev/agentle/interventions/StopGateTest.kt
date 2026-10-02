@@ -35,7 +35,6 @@ class StopGateTest {
     @Test
     fun `a matching nonce on a delivered decision may stop`() {
         assertThat(StopGate.accepts(record(), "nonce-1")).isTrue()
-        assertThat(StopGate.accepts(record(DecisionState.CARD_PENDING), "nonce-1")).isTrue()
     }
 
     @Test
@@ -44,6 +43,8 @@ class StopGateTest {
         assertThat(StopGate.accepts(record(), null)).isFalse()
         assertThat(StopGate.accepts(null, "nonce-1")).isFalse()
         assertThat(StopGate.accepts(record(DecisionState.EXPIRED), "nonce-1")).isFalse()
+        assertThat(StopGate.accepts(record(DecisionState.CARD_PENDING), "nonce-1")).isFalse()
+        assertThat(StopGate.accepts(record(DecisionState.DECIDED), "nonce-1")).isFalse()
         assertThat(StopGate.accepts(record(DecisionState.CANCELLED), "nonce-1")).isFalse()
         assertThat(StopGate.accepts(record(response = JitaiResponse.OPENED), "nonce-1")).isFalse()
     }

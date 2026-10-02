@@ -56,6 +56,9 @@ enum class ResponseVerdict {
 
     /** A snooze option the rule's snooze policy does not offer (any more): nothing was recorded. */
     INVALID_OPTION,
+
+    /** The decision was never shown (not posted yet, or an in-app card not displayed yet): nothing was recorded. */
+    NOT_DISPLAYED,
     ;
 
     /** RECORDED or ALREADY_RESPONDED: the nonce matched, so local side effects (cancel, remove the card) may run. */
