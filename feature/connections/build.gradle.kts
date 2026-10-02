@@ -14,3 +14,10 @@ dependencies {
     // StartIntentSenderForResult for Google's consent screen (the needs-resolution PendingIntent).
     implementation(libs.androidx.activity.compose)
 }
+
+// A hung Robolectric/Roborazzi test fails this module's test task within 20 minutes, and the log names each test as it
+// starts, so the last "STARTED" line points at the hang.
+tasks.withType<Test>().configureEach {
+    timeout.set(java.time.Duration.ofMinutes(20))
+    testLogging { events("started", "failed") }
+}
