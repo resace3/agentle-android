@@ -1,5 +1,6 @@
 package dev.agentle.fakes.googlehealth
 
+import dev.agentle.core.time.AgentleClock
 import dev.agentle.fakes.synth.SynthEvent
 import dev.agentle.fakes.synth.SynthEventType
 import dev.agentle.fakes.synth.SynthExerciseKind
@@ -29,6 +30,17 @@ import kotlin.time.Instant
  * Every value derives from the generator, so a test can compare synced totals with [SyntheticUser] exactly.
  */
 public object SyntheticGoogleHealth {
+    /**
+     * The synthetic user's data for the [days] days up to [clock]'s now, living in [clock]'s zone (testing-build-19):
+     * the fake flavor anchors the dataset to the device's real now instead of moving the app clock to the data.
+     */
+    public fun dataset(
+        clock: AgentleClock,
+        seed: Long = DEFAULT_SEED,
+        days: Int = DEFAULT_DAYS,
+        healthUserId: String = "1234567890",
+    ): FakeDataset = dataset(SynthSpec.endingAt(clock.now(), seed, days, clock.zone()), healthUserId)
+
     public fun dataset(spec: SynthSpec = SynthSpec(seed = DEFAULT_SEED), healthUserId: String = "1234567890"): FakeDataset {
         val events = SyntheticUser.generate(spec)
         val points = ArrayList<FakePoint>(events.size * 3)
@@ -258,5 +270,6 @@ public object SyntheticGoogleHealth {
     }
 
     private const val DEFAULT_SEED = 42L
+    private const val DEFAULT_DAYS = 90
     private const val MINUTES_PER_HOUR = 60
 }

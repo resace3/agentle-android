@@ -7,6 +7,8 @@ import dev.agentle.fakes.synth.SynthHealth
 import dev.agentle.fakes.synth.SynthSpec
 import dev.agentle.fakes.synth.SyntheticUser
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -14,7 +16,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
 
 class SyntheticGoogleHealthTest {
     @Test
@@ -92,11 +96,54 @@ class SyntheticGoogleHealthTest {
             mapOf("Authorization" to "Bearer ${FakeTokens.VALID}"),
         )
         val newest = Json.parseToJsonElement(response.body).jsonObject.getValue("dataPoints").jsonArray.single().jsonObject
-        val time = kotlin.time.Instant.parse(
+        val time = Instant.parse(
             newest.getValue("heartRate").jsonObject.getValue("sampleTime").jsonObject.getValue("physicalTime").jsonPrimitive.content,
         )
         assertThat(time).isAtMost(now - 30.minutes)
         assertThat(time).isGreaterThan(now - 90.minutes)
+    }
+
+    @Test
+    fun `testing-build-19 a dataset anchored to the clock holds data up to its now and serves nothing later`() {
+        val zone = TimeZone.of("America/St_Johns")
+        val clock = TestAgentleClock(start = Instant.parse("2027-03-15T15:30:00Z"), zone = zone)
+        val anchored = SyntheticGoogleHealth.dataset(clock, days = 14)
+        val steps = anchored.of(GhDataTypes.STEPS)
+        assertThat(steps.minOf { it.start }).isAtLeast(LocalDate(2027, 3, 2).atStartOfDayIn(zone))
+        assertThat(steps.maxOf { it.end }).isGreaterThan(clock.now())
+        val fake = FakeGoogleHealthServer(clock, dataset = anchored)
+        val response = fake.call(
+            "GET",
+            "/v4/users/me/dataTypes/steps/dataPoints?pageSize=1",
+            mapOf("Authorization" to "Bearer ${FakeTokens.VALID}"),
+        )
+        val newest = Json.parseToJsonElement(response.body).jsonObject.getValue("dataPoints").jsonArray.single().jsonObject
+        val end = Instant.parse(
+            newest.getValue("steps").jsonObject.getValue("interval").jsonObject.getValue("endTime").jsonPrimitive.content,
+        )
+        assertThat(end).isAtMost(clock.now())
+        assertThat(end).isGreaterThan(clock.now() - 6.hours)
+    }
+
+    @Test
+    fun `testing-build-04 served data does not depend on the JVM default zone`() {
+        fun serve(): String {
+            val fake =
+                FakeGoogleHealthServer(TestAgentleClock(start = spec.windowEnd + 1.days), dataset = SyntheticGoogleHealth.dataset(spec))
+            val auth = mapOf("Authorization" to "Bearer ${FakeTokens.VALID}")
+            val daily = """{"range":{"start":{"date":{"year":2026,"month":10,"day":28}},"end":{"date":{"year":2026,"month":11,"day":3}}}}"""
+            return fake.call("POST", "/v4/users/me/dataTypes/steps/dataPoints:dailyRollUp", auth, daily).body +
+                fake.call("GET", "/v4/users/me/dataTypes/sleep/dataPoints?pageSize=25", auth).body +
+                fake.call("GET", "/v4/users/me/dataTypes/daily-resting-heart-rate/dataPoints?pageSize=10", auth).body
+        }
+        val utc = serve()
+        val saved = java.util.TimeZone.getDefault()
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("America/St_Johns"))
+            assertThat(serve()).isEqualTo(utc)
+        } finally {
+            java.util.TimeZone.setDefault(saved)
+        }
     }
 
     companion object {

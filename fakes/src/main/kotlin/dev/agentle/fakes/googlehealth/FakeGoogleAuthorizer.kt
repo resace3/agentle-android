@@ -16,29 +16,51 @@ public sealed interface FakeAuthorization {
 
     public data class Failure(val statusCode: Int) : FakeAuthorization
 
+    /**
+     * Play services status codes the fake can return (`ConnectionResult` / `CommonStatusCodes` values as remembered,
+     * UNVERIFIED against the class reference: nothing was fetched).
+     */
     public companion object {
-        /** `CommonStatusCodes.DEVELOPER_ERROR` (a misconfigured OAuth client) and `CANCELED`. */
+        /** Google Play services is not installed. */
+        public const val SERVICE_MISSING: Int = 1
+
+        /** The installed Google Play services is too old. */
+        public const val SERVICE_VERSION_UPDATE_REQUIRED: Int = 2
+
+        /** Google Play services is disabled on the device. */
+        public const val SERVICE_DISABLED: Int = 3
+        public const val NETWORK_ERROR: Int = 7
+        public const val INTERNAL_ERROR: Int = 8
+
+        /** A misconfigured OAuth client (package name or signing certificate not registered). */
         public const val DEVELOPER_ERROR: Int = 10
         public const val CANCELED: Int = 16
-        public const val NETWORK_ERROR: Int = 7
     }
 }
 
 /**
  * A scripted stand-in for the Google authorization client, for JVM tests and the app's fake flavor. It issues the
  * tokens of docs/research/05 §8.1 (`fake-valid`, `fake-expired`, `fake-revoked`, `fake-scope-*`, ...), which
- * [FakeGoogleHealthServer] understands, and can return a pending resolution, a status-code failure, a cancellation,
- * or a revoked grant. Granted scopes are full scope URLs, as `AuthorizationClient` reports them.
+ * [FakeGoogleHealthServer] understands. Granted scopes are full scope URLs, as `AuthorizationClient` reports them.
  *
- * Default behavior: [token] returns the current token. [expireOnce] makes the current token `fake-expired` until
- * the client invalidates it, after which the next call returns the refreshed token. After [revoke], silent calls
- * need a resolution until an interactive call succeeds.
+ * Default behavior: [token] returns the current token. Scripts (testing-build-01):
+ * - [grantPartial]: the user granted only some scopes;
+ * - [expireOnce]: the current token is `fake-expired` until the client invalidates it, then a fresh one is issued;
+ * - [needResolutionInBackground] (also [requireConsent]): silent calls need a user resolution until an interactive
+ *   call succeeds, so a background worker gets [FakeAuthorization.NeedsResolution];
+ * - [revokeAccessUpstream]: the user removed the app's access in their Google Account; the cached token is rejected
+ *   (`fake-revoked`) and, once invalidated, silent calls need a resolution; [revoke] is the app's own disconnect;
+ * - [failWithNetworkError]: the next calls fail with `NETWORK_ERROR`;
+ * - [playServicesMissing]: Google Play services is missing (or outdated or disabled) until [playServicesAvailable];
+ * - [enqueue]: any sequence of outcomes, for example a cancellation or a denial.
  */
 public class FakeGoogleAuthorizer(initialToken: String = FakeTokens.VALID) {
     private val lock = Any()
     private var current: String = initialToken
     private var refreshed: String? = null
     private var revoked = false
+    private var revokedUpstream = false
+    private var unavailable: Int? = null
     private val script = ArrayDeque<FakeAuthorization>()
     private val log = ArrayList<String>()
 
@@ -51,8 +73,10 @@ public class FakeGoogleAuthorizer(initialToken: String = FakeTokens.VALID) {
     /** How many times the client invalidated a token. */
     public val invalidations: Int get() = synchronized(lock) { log.count { it.startsWith("invalidate") } }
 
+    @Suppress("ReturnCount")
     public suspend fun token(interactive: Boolean): FakeAuthorization = synchronized(lock) {
         log += "token(interactive=$interactive)"
+        unavailable?.let { return FakeAuthorization.Failure(it) }
         script.removeFirstOrNull()?.let { return it }
         if (revoked || current.isEmpty()) {
             if (!interactive) return FakeAuthorization.NeedsResolution
@@ -66,7 +90,12 @@ public class FakeGoogleAuthorizer(initialToken: String = FakeTokens.VALID) {
     public suspend fun invalidate(token: String) {
         synchronized(lock) {
             log += "invalidate($token)"
-            if (token == current) {
+            if (token != current) return
+            if (revokedUpstream) {
+                revokedUpstream = false
+                revoked = true
+                current = FakeTokens.VALID
+            } else {
                 refreshed?.let {
                     current = it
                     refreshed = null
@@ -77,12 +106,13 @@ public class FakeGoogleAuthorizer(initialToken: String = FakeTokens.VALID) {
 
     public suspend fun grantedScopes(): Set<String> = synchronized(lock) {
         log += "grantedScopes()"
-        if (revoked) emptySet() else grantedScopes(current)
+        if (revoked || unavailable != null) emptySet() else grantedScopes(current)
     }
 
-    /** Revokes the grant: later silent calls need a resolution. */
+    /** Revokes the grant (the app's disconnect): later silent calls need a resolution. False without Play services. */
     public suspend fun revoke(): Boolean = synchronized(lock) {
         log += "revoke()"
+        if (unavailable != null) return false
         revoked = true
         true
     }
@@ -95,7 +125,13 @@ public class FakeGoogleAuthorizer(initialToken: String = FakeTokens.VALID) {
             current = token
             refreshed = null
             revoked = false
+            revokedUpstream = false
         }
+    }
+
+    /** The user granted only [scopes] (suffixes such as `sleep.readonly`, or full scope URLs). */
+    public fun grantPartial(scopes: Collection<String>) {
+        issue(FakeTokens.scoped(scopes))
     }
 
     /** The current token is expired: it is `fake-expired` until invalidated, then [next] is issued. */
@@ -114,6 +150,38 @@ public class FakeGoogleAuthorizer(initialToken: String = FakeTokens.VALID) {
     /** Silent calls need user interaction until an interactive call succeeds (no grant on this device yet). */
     public fun requireConsent() {
         synchronized(lock) { revoked = true }
+    }
+
+    /** A background (silent) call gets a pending resolution, as when consent must be shown again; see [requireConsent]. */
+    public fun needResolutionInBackground() {
+        requireConsent()
+    }
+
+    /**
+     * The user removed the app's access in their Google Account: the cached token is `fake-revoked` (the server answers
+     * 401), and after the client invalidates it silent calls need a resolution; an interactive consent issues a fresh
+     * token.
+     */
+    public fun revokeAccessUpstream() {
+        synchronized(lock) {
+            current = FakeTokens.REVOKED
+            refreshed = null
+            revokedUpstream = true
+        }
+    }
+
+    /** The next [times] calls fail with `NETWORK_ERROR` (status 7). */
+    public fun failWithNetworkError(times: Int = 1) {
+        synchronized(lock) { repeat(times) { script.addLast(FakeAuthorization.Failure(FakeAuthorization.NETWORK_ERROR)) } }
+    }
+
+    /** Google Play services is unavailable: every call fails with [statusCode] until [playServicesAvailable]. */
+    public fun playServicesMissing(statusCode: Int = FakeAuthorization.SERVICE_MISSING) {
+        synchronized(lock) { unavailable = statusCode }
+    }
+
+    public fun playServicesAvailable() {
+        synchronized(lock) { unavailable = null }
     }
 
     private fun grantedScopes(token: String): Set<String> =

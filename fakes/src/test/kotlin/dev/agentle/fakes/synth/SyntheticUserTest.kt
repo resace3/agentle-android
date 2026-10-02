@@ -29,6 +29,35 @@ class SyntheticUserTest {
     }
 
     @Test
+    fun `testing-build-04 the golden fingerprint does not depend on the JVM default zone`() {
+        val saved = java.util.TimeZone.getDefault()
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("America/St_Johns"))
+            assertThat(SyntheticUser.fingerprint(SyntheticUser.generate(TYPICAL))).isEqualTo(GOLDEN_SHA256)
+        } finally {
+            java.util.TimeZone.setDefault(saved)
+        }
+    }
+
+    @Test
+    fun `testing-build-19 a spec anchored to now ends on the local date of now and keeps the trip in place`() {
+        // 2027-03-14 22:30 in New York.
+        val now = kotlin.time.Instant.parse("2027-03-15T02:30:00Z")
+        val spec = SynthSpec.endingAt(now, seed = 42)
+        assertThat(spec.firstDay).isEqualTo(LocalDate(2026, 12, 15))
+        assertThat(spec.days).isEqualTo(90)
+        assertThat(spec.windowStart).isLessThan(now)
+        assertThat(spec.windowEnd).isGreaterThan(now)
+        assertThat(spec.trip!!.departure.toLocalDateTime(SynthSpec.NEW_YORK).date).isEqualTo(LocalDate(2027, 2, 24))
+        assertThat(spec.trip!!.zone).isEqualTo(TimeZone.of("Europe/Berlin"))
+        assertThat(SynthSpec.endingAt(now, seed = 42, days = 30).trip).isNull()
+        val anchored = SyntheticUser.generate(spec)
+        assertThat(anchored).isNotEmpty()
+        assertThat(SyntheticUser.fingerprint(SyntheticUser.generate(SynthSpec.endingAt(now, seed = 42))))
+            .isEqualTo(SyntheticUser.fingerprint(anchored))
+    }
+
+    @Test
     fun `DST fall-back days have 25 local hours in the zone the user is in`() {
         // 2026-10-25: EU DST ends while the user is in Berlin. 2026-11-01: US DST ends at home in New York.
         for (date in listOf(LocalDate(2026, 10, 25), LocalDate(2026, 11, 1))) {

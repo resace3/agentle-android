@@ -64,4 +64,56 @@ class FakeGoogleAuthorizerTest {
         assertThat(partial.value).isEqualTo("fake-scope-sleep.readonly")
         assertThat(partial.grantedScopes).containsExactly("https://www.googleapis.com/auth/googlehealth.sleep.readonly")
     }
+
+    @Test
+    fun `testing-build-01 partial scopes are reported as full scope URLs`() = runTest {
+        val authorizer = FakeGoogleAuthorizer()
+        authorizer.grantPartial(listOf(GhScopes.SLEEP, GhScopes.full(GhScopes.SETTINGS)))
+        val token = authorizer.token(false) as FakeAuthorization.Token
+        assertThat(token.grantedScopes).containsExactly(GhScopes.full(GhScopes.SLEEP), GhScopes.full(GhScopes.SETTINGS))
+        assertThat(authorizer.grantedScopes()).isEqualTo(token.grantedScopes)
+    }
+
+    @Test
+    fun `testing-build-01 a background call needs a resolution while an interactive one succeeds`() = runTest {
+        val authorizer = FakeGoogleAuthorizer()
+        authorizer.needResolutionInBackground()
+        assertThat(authorizer.token(interactive = false)).isEqualTo(FakeAuthorization.NeedsResolution)
+        assertThat(authorizer.token(interactive = false)).isEqualTo(FakeAuthorization.NeedsResolution)
+        assertThat(authorizer.token(interactive = true)).isInstanceOf(FakeAuthorization.Token::class.java)
+        assertThat(authorizer.token(interactive = false)).isInstanceOf(FakeAuthorization.Token::class.java)
+    }
+
+    @Test
+    fun `testing-build-01 access revoked upstream is rejected, then needs a resolution`() = runTest {
+        val authorizer = FakeGoogleAuthorizer()
+        authorizer.revokeAccessUpstream()
+        val stale = authorizer.token(false) as FakeAuthorization.Token
+        assertThat(stale.value).isEqualTo(FakeTokens.REVOKED)
+        assertThat(FakeTokens.scopesOf(stale.value)).isNull()
+        authorizer.invalidate("some-other-token")
+        assertThat((authorizer.token(false) as FakeAuthorization.Token).value).isEqualTo(FakeTokens.REVOKED)
+        authorizer.invalidate(FakeTokens.REVOKED)
+        assertThat(authorizer.token(false)).isEqualTo(FakeAuthorization.NeedsResolution)
+        assertThat(authorizer.grantedScopes()).isEmpty()
+        assertThat((authorizer.token(true) as FakeAuthorization.Token).value).isEqualTo(FakeTokens.VALID)
+    }
+
+    @Test
+    fun `testing-build-01 network errors and missing Play services`() = runTest {
+        val authorizer = FakeGoogleAuthorizer()
+        authorizer.failWithNetworkError(times = 2)
+        assertThat(authorizer.token(false)).isEqualTo(FakeAuthorization.Failure(FakeAuthorization.NETWORK_ERROR))
+        assertThat(authorizer.token(true)).isEqualTo(FakeAuthorization.Failure(7))
+        assertThat(authorizer.token(false)).isInstanceOf(FakeAuthorization.Token::class.java)
+        authorizer.playServicesMissing()
+        assertThat(authorizer.token(true)).isEqualTo(FakeAuthorization.Failure(FakeAuthorization.SERVICE_MISSING))
+        assertThat(authorizer.grantedScopes()).isEmpty()
+        assertThat(authorizer.revoke()).isFalse()
+        authorizer.playServicesMissing(FakeAuthorization.SERVICE_VERSION_UPDATE_REQUIRED)
+        assertThat(authorizer.token(false)).isEqualTo(FakeAuthorization.Failure(2))
+        authorizer.playServicesAvailable()
+        assertThat(authorizer.token(false)).isInstanceOf(FakeAuthorization.Token::class.java)
+        assertThat(authorizer.calls.count { it == "token(interactive=false)" }).isEqualTo(4)
+    }
 }

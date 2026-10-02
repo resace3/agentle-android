@@ -95,6 +95,39 @@ public data class SynthSpec(
             returnAt = LocalDateTime(2026, 10, 29, 10, 0).toInstant(BERLIN),
             zone = BERLIN,
         )
+
+        private const val TRIP_DEPARTURE_DAY = 71
+        private const val TRIP_RETURN_DAY = 80
+        private const val DEPARTURE_HOUR = 18
+        private const val RETURN_HOUR = 10
+
+        /**
+         * A spec anchored to [now] (testing-build-19): its last day is the local date of [now] in [homeZone], so a fake
+         * built from it holds the [days] days up to the device's real "now" and the app clock never has to move to match
+         * the data. The generator still produces the whole last day; fakes serve only what was recorded before their
+         * clock's now. The trip keeps its place (days 71 to 80, to Berlin) when the window is long enough.
+         */
+        public fun endingAt(
+            now: Instant,
+            seed: Long,
+            days: Int = 90,
+            homeZone: TimeZone = NEW_YORK,
+            profile: SynthProfile = SynthProfile.TYPICAL,
+        ): SynthSpec {
+            require(days >= 1) { "days must be >= 1" }
+            val first = now.toLocalDateTime(homeZone).date.minus(DatePeriod(days = days - 1))
+            val trip = if (days > TRIP_RETURN_DAY) {
+                Trip(
+                    departure = LocalDateTime(first.plus(DatePeriod(days = TRIP_DEPARTURE_DAY)), LocalTime(DEPARTURE_HOUR, 0))
+                        .toInstant(homeZone),
+                    returnAt = LocalDateTime(first.plus(DatePeriod(days = TRIP_RETURN_DAY)), LocalTime(RETURN_HOUR, 0)).toInstant(BERLIN),
+                    zone = BERLIN,
+                )
+            } else {
+                null
+            }
+            return SynthSpec(seed = seed, profile = profile, homeZone = homeZone, firstDay = first, days = days, trip = trip)
+        }
     }
 }
 
