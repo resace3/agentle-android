@@ -49,7 +49,12 @@ public data class InputMessage(val role: InputRole, val content: String) {
  * A `POST /v1/responses` body as docs/research/06 §4.2 and §4.5 define it: `model`, optional `instructions`, an array
  * `input`, `store: false`, `stream: true`, and nothing else. [encode] checks the result against [RequestFieldGuard].
  */
-public data class ResponsesRequest(val model: String, val instructions: String?, val input: List<InputMessage>) {
+public data class ResponsesRequest(
+    val model: String,
+    val instructions: String?,
+    val input: List<InputMessage>,
+    val maxOutputTokens: Int? = null,
+) {
     init {
         require(model.isNotBlank()) { "a model is required" }
         require(input.isNotEmpty()) { "input must contain at least one item" }
@@ -67,6 +72,7 @@ public data class ResponsesRequest(val model: String, val instructions: String?,
                     }
                 }
             }
+            maxOutputTokens?.let { put("max_output_tokens", it) }
             put("store", false)
             put("stream", true)
         }
@@ -83,11 +89,11 @@ public data class ResponsesRequest(val model: String, val instructions: String?,
  * none of the unsupported ones, `store` exactly false and `stream` exactly true.
  */
 public object RequestFieldGuard {
-    public val ALLOWED: Set<String> = setOf("model", "instructions", "input", "store", "stream")
+    public val ALLOWED: Set<String> = setOf("model", "instructions", "input", "max_output_tokens", "store", "stream")
 
     /** R06 §4.4 "Unsupported request fields" (exact list), plus `previous_response_id` and `service_tier`. */
     public val FORBIDDEN: Set<String> = setOf(
-        "background", "conversation", "max_output_tokens", "max_tool_calls", "metadata", "moderation", "multi_agent",
+        "background", "conversation", "max_tool_calls", "metadata", "moderation", "multi_agent",
         "prompt", "prompt_cache_retention", "safety_identifier", "temperature", "top_logprobs", "top_p", "truncation",
         "user", "previous_response_id", "service_tier",
     )
