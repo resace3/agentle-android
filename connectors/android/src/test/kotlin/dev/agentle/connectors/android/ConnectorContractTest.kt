@@ -52,13 +52,9 @@ class ConnectorContractTest {
 
         val calendar = CalendarSource { begin, end, _ ->
             if (revoked) throw SecurityException()
-            if (empty) {
-                emptyList()
-            } else {
-                listOf(
-                    CalendarInstance(1, begin + 2.hours.inWholeMilliseconds, begin + 3.hours.inWholeMilliseconds, false, true),
-                )
-            }
+            val mid = (begin + end) / 2
+            val all = if (empty) emptyList() else listOf(CalendarInstance(1, mid, mid + 1.hours.inWholeMilliseconds, false, true))
+            all.filter { it.endMs > begin && it.beginMs < end }
         }
 
         val usage = UsageEventSource { begin, end ->
@@ -136,6 +132,7 @@ class ConnectorContractTest {
             val seams = Seams()
             assertThat(connector(name, t, seams).sync(SyncTrigger.MANUAL).status).isEqualTo(SyncResult.Status.SUCCESS)
             val rows = t.writer.rows.toMap()
+            if (name == "calendar") assertThat(rows).isNotEmpty()
 
             t.clock.advanceBy(30.minutes)
             val again = connector(name, t, seams).sync(SyncTrigger.MANUAL)

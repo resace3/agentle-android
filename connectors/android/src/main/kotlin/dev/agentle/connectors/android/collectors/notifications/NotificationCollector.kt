@@ -60,6 +60,19 @@ public class NotificationCollector(
 
     @Volatile private var knownHandlers: Set<String>? = null
 
+    @Volatile private var resolvedHandlers: Set<String>? = null
+
+    @Volatile private var resolvedAt: kotlin.time.Duration? = null
+
+    /** Package changes may move the default SMS or dialer role (there is no public role-change broadcast). */
+    private val packageReceiver = dev.agentle.connectors.android.core.RuntimeReceiver(
+        runtime.context,
+        PACKAGE_ACTIONS,
+        exported = true,
+        clock = runtime.clock,
+        dataScheme = "package",
+    ) { _, _, _ -> invalidateHandlers() }
+
     private val ownPackage: String = runtime.context.packageName
     private val buffer =
         LiveEventBuffer(AndroidConnectorIds.NOTIFICATIONS, CoverageIds.NOTIFICATIONS, runtime, cursor = this, flushDelay = flushDelay)
@@ -79,6 +92,7 @@ public class NotificationCollector(
     @Synchronized
     public fun start() {
         if (consumer?.isActive == true) return
+        packageReceiver.register()
         consumer = runtime.scope.launch {
             launch { runtime.settings.flow.collect { settings = it } }
             for (signal in signals) process(signal)
@@ -271,7 +285,10 @@ public class NotificationCollector(
      * found too. A failed purge is retried at the next resolution.
      */
     @Suppress("TooGenericExceptionCaught")
-    public suspend fun refreshHandlers(): Set<String> = handlersLock.withLock {
+    public suspend fun refreshHandlers(force: Boolean = false): Set<String> = handlersLock.withLock {
+        val cached = resolvedHandlers
+        val at = runtime.clock.elapsed()
+        if (!force && cached != null && resolvedAt.let { it != null && at - it < HANDLERS_TTL }) return@withLock cached
         val now = try {
             handlers.packages()
         } catch (e: RuntimeException) {
@@ -284,7 +301,14 @@ public class NotificationCollector(
         val settled = now.intersect(known.orEmpty()) + purged
         if (settled != known) persistDefaults(settled)
         knownHandlers = settled
+        resolvedHandlers = now
+        resolvedAt = at
         now
+    }
+
+    /** Drops the cached default handlers (a package was added, replaced, changed or removed). */
+    public fun invalidateHandlers() {
+        resolvedAt = null
     }
 
     @Suppress("TooGenericExceptionCaught")
@@ -382,6 +406,15 @@ public class NotificationCollector(
     public companion object {
         public const val STREAM: String = "notifications"
         public const val DEFAULTS_STREAM: String = "notification_defaults"
+
+        /** Default handlers are re-resolved at least this often, and on every sweep. */
+        public val HANDLERS_TTL: kotlin.time.Duration = kotlin.time.Duration.parse("15m")
+        private val PACKAGE_ACTIONS = setOf(
+            android.content.Intent.ACTION_PACKAGE_ADDED,
+            android.content.Intent.ACTION_PACKAGE_REPLACED,
+            android.content.Intent.ACTION_PACKAGE_CHANGED,
+            android.content.Intent.ACTION_PACKAGE_REMOVED,
+        )
 
         /** A removal found by the reconnect diff: the platform reason is unknown (REASON_* constants start at 1). */
         public const val REASON_UNKNOWN: Int = 0

@@ -21,7 +21,7 @@ class CalendarPrivacyTest {
 
         override fun instances(beginMs: Long, endMs: Long, includeTitles: Boolean): List<CalendarInstance> {
             titleRequests += includeTitles
-            return listOf(
+            return listOfNotNull(
                 CalendarInstance(
                     eventId = 42,
                     beginMs = start,
@@ -30,7 +30,7 @@ class CalendarPrivacyTest {
                     busy = true,
                     attendeeCount = 3,
                     title = if (includeTitles) "Dentist" else null,
-                ),
+                ).takeIf { it.endMs > beginMs && it.beginMs < endMs },
             )
         }
     }

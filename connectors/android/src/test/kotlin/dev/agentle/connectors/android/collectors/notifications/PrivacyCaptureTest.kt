@@ -26,6 +26,11 @@ class PrivacyCaptureTest {
         assertThat(OneTimeCodeFilter.matches("Lunch at 12 with Sam?", Locale.US)).isFalse()
         assertThat(OneTimeCodeFilter.matches("Order 123456789012 shipped", Locale.US)).isFalse()
         assertThat(OneTimeCodeFilter.matches(null, Locale.US)).isFalse()
+        // A Spanish 2FA message on an en_US device, and alphanumeric codes.
+        assertThat(OneTimeCodeFilter.matches("Tu código de verificación es 482913", Locale.US)).isTrue()
+        assertThat(OneTimeCodeFilter.matches("Su clave de acceso: X7K-9Q2", Locale.US)).isTrue()
+        assertThat(OneTimeCodeFilter.matches("Your login code: AB12CD", Locale.US)).isTrue()
+        assertThat(OneTimeCodeFilter.matches("Meet at gate B12 for the security check", Locale.US)).isFalse()
     }
 
     private fun snapshot(pkg: String, key: String, text: String?) = NotificationSnapshot(

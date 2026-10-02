@@ -19,6 +19,8 @@ public class RuntimeReceiver(
     public val actions: Set<String>,
     public val exported: Boolean,
     private val clock: AgentleClock,
+    /** Data scheme for the filter (`package` for package broadcasts), or null for plain actions. */
+    private val dataScheme: String? = null,
     private val onAction: (action: String, intent: Intent, at: Instant) -> Unit,
 ) {
     private var receiver: BroadcastReceiver? = null
@@ -38,7 +40,10 @@ public class RuntimeReceiver(
                 onAction(action, intent, at)
             }
         }
-        val filter = IntentFilter().apply { actions.forEach(::addAction) }
+        val filter = IntentFilter().apply {
+            actions.forEach(::addAction)
+            dataScheme?.let(::addDataScheme)
+        }
         val flags = if (exported) ContextCompat.RECEIVER_EXPORTED else ContextCompat.RECEIVER_NOT_EXPORTED
         return try {
             ContextCompat.registerReceiver(context, created, filter, flags)

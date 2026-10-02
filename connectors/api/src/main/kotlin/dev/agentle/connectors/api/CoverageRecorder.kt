@@ -30,6 +30,9 @@ public enum class CoverageEndCause {
 
     /** The wall clock jumped (a high-water mark in the future was clamped back to now). */
     CLOCK_CHANGED,
+
+    /** A live source went over its write budget and rows were dropped (red team lifecycle-battery-17). */
+    RATE_LIMITED,
     PROCESS_EXITED,
     PROCESS_LOW_MEMORY,
     PROCESS_CRASHED,

@@ -83,6 +83,7 @@ import dev.agentle.connectors.android.permissions.PreferencesPermissionRequestSt
 import dev.agentle.connectors.android.permissions.SettingsIntentFactory
 import dev.agentle.connectors.android.receivers.SystemChangeDispatcher
 import dev.agentle.connectors.api.ActiveJitaiSignal
+import dev.agentle.connectors.api.CapabilityIds
 import dev.agentle.connectors.api.CapabilityRegistry
 import dev.agentle.connectors.api.CollectionSettingsStore
 import dev.agentle.connectors.api.CollectorEventWriter
@@ -275,7 +276,11 @@ public class AndroidCollectorsGraph(
 
     public val liveWriter: LiveWriter = LiveWriter(runtime)
     init {
-        bluetooth.live = liveWriter.channel("android.bluetooth_acl", RateLimit(burst = 20, perHour = 60))
+        bluetooth.live = liveWriter.channel(
+            "android.bluetooth_acl",
+            RateLimit(burst = 20, perHour = 60),
+            coverageIds = listOf(CapabilityIds.BLUETOOTH_CONNECTED_DEVICES),
+        )
         deviceState.live = liveWriter.channel("android.dnd_listener")
         system.live = liveWriter.channel("android.system_live")
     }

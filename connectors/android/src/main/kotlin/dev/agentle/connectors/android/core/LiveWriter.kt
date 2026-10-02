@@ -35,12 +35,12 @@ public class StateObservation(
  * keeps the process alive around the clock, so callbacks must neither each become a transaction nor write unbounded
  * rows:
  * - every source writes through its own [Channel], whose [RateLimit] (a token bucket on the monotonic clock) drops rows
- *   over the budget and counts them;
+ *   over the budget and counts them; a drop closes the channel's coverage (RATE_LIMITED) until its next committed row;
  * - plain rows are coalesced by dedup key (the newest copy wins) and written together, at most [WriteBatch.MAX_ROWS]
  *   per transaction, [flushDelay] after the first pending one, when full, or on [flush];
  * - state observations keep only the newest per stream, and one equal to the state last written costs nothing; a flush
  *   records each changed stream once (row and state in one transaction).
- * A batch whose data epoch went stale is dropped. An unavailable database skips the batch and closes the coverage the
+ * A batch that is not committed (stale epoch, rejected, unavailable) is skipped with every later chunk, and closes the
  * sources in it own (only call state owns some, see [CoverageIds]); the next committed write reopens it. Nothing retries
  * in a loop. Periodic sweeps do not go through here: their schedule bounds them.
  */
@@ -65,6 +65,7 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
         private var tokens: Double = limit.burst.toDouble()
         private var refilledAt: Duration? = null
         internal var gapOpen: Boolean = false
+        internal var droppedSinceCheck: Boolean = false
         internal var lastHeartbeat: Duration? = null
 
         /** Rows dropped by the rate limit so far. */
@@ -89,6 +90,7 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
             refilledAt = now
             if (tokens < 1.0) {
                 dropped += 1
+                droppedSinceCheck = true
                 return false
             }
             tokens -= 1.0
@@ -118,19 +120,32 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
             full = rows.size >= WriteBatch.MAX_ROWS
             if (accepted > 0 && !full) scheduleFlush()
         }
+        closeIfDropped(channel)
         if (full) flush()
         return accepted
     }
 
+    /** A dropped row is a coverage gap (RATE_LIMITED) until the next committed row of the channel reopens it. */
+    private suspend fun closeIfDropped(channel: Channel) {
+        val newGap = lock.withLock {
+            val dropped = channel.droppedSinceCheck
+            channel.droppedSinceCheck = false
+            dropped && channel.coverageIds.isNotEmpty() && !channel.gapOpen.also { if (dropped) channel.gapOpen = true }
+        }
+        if (newGap) runtime.coverage.close(channel.coverageIds, runtime.clock.now(), CoverageEndCause.RATE_LIMITED)
+    }
+
     private suspend fun observe(channel: Channel, observation: StateObservation): Boolean {
         if (observation.stream.isLast(observation.state)) return false
-        return lock.withLock {
+        val accepted = lock.withLock {
             val replaces = observation.stream in observations
             if (!replaces && !channel.take()) return@withLock false
             observations[observation.stream] = PendingObservation(channel, observation)
             scheduleFlush()
             true
         }
+        closeIfDropped(channel)
+        return accepted
     }
 
     private fun scheduleFlush() {
@@ -161,17 +176,36 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
             Triple(o, r, e)
         }
         var written = 0
-        pendingObservations.forEach { written += StateStream.committedRows(it.observation.recordNow()) }
+        pendingObservations.forEach { pending ->
+            val result = pending.observation.recordNow()
+            written += StateStream.committedRows(result)
+            if (result != null) afterWrite(listOf(pending.channel), result)
+        }
         if (pendingRows.isNotEmpty()) {
             val batchEpoch = epoch ?: runtime.writer.epochSafely() ?: 0L
-            for (chunk in pendingRows.chunked(WriteBatch.MAX_ROWS)) {
+            val chunks = pendingRows.chunked(WriteBatch.MAX_ROWS)
+            for ((index, chunk) in chunks.withIndex()) {
                 val result = runtime.writer.writeSafely(WriteBatch(epoch = batchEpoch, events = chunk.map { it.event }))
                 written += StateStream.committedRows(result)
-                afterWrite(chunk.map { it.channel }.distinct(), result)
-                if (result !is WriteResult.Committed) break
+                if (result is WriteResult.Committed) {
+                    afterWrite(chunk.map { it.channel }.distinct(), result)
+                    continue
+                }
+                // Not retried in a loop: every channel with rows in this or a later chunk records the gap, and the
+                // skipped rows are counted and logged (never dropped silently).
+                val remaining = chunks.drop(index).flatten()
+                afterWrite(remaining.map { it.channel }.distinct(), gapResult(result))
+                runtime.logger.w(COMPONENT, "Live rows skipped", fields = mapOf("rows" to remaining.size.toString()))
+                break
             }
         }
         written
+    }
+
+    /** Rejected or stale batches are gaps as much as an unavailable database is. */
+    private fun gapResult(result: WriteResult): WriteResult = when (result) {
+        is WriteResult.Unavailable -> result
+        else -> WriteResult.Unavailable(dev.agentle.core.common.AppError.DatabaseError("live_batch_not_committed"))
     }
 
     private suspend fun afterWrite(channels: List<Channel>, result: WriteResult) {

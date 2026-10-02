@@ -154,4 +154,42 @@ class LiveWriterTest {
         assertThat(t.writer.transactions).isEqualTo(1)
         assertThat(out.dropped).isEqualTo(0)
     }
+
+    private fun row(t: TestRuntime, key: String) = t.runtime.events.create(
+        type = EventType.CONNECTIVITY_CHANGED,
+        source = AndroidSources.NETWORK,
+        start = t.clock.now(),
+        payload = dev.agentle.core.model.ConnectivityPayload(NetworkKind.WIFI, false, true, false, 1),
+        dedupKey = key,
+    )
+
+    @Test
+    fun `a rate-limit drop closes coverage as RATE_LIMITED and the next committed row reopens it`() = runTest {
+        val t = TestRuntime(backgroundScope)
+        val writer = LiveWriter(t.runtime)
+        val out = writer.channel("acl", RateLimit(burst = 1, perHour = 1), coverageIds = listOf("cap"))
+        out.submit(listOf(row(t, "a")))
+        out.submit(listOf(row(t, "b")))
+        writer.flush()
+        assertThat(t.coverage.calls).contains("close:cap:RATE_LIMITED")
+
+        t.clock.advanceBy(1.hours)
+        out.submit(listOf(row(t, "c")))
+        writer.flush()
+        assertThat(t.coverage.calls.last()).isEqualTo("open:cap")
+        assertThat(t.writer.rows.keys).containsExactly("a", "c")
+    }
+
+    @Test
+    fun `a failed chunk records a gap for every channel with rows still pending`() = runTest {
+        val t = TestRuntime(backgroundScope)
+        val writer = LiveWriter(t.runtime)
+        val first = writer.channel("one", RateLimit(burst = 600, perHour = 600), coverageIds = listOf("c1"))
+        val second = writer.channel("two", RateLimit(burst = 600, perHour = 600), coverageIds = listOf("c2"))
+        first.submit((0 until 499).map { row(t, "one$it") })
+        t.writer.available = false
+        second.submit((0 until 10).map { row(t, "two$it") })
+        writer.flush()
+        assertThat(t.coverage.calls).containsAtLeast("close:c1:DATABASE_UNAVAILABLE", "close:c2:DATABASE_UNAVAILABLE")
+    }
 }

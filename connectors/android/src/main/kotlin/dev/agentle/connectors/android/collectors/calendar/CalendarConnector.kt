@@ -156,7 +156,13 @@ public class CalendarConnector(runtime: CollectorRuntime, permissions: Capabilit
         val titles = runtime.settings.current().calendarTitles
         val instances =
             source.instances((windowStart - 1.days).toEpochMilliseconds(), (windowEnd + 1.days).toEpochMilliseconds(), titles)
-        val events = instances.map { event(it, zone, titles) }.filter { it.startTime >= windowStart && it.startTime < windowEnd }
+        val all = instances.map { event(it, zone, titles) }
+        // Keep instances that overlap the window (end > windowStart), not only those starting in it: the replaced range
+        // starts at the earliest overlapping start, bounded by the query start and the import floor.
+        val queryStart = maxOf(windowStart - 1.days, floor ?: Instant.DISTANT_PAST)
+        val replaceStart = all.filter { it.startTime < windowStart && (it.endTime ?: it.startTime) > windowStart }
+            .minOfOrNull { it.startTime }?.coerceAtLeast(queryStart) ?: windowStart
+        val events = all.filter { it.startTime >= replaceStart && it.startTime < windowEnd }
         val stored = runtime.writer.cursorSafely(AndroidSources.CURSOR_CONNECTOR, STREAM)
         val now = runtime.clock.now()
         val cursor = (stored ?: SyncCursor(AndroidSources.CURSOR_CONNECTOR, STREAM)).copy(
@@ -165,7 +171,7 @@ public class CalendarConnector(runtime: CollectorRuntime, permissions: Capabilit
             syncFinishedAt = now,
             lastErrorCode = null,
         )
-        val writes = runtime.writeWindows(coverageIds, epoch, windows(windowStart, windowEnd, events, zone), cursor)
+        val writes = runtime.writeWindows(coverageIds, epoch, windows(replaceStart, windowEnd, events, zone), cursor)
         return CollectOutcome(fetched = instances.size, committed = writes.written, partial = writes.cursorRejected, error = writes.error)
     }
 

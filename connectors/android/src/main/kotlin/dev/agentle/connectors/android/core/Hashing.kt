@@ -32,10 +32,9 @@ public class IdentifierHasher(salt: ByteArray) {
 
     /** Full 64-hex-character hash. */
     public fun hash(value: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        digest.update(salt)
-        digest.update(value.toByteArray(Charsets.UTF_8))
-        return Hashing.hex(digest.digest())
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(salt, "HmacSHA256"))
+        return Hashing.hex(mac.doFinal(value.toByteArray(Charsets.UTF_8)))
     }
 
     /** The first 16 hex characters (64 bits), for dedup keys. */
