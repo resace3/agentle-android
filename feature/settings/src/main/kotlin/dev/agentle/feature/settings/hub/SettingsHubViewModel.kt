@@ -43,7 +43,7 @@ internal class SettingsHubViewModel @Inject constructor(
     background: BackgroundBehaviorPort,
     notifications: NotificationSettingsPort,
     debugTools: DebugToolsPort,
-    private val zonePort: UserTimeZonePort,
+    @Suppress("UnusedPrivateProperty") private val zonePort: UserTimeZonePort,
 ) : ViewModel() {
     private val debugAvailable: Boolean = debugTools.available
 

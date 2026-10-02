@@ -9,7 +9,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -54,7 +58,9 @@ class SettingsScreenTest {
             MaterialTheme { DeleteDataScreen(state, vm::onAction, {}, SnackbarHostState()) }
         }
         rule.onNodeWithText(str(R.string.settings_delete_all_action)).performScrollTo().performClick()
-        val confirm = rule.onNodeWithText(str(R.string.settings_delete_all_confirm_action))
+        val confirm = rule.onNode(
+            hasText(str(R.string.settings_delete_all_confirm_action)) and hasClickAction() and hasAnyAncestor(isDialog()),
+        )
         confirm.assertIsNotEnabled()
         rule.onNode(hasSetTextAction()).performTextInput("delet")
         confirm.assertIsNotEnabled()

@@ -53,8 +53,10 @@ internal sealed interface RetentionAction {
  * ([RetentionPort.impactOf]) and needs confirmation when the next daily cleanup would delete anything.
  */
 @HiltViewModel
-internal class RetentionViewModel @Inject constructor(private val port: RetentionPort, private val zonePort: UserTimeZonePort) :
-    EffectViewModel() {
+internal class RetentionViewModel @Inject constructor(
+    private val port: RetentionPort,
+    @Suppress("UnusedPrivateProperty") private val zonePort: UserTimeZonePort,
+) : EffectViewModel() {
     private data class Local(
         val saving: RetentionPeriod? = null,
         val counting: RetentionPeriod? = null,
