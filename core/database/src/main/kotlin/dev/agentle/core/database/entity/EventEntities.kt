@@ -99,7 +99,7 @@ data class DirtyDayEntity(@PrimaryKey @ColumnInfo(name = "engine_day") val engin
 
 /**
  * Import floors written by deletions: ingestion drops any record that starts before the floor of its scope
- * (`ALL`, `F:<family>`, `C:<category>` or `S:<source>`), so deleted data never comes back from a re-sync.
+ * (`ALL`, `G:<source group>`, `C:<category>` or `S:<source>`), so deleted data never comes back from a re-sync.
  */
 @Entity(tableName = "ingest_floor")
 data class IngestFloorEntity(

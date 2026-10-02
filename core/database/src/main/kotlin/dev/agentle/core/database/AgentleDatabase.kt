@@ -36,6 +36,7 @@ import dev.agentle.core.database.entity.JitaiEvalLogEntity
 import dev.agentle.core.database.entity.JitaiResponseLogEntity
 import dev.agentle.core.database.entity.JitaiRuntimeEntity
 import dev.agentle.core.database.entity.JitaiTimerEntity
+import dev.agentle.core.database.entity.KnownPlaceEntity
 import dev.agentle.core.database.entity.MediaArtifactEntity
 import dev.agentle.core.database.entity.MetricSourcePolicyEntity
 import dev.agentle.core.database.entity.PermissionSnapshotEntity
@@ -85,6 +86,7 @@ import dev.agentle.core.database.entity.UserLogEntity
         UserLogEntity::class,
         PermissionSnapshotEntity::class,
         DiagnosticLogEntity::class,
+        KnownPlaceEntity::class,
     ],
     views = [UpstreamDailyView::class],
     version = AgentleDatabase.VERSION,

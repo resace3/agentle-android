@@ -50,3 +50,8 @@ val printRoomSchema =
         }
     }
 tasks.matching { it.name == "testDebugUnitTest" }.configureEach { finalizedBy(printRoomSchema) }
+
+// Print as late as possible, so the markers land near the end of the CI log.
+printRoomSchema.configure {
+    mustRunAfter(tasks.matching { it.name.startsWith("lint") || it.name == "detekt" || it.name.startsWith("spotless") })
+}

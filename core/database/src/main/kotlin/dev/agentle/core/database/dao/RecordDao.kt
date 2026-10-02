@@ -8,6 +8,7 @@ import dev.agentle.core.database.entity.AiRequestEntity
 import dev.agentle.core.database.entity.AiResultMetaEntity
 import dev.agentle.core.database.entity.AiTextPoolEntity
 import dev.agentle.core.database.entity.DiagnosticLogEntity
+import dev.agentle.core.database.entity.KnownPlaceEntity
 import dev.agentle.core.database.entity.MediaArtifactEntity
 import dev.agentle.core.database.entity.PermissionSnapshotEntity
 import dev.agentle.core.database.entity.UserGoalEntity
@@ -128,6 +129,18 @@ interface UserDao {
 
     @Query("SELECT * FROM user_log ORDER BY at_ms DESC LIMIT :limit")
     fun observeRecentLogs(limit: Int): Flow<List<UserLogEntity>>
+
+    @Query("SELECT * FROM known_place ORDER BY id")
+    suspend fun knownPlaces(): List<KnownPlaceEntity>
+
+    @Query("SELECT * FROM known_place ORDER BY id")
+    fun observeKnownPlaces(): Flow<List<KnownPlaceEntity>>
+
+    @Insert
+    suspend fun insertKnownPlaces(rows: List<KnownPlaceEntity>)
+
+    @Query("DELETE FROM known_place")
+    suspend fun deleteKnownPlaces(): Int
 }
 
 /** Permission snapshots (written on change only) and the structured diagnostics ring buffer. */

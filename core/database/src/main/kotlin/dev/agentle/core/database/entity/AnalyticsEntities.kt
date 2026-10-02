@@ -8,7 +8,7 @@ import androidx.room3.PrimaryKey
 
 /**
  * Per engine day (04:00 rollover) aggregates (round 2 correction 2: renamed from `daily_summary`). `lineage` holds the
- * deletion tokens of the inputs (`|F:WEARABLE|C:ACTIVITY|`).
+ * deletion tokens of the inputs (`|F:GH_API|C:ACTIVITY|`).
  */
 @Entity(tableName = "engine_day_summary", primaryKeys = ["engine_day", "metric"])
 data class EngineDaySummaryEntity(

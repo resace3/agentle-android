@@ -135,3 +135,17 @@ data class DiagnosticLogEntity(
     @ColumnInfo(name = "fields_json") val fieldsJson: String,
     val lineage: String,
 )
+
+/**
+ * A place the user defined for classifying foreground location fixes (HOME, WORK, GYM). Coordinates are personal
+ * data, so they live in the encrypted database rather than in a settings file, and never leave the device.
+ */
+@Entity(tableName = "known_place")
+data class KnownPlaceEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "place_class") val placeClass: String,
+    val latitude: Double,
+    val longitude: Double,
+    @ColumnInfo(name = "radius_m") val radiusM: Double,
+    @ColumnInfo(name = "updated_ms") val updatedMs: Long,
+)

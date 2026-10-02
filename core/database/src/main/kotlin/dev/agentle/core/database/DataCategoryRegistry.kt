@@ -221,6 +221,9 @@ object DataCategoryRegistry {
             if (scope.isCategory(DataCategory.USER_LOGS)) listOf(DeletionStep.Delete("user_log", "1 = 1")) else emptyList()
         },
         TableRule("permission_snapshot", exemption = "capability states; no personal values"),
+        TableRule("known_place") { scope, _ ->
+            if (scope.isCategory(DataCategory.LOCATION)) listOf(DeletionStep.Delete("known_place", "1 = 1")) else emptyList()
+        },
         TableRule("diagnostic_log", jsonColumns = setOf("fields_json")) { scope, _ -> listOf(byLineage("diagnostic_log", scope)) },
     )
 

@@ -115,7 +115,7 @@ data class JitaiDecisionEntity(
     @ColumnInfo(name = "content_ref") val contentRef: String?,
     val response: String,
     @ColumnInfo(name = "responded_ms") val respondedMs: Long?,
-    /** Lineage tokens of the snapshot's inputs (`|F:WEARABLE|C:SLEEP|`), so category deletions find the row. */
+    /** Lineage tokens of the snapshot's inputs (`|F:GH_API|C:SLEEP|`), so category deletions find the row. */
     val lineage: String,
 )
 
