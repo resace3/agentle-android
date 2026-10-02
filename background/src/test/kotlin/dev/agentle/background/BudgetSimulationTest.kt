@@ -125,7 +125,7 @@ class BudgetSimulationTest {
         CollectionProfile.entries.forEach { profile ->
             val result = simulate(profile, failing = false)
             assertThat(result.secondsPerDay).isAtMost(budget.getValue(profile))
-            assertThat(result.runs.getValue(WorkNames.JITAI_EVAL_EVENTS)).isAtMost(cap.getValue(profile) * 7)
+            assertThat(result.runs.getValue(WorkNames.JITAI_EVAL_EVENTS)).isAtMost(cap.getValue(profile) * 8) // 7 days from noon span 8 calendar days
             // The timer chain survives the whole week (one pass per tick, give or take the first).
             val ticks = (7.days / tick.getValue(profile)).toInt()
             assertThat(result.runs.getValue(WorkNames.JITAI_TIMER)).isAtLeast(ticks - 2)

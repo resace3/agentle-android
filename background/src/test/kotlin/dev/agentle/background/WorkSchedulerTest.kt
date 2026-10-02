@@ -200,7 +200,7 @@ class WorkSchedulerTest {
         val call = h.gateway.calls.last()
         assertThat(call.op).isEqualTo("update")
         assertThat(call.request!!.id).isEqualTo(child)
-        assertThat(call.request!!.workSpec.initialDelay).isEqualTo(0)
+        assertThat(call.request.workSpec.initialDelay).isEqualTo(0)
     }
 
     @Test
