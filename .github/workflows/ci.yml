@@ -4,11 +4,15 @@
 # so routine pushes don't spend emulator minutes. Every test job prints exact counts (tools/junit_summary.py).
 # Android implementation teams push to `android/<team>` branches to get the Android build they cannot run locally
 # (Google Maven is unreachable from the development container); `tools/ci_wait.py` waits for the result.
+# Pushes to `android/**` run the Android job in branch-light mode (Robolectric SDKs 29 and 37 only, lintDebug only);
+# pushes to main, pull requests and manual runs use the full SDK matrix and lint every variant. The job summary
+# names the mode. Documentation-only pushes (docs/**, *.md) run no CI.
 name: CI
 
 on:
   push:
     branches: [main, 'android/**']
+    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -77,6 +81,25 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6.4.0
         with:
           add-job-summary: never
+      - name: CI mode
+        id: mode
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+        run: |
+          # Branch-light on pushes to android/** (compile checks of the Android teams): lowest and newest Robolectric
+          # SDK, one lint variant. Everything else (main, pull requests, manual runs) runs the full matrix, which is
+          # the KotlinAndroid.kt convention's default list.
+          if [ "$EVENT_NAME" = "push" ] && [[ "$GIT_REF" == refs/heads/android/* ]]; then
+            mode=branch-light; sdks=29,37; lint="lintDebug"
+          else
+            mode=full; sdks=29,30,31,33,34,35,36,37; lint="lintDebug lintFakeDebug lintProdDebug"
+          fi
+          { echo "mode=$mode"; echo "sdks=$sdks"; echo "lint=$lint"; } >> "$GITHUB_OUTPUT"
+          { echo "## Android CI mode: $mode"; echo; echo "- Robolectric SDKs: $sdks"; echo "- Lint tasks: $lint";
+            echo "- Event: $EVENT_NAME, ref: $GIT_REF"; } >> "$GITHUB_STEP_SUMMARY"
+          echo "Android CI mode: $mode (Robolectric SDKs $sdks; lint: $lint)"
       - name: Accept SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
       - name: SDK inventory (API 36+ platforms and system images)
@@ -90,8 +113,9 @@ jobs:
           mkdir -p build && ./gradlew
           assembleFakeDebug assembleProdDebug assembleProdRelease
           testDebugUnitTest testFakeDebugUnitTest testProdDebugUnitTest
-          lintDebug lintFakeDebug lintProdDebug
+          ${{ steps.mode.outputs.lint }}
           detekt spotlessCheck verifyNoFakesInProd
+          -ProbolectricSdks=${{ steps.mode.outputs.sdks }}
           --continue 2>&1 | tee build/gradle-output.log
       - name: Test counts
         if: always()
