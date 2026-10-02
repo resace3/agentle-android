@@ -90,7 +90,7 @@ internal class GhSyncEngine(private val sink: EventSink, private val clock: Agen
             )
             val result = sink.replaceWindow(
                 stream.source,
-                window.range.start,
+                GhFetcher.diffRange(stream, window.range).start,
                 window.range.end,
                 window.events,
                 cursor,

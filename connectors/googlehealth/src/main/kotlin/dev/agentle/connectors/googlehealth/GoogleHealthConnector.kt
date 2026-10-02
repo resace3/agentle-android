@@ -390,9 +390,15 @@ public class GoogleHealthConnector(
                 tally.stop(GhFailure.NeedsReauth),
                 binding,
                 startedAt,
+                epoch,
             )
 
-            is GoogleAuthorization.Failure -> return finish(tally.stop(GhFailure.AuthorizerFailed(auth.statusCode)), binding, startedAt)
+            is GoogleAuthorization.Failure -> return finish(
+                tally.stop(GhFailure.AuthorizerFailed(auth.statusCode)),
+                binding,
+                startedAt,
+                epoch,
+            )
         }
         val permissions = permissionsFor(token.grantedScopes)
         tally.permissions.putAll(permissions)
@@ -400,19 +406,18 @@ public class GoogleHealthConnector(
         if (allowed.isEmpty()) return noPermission(startedAt, permissions)
         val healthUserId = when (val identity = identify()) {
             is Identified.Ok -> identity.healthUserId
-            is Identified.Failed -> return finish(tally.stop(identity.failure), binding, startedAt)
+            is Identified.Failed -> return finish(tally.stop(identity.failure), binding, startedAt, epoch)
         }
         if (accountIdOf(healthUserId) != bound) return accountChanged(binding, startedAt)
         tally.identified = true
         val zone = when (val settings = accountZone(token.grantedScopes)) {
             is Zoned.Ok -> settings.zone
-            is Zoned.Failed -> return finish(tally.stop(settings.failure), binding, startedAt)
+            is Zoned.Failed -> return finish(tally.stop(settings.failure), binding, startedAt, epoch)
         }
         val mapper = GhMapper(bound, zone, now)
         val run = GhRun(api, GhFetcher(api, config, mapper, zone), mapper, bound, zone, trigger, now) { generation.get() == epoch }
         syncStreams(allowed, run, tally)
-        if (generation.get() != epoch) return disconnectedDuringRun(startedAt)
-        return finish(tally, binding, startedAt)
+        return finish(tally, binding, startedAt, epoch)
     }
 
     private suspend fun syncStreams(streams: List<GhStream>, run: GhRun, tally: RunTally) {
@@ -441,7 +446,8 @@ public class GoogleHealthConnector(
     }
 
     /** Status, error, binding (problem and backoff) and metadata of a finished run. */
-    private suspend fun finish(tally: RunTally, binding: Binding, startedAt: Instant): SyncResult {
+    private suspend fun finish(tally: RunTally, binding: Binding, startedAt: Instant, epoch: Long): SyncResult {
+        if (generation.get() != epoch) return disconnectedDuringRun(startedAt)
         val finishedAt = clock.now()
         val stop = tally.failures.firstOrNull { it.second.stopsSource }?.second
         val problemCode = problemCodeAfter(stop, tally, binding)

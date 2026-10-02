@@ -86,7 +86,7 @@ internal class GhFetcher(
                 ?: result.failure
         }
         for (window in windows) {
-            val events = all.events.filter { it.startTime in window }
+            val events = all.events.filter { it.startTime in diffRange(stream, window) }
             if (!commit(GhWindow(window, events, events.size, if (window === windows.first()) all.skipped else 0))) return null
         }
         return null
@@ -152,7 +152,7 @@ internal class GhFetcher(
 
             GhKind.DAILY -> "$t.date >= \"${date(range.start)}\" AND $t.date < \"${date(range.end)}\""
 
-            GhKind.SLEEP -> physical("$t.interval.end_time", range.start, range.end + SESSION_LEAD)
+            GhKind.SLEEP -> physical("$t.interval.end_time", range.start - SESSION_LEAD, range.end + SESSION_LEAD)
 
             GhKind.EXERCISE -> "$t.interval.civil_start_time >= \"${civil(range.start - CIVIL_WIDENING)}\" AND " +
                 "$t.interval.civil_start_time < \"${civil(range.end + CIVIL_WIDENING)}\""
@@ -183,7 +183,7 @@ internal class GhFetcher(
 
     /** Civil-date events belong to the window of their date; everything else to the window of its start instant. */
     private fun inWindow(stream: GhStream, event: PersonalEvent, range: GhRange): Boolean =
-        if (stream.civilDays) dayOf(event) in date(range.start)..<date(range.end) else event.startTime in range
+        if (stream.civilDays) dayOf(event) in date(range.start)..<date(range.end) else event.startTime in diffRange(stream, range)
 
     private fun dayOf(event: PersonalEvent): LocalDate = when (val payload = event.payload) {
         is dev.agentle.core.model.DailyTotalPayload -> payload.date
@@ -362,6 +362,13 @@ internal class GhFetcher(
     }
 
     companion object {
+        /**
+         * The part of the store a fetched window replaces. Sleep reads every session ending after `start - lead`, so
+         * sessions starting in the 24 h lead are diffed too (an upstream deletion there converges).
+         */
+        fun diffRange(stream: GhStream, range: GhRange): GhRange =
+            if (stream.kind == GhKind.SLEEP) GhRange(range.start - SESSION_LEAD, range.end) else range
+
         const val MAX_PAGES: Int = 500
         private const val ROLLUP_WINDOW = "60s"
 

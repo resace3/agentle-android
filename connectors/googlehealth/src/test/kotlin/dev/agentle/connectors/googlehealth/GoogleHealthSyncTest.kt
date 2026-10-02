@@ -12,9 +12,18 @@ import dev.agentle.core.model.ConnectorIds
 import dev.agentle.core.model.DailyTotalPayload
 import dev.agentle.core.model.DataSourceId
 import dev.agentle.core.model.PersonalEvent
+import dev.agentle.core.model.SleepSessionPayload
 import dev.agentle.core.model.StepsPayload
 import dev.agentle.fakes.googlehealth.GhDataTypes
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -253,7 +262,7 @@ class GoogleHealthSyncTest {
     }
 
     @Test
-    fun `sleep probe - a session starting before the window, in the lead region, is not deleted when not returned`() = runTest {
+    fun `R2-1 a session deleted upstream inside the sleep lead converges`() = runTest {
         harness(GhHarness(configure = { it.copy(streams = setOf(SLEEP)) })) {
             val early = dev.agentle.fakes.googlehealth.FakePoint(
                 GhDataTypes.SLEEP,
@@ -268,7 +277,57 @@ class GoogleHealthSyncTest {
             fake.dataset = fake.dataset.minus { it.id == "42" }
             clock.advanceBy(20.minutes)
             sync()
-            assertThat(events(SLEEP)).hasSize(3)
+            assertThat(events(SLEEP)).hasSize(2)
+        }
+    }
+
+    @Test
+    fun `R3-1 a re-segmented sleep session replaces its stages as a whole`() = runTest {
+        harness(GhHarness()) {
+            connect()
+            sync()
+            val main = fake.dataset.of(GhDataTypes.SLEEP).single { it.id == "7821966286120953001" }
+            val raw = requireNotNull(main.raw)
+            val sleep = raw.getValue("sleep").jsonObject
+            fun stage(start: String, end: String, type: String) = buildJsonObject {
+                put("startTime", start)
+                put("endTime", end)
+                put("type", type)
+            }
+            val stages = sleep.getValue("stages").jsonArray.flatMap { st ->
+                if (st.jsonObject.getValue("startTime").jsonPrimitive.content == "2026-09-30T05:00:00Z") {
+                    listOf(
+                        stage("2026-09-30T05:00:00Z", "2026-09-30T06:00:00Z", "LIGHT"),
+                        stage("2026-09-30T06:00:00Z", "2026-09-30T06:20:00Z", "REM"),
+                        stage("2026-09-30T06:20:00Z", "2026-09-30T07:30:00Z", "LIGHT"),
+                    )
+                } else {
+                    listOf(st)
+                }
+            }
+            val edited = JsonObject(sleep + mapOf("stages" to JsonArray(stages), "updateTime" to JsonPrimitive("2026-10-01T15:00:00Z")))
+            val point = requireNotNull(dev.agentle.fakes.googlehealth.FakePoint.parse(JsonObject(raw + ("sleep" to edited))))
+            fake.dataset = fake.dataset.replacing({ it === main }, listOf(point))
+            clock.advanceBy(3.hours)
+            sync()
+            val stored = events(SLEEP).single { (it.payload as SleepSessionPayload).isMainSleep }
+            assertThat((stored.payload as SleepSessionPayload).stages).hasSize(11)
+            assertThat(stored.metadata.upstreamUpdatedAt).isEqualTo(Instant.parse("2026-10-01T15:00:00Z"))
+            assertThat(events(SLEEP)).hasSize(2)
+        }
+    }
+
+    @Test
+    fun `R2-2 a disconnect while the identity call fails publishes nothing`() = runTest {
+        harness(GhHarness()) {
+            connect()
+            fake.inject(4, match = { it.path == "/v4/users/me/identity" }) { _, _ ->
+                kotlinx.coroutines.runBlocking { connector.disconnect() }
+                dev.agentle.fakes.googlehealth.GoogleHealthFixtures.error("E503")
+            }
+            assertThat(sync().status).isEqualTo(SyncResult.Status.SKIPPED_NOT_CONNECTED)
+            assertThat(sink.cursorOf(GoogleHealthConnector.ACCOUNT_STREAM)?.accountId).isNull()
+            assertThat(connector.metadata.value.connection).isEqualTo(dev.agentle.core.model.ConnectionStatus.NOT_CONNECTED)
         }
     }
 }
