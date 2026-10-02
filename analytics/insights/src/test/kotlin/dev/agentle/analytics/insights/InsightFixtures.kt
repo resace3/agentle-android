@@ -145,3 +145,75 @@ internal fun fisherTwoSided(t: TwoByTwo): Double {
     val observed = p(t.a)
     return (maxOf(0, c1 - r2)..minOf(r1, c1)).map { p(it) }.filter { it <= observed * (1 + 1e-7) }.sum().coerceAtMost(1.0)
 }
+
+/** The night-type tables of control P1 (docs/research/10 §14.6). */
+internal val P1_WORK = TwoByTwo(10, 4, 7, 21)
+internal val P1_WEEKEND = TwoByTwo(7, 3, 2, 6)
+
+/** A finding of [hypothesis] with the P1 counts and the given tier, stratified risk difference and q-value. */
+internal fun claim(
+    hypothesis: Hypothesis,
+    tier: PatternTier = PatternTier.MODERATE,
+    rdMh: Double = 0.46,
+    q: Double = 0.0185,
+    lineage: Lineage = SCREEN_LINEAGE + SLEEP_LINEAGE,
+): HypothesisResult = HypothesisResult(
+    hypothesis = hypothesis,
+    table = P1_WORK + P1_WEEKEND,
+    strata = listOf(StratumResult(NightType.WORK_NIGHT, P1_WORK), StratumResult(NightType.WEEKEND_NIGHT, P1_WEEKEND)),
+    eligible = true,
+    riskDifferenceMh = rdMh,
+    pValue = q / HypothesisFamily.size,
+    qValue = q,
+    tier = tier,
+    strataCheck = true,
+    splitHalfCheck = true,
+    lineage = lineage,
+)
+
+/** A hypothesis that could not be tested. */
+internal fun untested(hypothesis: Hypothesis): HypothesisResult = HypothesisResult(
+    hypothesis = hypothesis,
+    table = TwoByTwo.EMPTY,
+    strata = NightType.entries.map { StratumResult(it, TwoByTwo.EMPTY) },
+    eligible = false,
+    riskDifferenceMh = null,
+    pValue = 1.0,
+    qValue = 1.0,
+    tier = PatternTier.INSUFFICIENT,
+    strataCheck = false,
+    splitHalfCheck = false,
+    lineage = Lineage.NONE,
+)
+
+/** A run over the 60 nights ending [lastNight] with [results]; every other hypothesis is untested. */
+internal fun runOf(lastNight: LocalDate, vararg results: HypothesisResult, familyVersion: Int = HypothesisFamily.VERSION): PatternRun {
+    val byHypothesis = results.associateBy { it.hypothesis }
+    return PatternRun(
+        runAt = T0,
+        firstNight = lastNight.plusDays(-59),
+        lastNight = lastNight,
+        results = HypothesisFamily.all.map { byHypothesis[it] ?: untested(it) },
+        familyVersion = familyVersion,
+    )
+}
+
+internal fun hypothesis(id: String): Hypothesis = requireNotNull(HypothesisFamily.byId(id))
+
+/** The §14.7 finding text of control P1. */
+internal const val P1_TEXT: String =
+    "On 17 of 24 nights (71%) when your screen time between 10 PM and midnight was 45 minutes or more, you went to bed at " +
+        "least 30 minutes later than your usual bedtime. On the other 36 nights this happened 9 times (25%). The pattern showed " +
+        "up on work nights and on weekend nights. This is a pattern in your own data, not proof: something else, such as a busy " +
+        "day, may explain both."
+
+/** Runs [block] with the JVM default zone set to [id] (restored afterwards); results must never depend on it. */
+internal inline fun <T> withJvmDefaultZone(id: String, block: () -> T): T {
+    val saved = java.util.TimeZone.getDefault()
+    java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(id))
+    try {
+        return block()
+    } finally {
+        java.util.TimeZone.setDefault(saved)
+    }
+}

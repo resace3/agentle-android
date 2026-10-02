@@ -121,13 +121,17 @@ public class OutcomeCalculator(
 
             OutcomeMetric.SCREEN_MINUTES_AFTER -> usage(decision, window, now, metric, null)
 
-            OutcomeMetric.APP_MINUTES_AFTER -> usage(decision, window, now, metric) { it.packageName == args.getValue(ARG_PACKAGE) }
-
-            OutcomeMetric.APP_CATEGORY_MINUTES_AFTER -> usage(decision, window, now, metric) {
-                categoryOf(it) == args.getValue(ARG_CATEGORY)
+            OutcomeMetric.APP_MINUTES_AFTER -> {
+                val pkg = requireNotNull(args[ARG_PACKAGE]) { "APP_MINUTES_AFTER needs the $ARG_PACKAGE argument" }
+                usage(decision, window, now, metric) { it.packageName == pkg }
             }
 
-            OutcomeMetric.NOTIFICATION_OPENED -> opened(decision, now, windowMinutes!!.minutes)
+            OutcomeMetric.APP_CATEGORY_MINUTES_AFTER -> {
+                val category = requireNotNull(args[ARG_CATEGORY]) { "APP_CATEGORY_MINUTES_AFTER needs the $ARG_CATEGORY argument" }
+                usage(decision, window, now, metric) { categoryOf(it) == category }
+            }
+
+            OutcomeMetric.NOTIFICATION_OPENED -> opened(decision, now, requireNotNull(windowMinutes).minutes)
 
             OutcomeMetric.SELF_REPORT_HELPFUL -> helpful(decision, now)
 

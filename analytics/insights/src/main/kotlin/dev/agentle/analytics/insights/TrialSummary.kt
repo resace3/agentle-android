@@ -159,16 +159,18 @@ public object TrialSummaries {
                     )} to ${signed(comparison.high, metric)}; ${comparison.delivered} and ${comparison.skipped} moments)."
 
             randomized ->
-                "Sent ${s.delivered} times and skipped ${s.skippedAtRandom} times at random. Agentle compares them once it has " +
+                "Sent ${times(s.delivered)} and skipped ${times(s.skippedAtRandom)} at random. Agentle compares them once it has " +
                     "$MIN_PER_ARM outcomes of each." +
                     (s.meanAfterReminder?.let { " $window ${phrase(metric, it, label)} on average." } ?: "")
 
             else ->
-                "Sent ${s.delivered} times, opened ${s.opened} times." +
+                "Sent ${times(s.delivered)}, opened ${times(s.opened)}." +
                     (s.meanAfterReminder?.let { " $window ${phrase(metric, it, label)} on average." } ?: "") +
                     " Without the experiment option Agentle cannot tell whether the reminder made a difference."
         }
     }
+
+    private fun times(n: Int): String = if (n == 1) "1 time" else "$n times"
 
     private fun phrase(metric: OutcomeMetric, value: Double, label: String?): String = when (metric) {
         OutcomeMetric.SCREEN_MINUTES_AFTER -> "you used your phone for ${amount(metric, value)}"

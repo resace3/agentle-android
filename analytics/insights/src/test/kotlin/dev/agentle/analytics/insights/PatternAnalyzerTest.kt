@@ -33,11 +33,13 @@ class PatternAnalyzerTest {
 
     @Test
     fun `C2 equal rates within each night type is NONE`() {
-        val r = PatternAnalyzer.analyze(Controls.table(Controls.C_FIRST, 56, Controls.C2), T0).result(h04)
+        val run = PatternAnalyzer.analyze(Controls.table(Controls.C_FIRST, 56, Controls.C2), T0)
+        val r = run.result(h04)
 
         assertThat(r.riskDifferenceMh).isEqualTo(0.0)
         assertThat(r.pValue).isWithin(1e-12).of(1.0)
         assertThat(r.tier).isEqualTo(PatternTier.NONE)
+        assertThat(run.claims).isEmpty()
     }
 
     @Test
