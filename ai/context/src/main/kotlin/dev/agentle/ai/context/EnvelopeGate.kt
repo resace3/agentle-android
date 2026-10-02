@@ -13,6 +13,7 @@ import dev.agentle.core.model.EventType
 import dev.agentle.core.model.SourceFamily
 import dev.agentle.core.model.TextOrigin
 import dev.agentle.core.time.ClosedOpenRange
+import kotlin.time.Duration.Companion.days
 
 /** Reason codes of a refused request (the `detail` of `AppError.ConsentViolation`; never content). */
 public object GateCodes {
@@ -39,6 +40,15 @@ public object GateCodes {
     public const val VERSION_CHANGED: String = "consent_version_changed"
     public const val NOT_IN_FLIGHT: String = "not_in_flight"
     public const val DIGEST_MISMATCH: String = "digest_mismatch"
+
+    /** The request is larger than its purpose's byte cap ([PurposeCaps.maxBytes], privacy-ai-13). */
+    public const val CAP_BYTES: String = "cap_bytes_exceeded"
+
+    /** The request holds more individual events than its purpose's cap ([PurposeCaps.maxEvents]). */
+    public const val CAP_EVENTS: String = "cap_events_exceeded"
+
+    /** The request's time range spans more days than its purpose's cap ([PurposeCaps.maxDays]). */
+    public const val CAP_DAYS: String = "cap_days_exceeded"
 }
 
 /** Everything the gate checks an envelope against, decided from a fresh consent read. */
@@ -80,14 +90,28 @@ internal object EnvelopeGate {
     val EVENT_KEY: Regex = Regex("^[a-z][a-zA-Z0-9_]{0,39}$")
     private val EVENT_TYPES = EventType.entries.mapTo(HashSet()) { it.name }
 
+    /** UTF-8 bytes of the personal input (data and user items); the app-constant instructions do not count. */
+    fun personalBytes(envelope: AiRequestEnvelope): Int =
+        envelope.dataInputJson.encodeToByteArray().size + (envelope.userInputJson?.encodeToByteArray()?.size ?: 0)
+
     fun check(envelope: AiRequestEnvelope, decision: GateDecision): Outcome<Unit> {
         val violations = envelopeViolations(envelope, decision) +
-            envelope.blocks.flatMap { blockViolations(it, decision) }
+            envelope.blocks.flatMap { blockViolations(it, decision) } +
+            capViolations(envelope, decision.spec.caps)
         if (violations.isEmpty()) return Outcome.Success(Unit)
         val names = violations.flatMapTo(sortedSetOf()) { violation ->
             violation.categories.map { it.name } + violation.sources.map { it.name }
         }
         return Outcome.Failure(AppError.ConsentViolation(names, violations.first().code))
+    }
+
+    /** The purpose's hard caps, checked last so a more specific refusal names the first reason. */
+    private fun capViolations(envelope: AiRequestEnvelope, caps: PurposeCaps): List<GateViolation> = buildList {
+        if (personalBytes(envelope) > caps.maxBytes) add(GateViolation(GateCodes.CAP_BYTES))
+        if (envelope.blocks.filter { it.rawEvents }.sumOf { it.items.size } > caps.maxEvents) add(GateViolation(GateCodes.CAP_EVENTS))
+        val start = envelope.rangeStart
+        val end = envelope.rangeEnd
+        if (start != null && end != null && end - start > caps.maxDays.days) add(GateViolation(GateCodes.CAP_DAYS))
     }
 
     private fun envelopeViolations(envelope: AiRequestEnvelope, decision: GateDecision): List<GateViolation> = buildList {

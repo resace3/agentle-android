@@ -62,6 +62,7 @@ public data class PurposeSpec(
     val background: BackgroundRule?,
     val outputSchema: OutputSchema?,
     val acceptsAiGenerated: Boolean = false,
+    val caps: PurposeCaps = PurposeCaps.forPurpose(purpose, lookbackDays),
 ) {
     init {
         require(categories.none { it.thirdPartyText }) { "$purpose: third-party text is never sent in v1" }
@@ -209,4 +210,37 @@ public object PurposePolicy {
         background = NIGHTLY,
         outputSchema = InsightSchema.SCHEMA,
     )
+}
+
+/**
+ * Hard per-purpose limits (privacy-ai-13) on the personal input ([EnvelopeGate.personalBytes]),, failing closed with [GateCodes.CAP_BYTES], [GateCodes.CAP_EVENTS] or
+ * [GateCodes.CAP_DAYS]. [maxOutputTokens] is set on the request as `max_output_tokens` (R06 section 4.4). The numbers
+ * are UNVERIFIED design choices: no research document fixes them.
+ */
+public data class PurposeCaps(val maxBytes: Int, val maxEvents: Int, val maxDays: Int, val maxOutputTokens: Int) {
+    public companion object {
+        /** One extra day covers a range built just before the 04:00 rollover and a DST day of 25 hours. */
+        public fun forPurpose(purpose: AiPurpose, lookbackDays: Int): PurposeCaps {
+            val days = lookbackDays + 1
+            return when (purpose) {
+                AiPurpose.SLEEP_INSIGHT, AiPurpose.ACTIVITY_INSIGHT, AiPurpose.SCREEN_TIME_INSIGHT ->
+                    PurposeCaps(maxBytes = 16_384, maxEvents = 0, maxDays = days, maxOutputTokens = 800)
+
+                AiPurpose.GENERAL_QUESTION -> PurposeCaps(maxBytes = 65_536, maxEvents = 200, maxDays = days, maxOutputTokens = 600)
+
+                AiPurpose.PATTERN_EXPLANATION -> PurposeCaps(maxBytes = 32_768, maxEvents = 100, maxDays = days, maxOutputTokens = 800)
+
+                AiPurpose.JITAI_FROM_NATURAL_LANGUAGE -> PurposeCaps(
+                    maxBytes = 32_768,
+                    maxEvents = 0,
+                    maxDays = days,
+                    maxOutputTokens = 4_096,
+                )
+
+                AiPurpose.JITAI_PROPOSAL_WORDING -> PurposeCaps(maxBytes = 8_192, maxEvents = 0, maxDays = days, maxOutputTokens = 200)
+
+                AiPurpose.INTERVENTION_TEXT -> PurposeCaps(maxBytes = 8_192, maxEvents = 0, maxDays = days, maxOutputTokens = 400)
+            }
+        }
+    }
 }

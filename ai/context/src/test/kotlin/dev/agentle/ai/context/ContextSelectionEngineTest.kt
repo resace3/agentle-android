@@ -88,7 +88,7 @@ class ContextSelectionEngineTest {
     }
 
     @Test
-    fun `the preview describes the request without holding any value`() = runTest {
+    fun `the preview describes the request`() = runTest {
         val world = World(data = sleepData())
         world.grant(AiPurpose.SLEEP_INSIGHT, SLEEP, STEPS)
         val envelope = world.engine.build(AiPurpose.SLEEP_INSIGHT, null).getOrThrow()
@@ -105,6 +105,58 @@ class ContextSelectionEngineTest {
         assertThat(preview.userText).isFalse()
         assertThat(preview.itemCount).isEqualTo(2)
         assertThat(preview.approximateBytes).isEqualTo(envelope.approximateBytes)
+    }
+
+    @Test
+    fun `the preview shows every value of the frozen input and is bound to the bytes that are sent (privacy-ai-13)`() = runTest {
+        val world = World(
+            data = ScriptedDataSource(
+                aggregates = listOf(quantity("steps.daily_avg", 6250.0, "steps", lineage(STEPS))),
+                apps = listOf(appUsage("Maps <b>", 42)),
+                texts = listOf(note("Slept well")),
+            ),
+            hooked = true,
+        )
+        world.grant(AiPurpose.GENERAL_QUESTION, STEPS, APP_IDENTITY, SCREEN_TIME_TOTALS, USER_TEXT)
+        val envelope = world.engine.build(AiPurpose.GENERAL_QUESTION, "How did I sleep?").getOrThrow()
+        val preview = world.engine.preview(envelope)
+
+        assertThat(preview.blocks.flatMap { it.items }).containsExactly(
+            AiPreviewItem("steps.daily_avg", "6250 steps"),
+            AiPreviewItem("apps.usage", "Maps b: 42 min"),
+            AiPreviewItem("user.note", "Slept well"),
+        )
+        assertThat(preview.userRequestText).isEqualTo("How did I sleep")
+        assertThat(preview.toString()).doesNotContain("Slept")
+        assertThat(envelope.maxOutputTokens).isEqualTo(PurposePolicy.spec(AiPurpose.GENERAL_QUESTION).caps.maxOutputTokens)
+
+        // Data changes between preview and send: the envelope still sends the previewed bytes; a rebuild is a new preview.
+        world.scripted.texts = listOf(note("Opened a dating app"))
+        world.send(envelope).getOrThrow()
+        val sent = world.provider.journal.single { it.sent }
+        assertThat(sent.inputSha256).isEqualTo(preview.inputSha256)
+        assertThat(sent.sentDataInput).doesNotContain("dating")
+        val rebuilt = world.engine.build(AiPurpose.GENERAL_QUESTION, "How did I sleep?").getOrThrow()
+        assertThat(world.engine.preview(rebuilt).inputSha256).isNotEqualTo(preview.inputSha256)
+
+        val record = world.audit[envelope.requestId]!!
+        assertThat(record.payloadSha256).isEqualTo(preview.inputSha256)
+        assertThat(record.initiator).isEqualTo(AiInitiator.USER)
+        assertThat(record.promptVersion).isEqualTo(AiInstructionSet.VERSION)
+        assertThat(record.accountSubHash).hasLength(64)
+        assertThat(record.accountSubHash).doesNotContain(ACCOUNT)
+    }
+
+    @Test
+    fun `a later round needs a new preview only when it adds personal content (privacy-ai-13)`() = runTest {
+        val world = World(data = ScriptedDataSource(texts = listOf(note("Slept well"))))
+        world.grant(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE, SETTINGS)
+        val first = world.engine.build(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE, "Remind me to walk").getOrThrow()
+        val sameContent = world.engine.build(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE, "Remind me to walk").getOrThrow()
+        val clarified = world.engine.build(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE, "Remind me to walk after lunch").getOrThrow()
+
+        assertThat(AiRequestPreview.needsNewPreview(first, sameContent)).isFalse()
+        assertThat(AiRequestPreview.needsNewPreview(first, clarified)).isTrue()
     }
 
     @Test

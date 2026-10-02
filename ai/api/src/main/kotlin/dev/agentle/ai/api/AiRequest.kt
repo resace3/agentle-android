@@ -159,6 +159,8 @@ public class AiRequestEnvelope @AiEnvelopeConstruction constructor(
     public val rangeEnd: Instant?,
     public val createdAt: Instant,
     public val consentVersion: Int,
+    /** The provider sends this as `max_output_tokens` (privacy-ai-13); null leaves the provider's default. */
+    public val maxOutputTokens: Int? = null,
 ) {
     init {
         require(requestId.isNotBlank()) { "requestId must not be blank" }
@@ -166,6 +168,7 @@ public class AiRequestEnvelope @AiEnvelopeConstruction constructor(
         require((rangeStart == null) == (rangeEnd == null)) { "rangeStart and rangeEnd go together" }
         require(rangeStart == null || rangeEnd == null || rangeEnd >= rangeStart) { "rangeEnd before rangeStart" }
         require(consentVersion > 0) { "consentVersion must be positive" }
+        require(maxOutputTokens == null || maxOutputTokens > 0) { "maxOutputTokens must be positive" }
     }
 
     public val blocks: List<ContextBlock> = blocks.toList()

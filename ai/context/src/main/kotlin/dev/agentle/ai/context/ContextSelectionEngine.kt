@@ -212,6 +212,7 @@ public class ContextSelectionEngine(
                 rangeEnd = decision.rangeLimit?.end,
                 createdAt = clock.now(),
                 consentVersion = consent.currentVersion,
+                maxOutputTokens = spec.caps.maxOutputTokens,
             )
             EnvelopeGate.check(envelope, decision).flatMap { dataRequirement(spec, envelope) }.map { envelope }
         }

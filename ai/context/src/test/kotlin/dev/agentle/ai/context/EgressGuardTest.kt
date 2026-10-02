@@ -53,6 +53,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import java.util.Random
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
@@ -71,8 +72,11 @@ class EgressGuardTest {
         assertThat(call.sent).isTrue()
         assertThat(call.inputSha256).isEqualTo(envelope.inputSha256)
         assertThat(call.sentDataInput).isEqualTo(envelope.dataInputJson)
-        val expected = AiRequestRecord.of(envelope, FakeAiProvider.ID, AiRequestStatus.SENT, START).copy(sendVerified = true)
-        assertThat(world.audit[envelope.requestId]).isEqualTo(expected)
+        val recorded = world.audit[envelope.requestId]!!
+        val expected = AiRequestRecord.of(envelope, FakeAiProvider.ID, AiRequestStatus.SENT, START)
+            .copy(sendVerified = true, accountSubHash = recorded.accountSubHash)
+        assertThat(recorded).isEqualTo(expected)
+        assertThat(recorded.accountSubHash).isNotNull()
         assertThat(world.audit.all).hasSize(1)
     }
 
@@ -85,35 +89,70 @@ class EgressGuardTest {
     }
 
     @Test
-    fun `everything is cut to the limits before it is checked and sent`() = runTest {
+    fun `an envelope over a limit is refused whole, never cut, so nothing but the built bytes can leave (privacy-ai-13)`() = runTest {
         val world = World()
         world.grant(AiPurpose.GENERAL_QUESTION, STEPS, USER_TEXT, APP_IDENTITY, SCREEN_TIME_TOTALS)
         val steps = List(25) { ContextItem(DataItem.Quantity("steps.daily_avg", it.toDouble(), "steps"), lineage(STEPS)) }
         val note = ContextItem(DataItem.Text("user.note", "word ".repeat(80).trim()), lineage(USER_TEXT))
         val app =
             ContextItem(DataItem.AppUsage("apps.usage", "Long label ".repeat(6).trim(), 30, 2), lineage(APP_IDENTITY, SCREEN_TIME_TOTALS))
-        val blocks = listOf(
-            ContextBlock("user_note", USER_TEXT, BlockKind.USER_TEXT, listOf(note)),
-            ContextBlock("app_usage", APP_IDENTITY, BlockKind.APP_USAGE, listOf(app)),
-        ) + List(22) { ContextBlock("steps", STEPS, BlockKind.AGGREGATES, steps) }
-        val envelope = world.handBuilt(blocks, UntrustedText("ask ".repeat(150).trim(), TextOrigin.USER_REQUEST))
+        val question = UntrustedText("How was my week", TextOrigin.USER_REQUEST)
+        listOf(
+            listOf(ContextBlock("steps", STEPS, BlockKind.AGGREGATES, steps)) to GateCodes.TOO_MANY_ITEMS,
+            List(21) { ContextBlock("steps", STEPS, BlockKind.AGGREGATES, steps.take(1)) } to GateCodes.TOO_MANY_BLOCKS,
+            listOf(ContextBlock("user_note", USER_TEXT, BlockKind.USER_TEXT, listOf(note))) to GateCodes.VALUE,
+            listOf(ContextBlock("app_usage", APP_IDENTITY, BlockKind.APP_USAGE, listOf(app))) to GateCodes.VALUE,
+        ).forEachIndexed { index, (blocks, code) ->
+            val envelope = world.handBuilt(blocks, question, requestId = "airoverlimit" + "abcdefgh"[index])
+            val error = world.guard.analyze(envelope).errorOrNull() as AppError.ConsentViolation
+            assertThat(error.detail).isEqualTo(code)
+            assertThat(world.audit[envelope.requestId]!!.status).isEqualTo(AiRequestStatus.DENIED)
+        }
+        assertThat(world.provider.journal).isEmpty()
+    }
 
-        val cut = EgressGuard.truncate(envelope)
+    @Test
+    fun `per-purpose caps on bytes, events and days fail closed with their own codes (privacy-ai-13)`() = runTest {
+        val world = World()
+        world.grant(AiPurpose.GENERAL_QUESTION, USER_TEXT)
+        val caps = PurposePolicy.spec(AiPurpose.GENERAL_QUESTION).caps
+        assertThat(caps.maxOutputTokens).isGreaterThan(0)
+        val note = ContextItem(DataItem.Text("user.note", "word ".repeat(39).trim()), lineage(USER_TEXT))
+        val big = List(20) { ContextBlock("user_note", USER_TEXT, BlockKind.USER_TEXT, List(20) { note }) }
+        val question = UntrustedText("How was my week", TextOrigin.USER_REQUEST)
+        val tooBig = world.handBuilt(big, question, requestId = "aircapbytes")
+        assertThat(EnvelopeGate.personalBytes(tooBig)).isGreaterThan(caps.maxBytes)
+        assertThat(world.guard.analyze(tooBig).errorOrNull()).isEqualTo(AppError.ConsentViolation(emptySet(), GateCodes.CAP_BYTES))
 
-        assertThat(cut.requestId).isEqualTo(envelope.requestId)
-        assertThat(cut.blocks).hasSize(EnvelopeGate.MAX_BLOCKS)
-        assertThat(cut.blocks.map { it.items.size }.max()).isEqualTo(EnvelopeGate.MAX_ITEMS)
-        assertThat((cut.blocks[0].items.single().item as DataItem.Text).text.length).isAtMost(SafeText.ITEM_MAX)
-        assertThat((cut.blocks[1].items.single().item as DataItem.AppUsage).app).isEqualTo("Long label Long label Long label Long la")
-        assertThat(cut.userText!!.raw.length).isAtMost(PurposePolicy.REQUEST_MAX_CHARS)
-        assertThat(EgressGuard.truncate(cut)).isSameInstanceAs(cut)
+        val wide = ClosedOpenRange(START - (caps.maxDays + 1).days, START)
+        val decision = GateDecision(
+            spec = PurposePolicy.spec(AiPurpose.GENERAL_QUESTION),
+            mode = AiRequestMode.USER_INITIATED,
+            categories = setOf(USER_TEXT),
+            sources = setOf(SourceFamily.ON_DEVICE),
+            rangeLimit = wide,
+            rawEventsConfirmed = true,
+            standing = null,
+            instructions = world.instructions.forPurpose(AiPurpose.GENERAL_QUESTION),
+        )
+        val long = world.handBuilt(emptyList(), question, requestId = "aircapdays", range = wide)
+        assertThat(EnvelopeGate.check(long, decision).errorOrNull()).isEqualTo(AppError.ConsentViolation(emptySet(), GateCodes.CAP_DAYS))
 
-        world.guard.analyze(envelope).getOrThrow()
-
-        val sent = world.provider.journal.single { it.sent }
-        assertThat(sent.inputSha256).isEqualTo(cut.inputSha256)
-        assertThat(sentBlocks(sent.sentDataInput)).hasSize(EnvelopeGate.MAX_BLOCKS)
-        assertThat(world.audit[envelope.requestId]!!.approximateBytes).isEqualTo(cut.approximateBytes)
+        val pattern = PurposePolicy.spec(AiPurpose.PATTERN_EXPLANATION).caps
+        val event = ContextItem(DataItem.Event("event", "STEP_SAMPLE", "2026-09-30T08:00"), lineage(STEPS))
+        val events = List(pattern.maxEvents / EnvelopeGate.MAX_ITEMS + 1) {
+            ContextBlock("events_steps", STEPS, BlockKind.RAW_EVENTS, List(EnvelopeGate.MAX_ITEMS) { event })
+        }
+        val many = world.handBuilt(events, null, purpose = AiPurpose.PATTERN_EXPLANATION, requestId = "aircapevents")
+        val eventDecision = decision.copy(
+            spec = PurposePolicy.spec(AiPurpose.PATTERN_EXPLANATION),
+            categories = setOf(STEPS),
+            rangeLimit = many.rangeStart?.let { ClosedOpenRange(it, many.rangeEnd!!) },
+            instructions = world.instructions.forPurpose(AiPurpose.PATTERN_EXPLANATION),
+        )
+        assertThat(
+            EnvelopeGate.check(many, eventDecision).errorOrNull(),
+        ).isEqualTo(AppError.ConsentViolation(emptySet(), GateCodes.CAP_EVENTS))
     }
 
     @Test

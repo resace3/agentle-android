@@ -4,6 +4,7 @@ package dev.agentle.ai.context
 
 import dev.agentle.ai.api.AiCapabilities
 import dev.agentle.ai.api.AiEnvelopeConstruction
+import dev.agentle.ai.api.AiEnvelopeJson
 import dev.agentle.ai.api.AiImageResult
 import dev.agentle.ai.api.AiProvider
 import dev.agentle.ai.api.AiProviderState
@@ -12,9 +13,6 @@ import dev.agentle.ai.api.AiRequestMode
 import dev.agentle.ai.api.AiSendVerifier
 import dev.agentle.ai.api.AiStructuredResult
 import dev.agentle.ai.api.AiTextResult
-import dev.agentle.ai.api.ContextBlock
-import dev.agentle.ai.api.ContextItem
-import dev.agentle.ai.api.DataItem
 import dev.agentle.ai.api.OutputSchema
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Logger
@@ -22,7 +20,6 @@ import dev.agentle.core.common.Outcome
 import dev.agentle.core.common.Severity
 import dev.agentle.core.common.flatMap
 import dev.agentle.core.model.SourceFamily
-import dev.agentle.core.model.UntrustedText
 import dev.agentle.core.time.AgentleClock
 import dev.agentle.core.time.ClosedOpenRange
 import dev.agentle.core.time.EngineDay
@@ -38,6 +35,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.minus
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
@@ -50,8 +48,8 @@ import kotlin.time.Instant
  * which receives this guard as the provider's [AiSendVerifier].
  *
  * For every request:
- * 1. Truncate: text items to [SafeText.ITEM_MAX] characters, app labels to [SafeText.LABEL_MAX], blocks to
- *    [EnvelopeGate.MAX_ITEMS] items, requests to [EnvelopeGate.MAX_BLOCKS] blocks, the user's text to its purpose limit.
+ * 1. Never alter the envelope: one over a limit (text length, items, blocks, the purpose's caps) is refused by the gate,
+ *    so the bytes sent are exactly the bytes built and previewed, or nothing (privacy-ai-13).
  * 2. Re-check every block ([EnvelopeGate]) against a fresh consent read and this guard's own [AiSharingPolicy]. Envelopes
  *    older than [ENVELOPE_MAX_AGE], reused envelopes and schemas that are not the purpose's are refused.
  * 3. Background requests need a standing consent, stay within its daily budget and cadence (counted from the audit
@@ -76,6 +74,8 @@ public class EgressGuard(
     private val policy: AiSharingPolicy = DenyByDefaultSharingPolicy(consent.currentVersion, sourcePolicy),
     private val instructions: AiInstructionSet = AiInstructionSet(),
     private val logger: Logger = Logger.NONE,
+    /** Salt of the account hash in audit records; the app passes a per-install secret so hashes stay comparable. */
+    private val accountSalt: String = RequestIds.next(SecureRandom()),
 ) : AiProvider,
     AiSendVerifier {
     private class InFlight(val envelope: AiRequestEnvelope) {
@@ -136,7 +136,8 @@ public class EgressGuard(
         schema: OutputSchema?,
         call: suspend (AiRequestEnvelope) -> Outcome<T>,
     ): Outcome<T> {
-        val outgoing = truncate(request)
+        // Never altered here: the bytes sent are the bytes built and previewed, or nothing (privacy-ai-13).
+        val outgoing = request
         val flight = InFlight(outgoing)
         val createdAt = when (val admitted = admit(outgoing, schema).flatMap { decision -> begin(outgoing, decision, flight) }) {
             is Outcome.Success -> admitted.value
@@ -230,7 +231,9 @@ public class EgressGuard(
 
     private suspend fun recordInFlight(envelope: AiRequestEnvelope): Outcome<Instant> {
         val now = clock.now()
-        return writeRecord(AiRequestRecord.of(envelope, delegate.id, AiRequestStatus.IN_FLIGHT, now)).flatMap { Outcome.Success(now) }
+        return writeRecord(stamp(AiRequestRecord.of(envelope, delegate.id, AiRequestStatus.IN_FLIGHT, now))).flatMap {
+            Outcome.Success(now)
+        }
     }
 
     /** Daily budget (per engine day in the clock's zone) and cadence of the standing consent, counted from the audit log. */
@@ -306,7 +309,7 @@ public class EgressGuard(
 
             else -> AiRequestStatus.NOT_SENT
         }
-        val record = AiRequestRecord.of(envelope, delegate.id, status, createdAt, clock.now())
+        val record = stamp(AiRequestRecord.of(envelope, delegate.id, status, createdAt, clock.now()))
             .copy(errorCode = error?.code, reason = error?.let(::reasonOf), sendVerified = verified)
         val written = writeRecord(record)
         logger.log(
@@ -325,6 +328,12 @@ public class EgressGuard(
                 "recorded" to (written is Outcome.Success),
             ),
         )
+    }
+
+    /** Adds the salted account hash; a failing account source leaves it null. */
+    private suspend fun stamp(record: AiRequestRecord): AiRequestRecord {
+        val sub = guardedCall { Outcome.Success(account.activeAccountSub()) }.let { (it as? Outcome.Success)?.value }
+        return record.copy(accountSubHash = sub?.let { AiEnvelopeJson.sha256Hex(accountSalt + "\n" + it) })
     }
 
     private fun isUsed(requestId: String): Boolean = synchronized(usedLock) { requestId in used }
@@ -353,54 +362,6 @@ public class EgressGuard(
 
         private const val COMPONENT = "ai.egress"
         private const val MAX_USED_IDS = 512
-
-        /** The envelope [envelope] with every limit applied; the same instance when nothing had to be cut. */
-        internal fun truncate(envelope: AiRequestEnvelope): AiRequestEnvelope {
-            val spec = PurposePolicy.spec(envelope.purpose)
-            val blocks = envelope.blocks.take(EnvelopeGate.MAX_BLOCKS).map(::truncate)
-            val userText = envelope.userText?.let { text ->
-                val cut = cut(text.raw, spec.userTextMaxChars.coerceAtLeast(1))
-                if (cut == text.raw) text else UntrustedText(cut, text.origin, text.aiGenerated)
-            }
-            val unchanged = blocks.size == envelope.blocks.size &&
-                blocks.zip(envelope.blocks).all { (a, b) -> a === b } &&
-                userText === envelope.userText
-            return if (unchanged) {
-                envelope
-            } else {
-                AiRequestEnvelope(
-                    requestId = envelope.requestId,
-                    purpose = envelope.purpose,
-                    mode = envelope.mode,
-                    instructions = envelope.instructions,
-                    userText = userText,
-                    blocks = blocks,
-                    rangeStart = envelope.rangeStart,
-                    rangeEnd = envelope.rangeEnd,
-                    createdAt = envelope.createdAt,
-                    consentVersion = envelope.consentVersion,
-                )
-            }
-        }
-
-        private fun truncate(block: ContextBlock): ContextBlock {
-            val items = block.items.take(EnvelopeGate.MAX_ITEMS).map(::truncate)
-            val unchanged = items.size == block.items.size && items.zip(block.items).all { (a, b) -> a === b }
-            return if (unchanged) block else ContextBlock(block.label, block.category, block.kind, items)
-        }
-
-        private fun truncate(item: ContextItem): ContextItem {
-            val data = item.item
-            val cut = when (data) {
-                is DataItem.Text -> cut(data.text, SafeText.ITEM_MAX).let { if (it == data.text) data else data.copy(text = it) }
-                is DataItem.AppUsage -> cut(data.app, SafeText.LABEL_MAX).let { if (it == data.app) data else data.copy(app = it) }
-                else -> data
-            }
-            return if (cut === data) item else ContextItem(cut, item.lineage)
-        }
-
-        private fun cut(text: String, maxChars: Int): String =
-            if (text.codePointCount(0, text.length) <= maxChars) text else text.substring(0, text.offsetByCodePoints(0, maxChars)).trimEnd()
     }
 }
 
