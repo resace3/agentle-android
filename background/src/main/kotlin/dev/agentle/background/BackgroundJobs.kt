@@ -39,6 +39,7 @@ public enum class JobResult { SUCCESS, RETRY, FAILURE }
  * Cancellation is never caught: the ports own their transactions, so a stopped run leaves nothing half-written and is
  * never recorded as a success. A background component deletes nothing itself and never starts an Activity.
  */
+@Suppress("LongParameterList") // one port per work family; grouping them would hide the contract
 public class BackgroundJobs(
     private val scheduler: WorkScheduler,
     private val store: SchedulerStore,

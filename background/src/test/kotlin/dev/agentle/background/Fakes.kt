@@ -91,7 +91,7 @@ class FakeGateway : WorkGateway {
 
     override suspend fun cancelAll() {
         calls += Call("cancelAll", null, null, null)
-        works.keys.toList().forEach { name -> works[name] = works[name]!!.map { it.first to WorkInfo.State.CANCELLED }.toMutableList() }
+        works.replaceAll { _, list -> list.map { it.first to WorkInfo.State.CANCELLED }.toMutableList() }
     }
 
     override suspend fun infos(name: String): List<WorkInfo> =

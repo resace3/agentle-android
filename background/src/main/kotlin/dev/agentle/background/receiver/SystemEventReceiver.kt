@@ -45,6 +45,8 @@ public class SystemEventReceiver : BroadcastReceiver() {
         /** API 37 `Intent.ACTION_TIMEZONE_OFFSET_CHANGED`; a literal so the module compiles against older SDKs. */
         public const val ACTION_TIMEZONE_OFFSET_CHANGED: String = "android.intent.action.TIMEZONE_OFFSET_CHANGED"
         private val ENQUEUE_BUDGET = 8.seconds
+        // A receiver has no injection point for a dispatcher; the work is a bounded enqueue.
+        @Suppress("InjectDispatcher")
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
         /** The allow-list; anything else (including a null action) is ignored. */
