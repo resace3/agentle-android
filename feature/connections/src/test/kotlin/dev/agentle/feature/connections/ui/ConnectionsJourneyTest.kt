@@ -194,7 +194,7 @@ class ConnectionsJourneyTest {
         sleep.performClick()
         compose.waitForIdle()
         assertThat(port.setCalls).isEmpty()
-        clickText(R.string.connections_ai_confirm_allow)
+        clickDialogConfirm(R.string.connections_ai_confirm_allow)
         assertThat(port.setCalls).containsExactly(AiSharingCategory.SLEEP to true)
         compose.onNodeWithTag(categoryTag(AiSharingCategory.SLEEP)).performScrollTo().assertIsOn()
 
