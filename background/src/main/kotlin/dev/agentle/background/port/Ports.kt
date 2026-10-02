@@ -48,13 +48,15 @@ public interface JitaiRunner {
     public suspend fun nextDueAt(): Outcome<Instant?>
 
     /**
-     * After an app update: `RuleValidator.revalidate` on every stored definition; failures are paused with a notice
-     * (`JitaiLifecycle.PAUSE`) and `JitaiEngine.onDefinitionChanged` runs. Returns how many were paused. The engine has
-     * no single entry point for this yet (requested from the integrator).
+     * After an app update: wiring calls `JitaiEngine.revalidateStoredDefinitions()`, which revalidates every stored
+     * definition, pauses the rules that fail and returns how many it paused.
      */
     public suspend fun revalidateStoredDefinitions(): Outcome<Int>
 
-    /** The zone offset (seconds) the last plan was made with, to detect DST changes below API 37; null if unknown. */
+    /**
+     * Wiring: `JitaiEngine.plannedOffsetSeconds()`. The zone offset (seconds) the last plan was made with, used to
+     * detect DST changes below API 37; null before the first plan (then no check is made).
+     */
     public suspend fun plannedOffsetSeconds(): Outcome<Int?>
 }
 
