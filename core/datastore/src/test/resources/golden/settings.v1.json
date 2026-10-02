@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "retention": {"wearable": "DAYS_90", "android": "DAYS_30", "userLogs": "FOREVER", "agentle": "YEAR_1"},
+  "quietHours": {"start": "21:30", "end": "06:45", "enabled": true},
+  "jitai": {
+    "maxPerDay": 4,
+    "maxPerWeek": 20,
+    "minGapMinutes": 45,
+    "channelCaps": {"VOICE": 1, "VIDEO": 0, "IMAGE": 2},
+    "rolloverMinute": 240,
+    "pauseUntilMs": 1790000000000,
+    "maxEventAgeMinutes": {"SCREEN_ON": 5},
+    "weekendDays": [5, 6]
+  },
+  "collectionProfile": "LOW",
+  "onboarding": {"completedVersion": 2, "completedAtMs": 1789000000000},
+  "permissions": {
+    "requested": ["android.permission.ACTIVITY_RECOGNITION"],
+    "settingsVisited": ["usage_access", "notification_listener"]
+  },
+  "collection": {
+    "disabledConnectors": ["healthconnect"],
+    "notificationContentPackages": ["com.example.chat"],
+    "notificationContentFromSmsAndDialer": false,
+    "preciseLocation": true
+  },
+  "notices": {"accepted": {"privacy": 3, "health_data": 1}},
+  "debug": {"fakeScenario": "sleepy-week", "showDiagnostics": true, "fastSchedules": false}
+}
