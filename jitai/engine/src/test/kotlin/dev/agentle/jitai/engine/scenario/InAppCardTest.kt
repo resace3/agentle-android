@@ -65,7 +65,7 @@ class InAppCardTest {
         assertThat(off.row(KEY).state).isEqualTo(DecisionState.SUPPRESSED)
 
         val disabled = harness()
-        disabled.delivery.onPrepare = { disabled.repository.update("R2") { it.copy(enabled = false) } }
+        disabled.delivery.onPrepare = { disabled.repository.update("R2") { definition -> definition.copy(enabled = false) } }
         disabled.timer()
         assertThat(disabled.row(KEY).state).isEqualTo(DecisionState.CANCELLED)
 

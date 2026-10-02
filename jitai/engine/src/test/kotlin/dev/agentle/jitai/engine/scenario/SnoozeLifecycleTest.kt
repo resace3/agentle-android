@@ -182,7 +182,7 @@ class SnoozeLifecycleTest {
             },
             snoozeEnd(
                 "N2",
-                "Until tomorrow at 22:05: the rollover 04:00 is outside R1's window, so the snooze ends at the next window start 10-02 20:00",
+                "Until tomorrow at 22:05: 04:00 is outside the window, so it ends at the next window start 10-02 20:00",
                 SnoozeOption.UNTIL_TOMORROW,
                 "2026-10-02T20:00",
             ),
