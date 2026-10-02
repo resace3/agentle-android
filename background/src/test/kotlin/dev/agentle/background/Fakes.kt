@@ -74,11 +74,15 @@ class FakeGateway : WorkGateway {
         }
     }
 
+    /** Called with each newly added request id (the simulator stamps its due time). */
+    var onAdd: ((UUID) -> Unit)? = null
+
     private fun add(name: String, request: WorkRequest, state: WorkInfo.State, replace: Boolean) {
         val list = works.getOrPut(name) { mutableListOf() }
         if (replace) list.clear()
         list += request.id to state
         requests[request.id] = request
+        onAdd?.invoke(request.id)
     }
 
     override suspend fun update(request: OneTimeWorkRequest) {
