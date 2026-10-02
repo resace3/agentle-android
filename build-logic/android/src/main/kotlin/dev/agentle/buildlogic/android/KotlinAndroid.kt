@@ -46,12 +46,16 @@ internal fun Project.configureAndroidCommon(extension: CommonExtension) {
         add("testImplementation", libs.lib("robolectric"))
         add("testImplementation", libs.lib("androidx-test-core"))
         add("testImplementation", libs.lib("androidx-test-ext-junit"))
+        // Compose UI test pulls an older espresso-core that reflects on InputManager.getInstance(), which no
+        // longer exists on SDK 36+; 3.7.0 uses getSystemService instead (AndroidX Test release notes, 3.7.0-alpha04).
+        add("testImplementation", libs.lib("androidx-test-espresso-core"))
         add("testImplementation", libs.lib("truth"))
         add("testImplementation", libs.lib("kotlinx-coroutines-test"))
         add("testImplementation", libs.lib("turbine"))
         add("androidTestImplementation", libs.lib("androidx-test-runner"))
         add("androidTestImplementation", libs.lib("androidx-test-rules"))
         add("androidTestImplementation", libs.lib("androidx-test-ext-junit"))
+        add("androidTestImplementation", libs.lib("androidx-test-espresso-core"))
         add("androidTestImplementation", libs.lib("truth"))
     }
 

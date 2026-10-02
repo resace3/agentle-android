@@ -87,7 +87,7 @@ jobs:
         run: >-
           mkdir -p build && ./gradlew
           assembleFakeDebug assembleProdDebug assembleProdRelease
-          testDebugUnitTest testFakeDebugUnitTest
+          testDebugUnitTest testFakeDebugUnitTest testProdDebugUnitTest
           lintDebug lintFakeDebug lintProdDebug
           detekt spotlessCheck verifyNoFakesInProd
           --continue 2>&1 | tee build/gradle-output.log
