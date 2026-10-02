@@ -58,8 +58,7 @@ public data class Lineage(val families: Set<SourceFamily> = emptySet(), val cate
 
         public fun of(event: PersonalEvent): Lineage = Lineage(setOf(SourceFamily.of(event.source)), setOf(event.type.category))
 
-        public fun of(events: Iterable<PersonalEvent>): Lineage =
-            events.fold(NONE) { acc, event -> acc + of(event) }
+        public fun of(events: Iterable<PersonalEvent>): Lineage = events.fold(NONE) { acc, event -> acc + of(event) }
 
         public fun of(vararg families: SourceFamily): Lineage = Lineage(families.toSet())
     }
