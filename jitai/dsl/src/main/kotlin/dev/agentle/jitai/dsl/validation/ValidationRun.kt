@@ -237,14 +237,10 @@ internal class ValidationRun(private val request: ValidationRequest, private val
 
     private fun packagesOf(definition: JitaiDefinition): Set<String> = buildSet {
         listOfNotNull(definition.conditions, definition.contextRequirements).forEach { tree ->
-            RuleAnalysis.leaves(tree).forEach { info ->
-                val leaf = info.node as? Condition.FeatureLeaf
-                leaf?.args?.get(ArgRules.PACKAGE)?.let(::add)
-                if (leaf?.feature ==
-                    FOREGROUND_APP
-                ) {
-                    leaf.literals.forEach { literal -> (literal as? RuleLiteral.Text)?.let { add(it.value) } }
-                }
+            for (info in RuleAnalysis.leaves(tree)) {
+                val leaf = info.node as? Condition.FeatureLeaf ?: continue
+                leaf.args[ArgRules.PACKAGE]?.let(::add)
+                if (leaf.feature == FOREGROUND_APP) leaf.literals.forEach { (it as? RuleLiteral.Text)?.let { text -> add(text.value) } }
             }
         }
         definition.outcome?.let { outcome ->
