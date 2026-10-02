@@ -73,6 +73,8 @@ class PermissionCenterJourneyTest {
                 ),
             ),
         )
+        // RequestMultiplePermissions answers held permissions without a dialog: make sure this one is not held.
+        shadowOf(app).denyPermissions("android.permission.ACTIVITY_RECOGNITION")
         val registry = DenyingRegistry()
         var permanently = false
         val owner = object : ActivityResultRegistryOwner {
