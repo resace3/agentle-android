@@ -1,29 +1,28 @@
 # Project state
 
-Updated 2026-10-02 18:30 UTC. All agents PAUSED at Nick's request (usage); every branch below is pushed and clean. New threads resume from this file, not from old conversations.
+Updated 2026-10-02 19:50 UTC. Draft mode (Nick, 18:28): one agent, no reviewers; merge everything and wire the app to real data. New threads resume from this file, not from old conversations.
 
 ## Where things are
-- main (CI green, d50241f): contracts, build/test tooling (St_Johns test zone, type-resolved detekt, coverage summary incl. Android Kover), `:core:ui` navigation, docs/ARCHITECTURE.md, docs/ARCHITECTURE_ISSUES.md, and these merged pieces: Sign in with ChatGPT, analytics, realtime features, JITAI DSL, AI context/egress, Google Health API connector + fake, JITAI engine, android test infra.
-- Android modules build only on GitHub Actions (Google Maven blocked in the cloud container); JVM modules build locally with `AGENTLE_JVM_ONLY=true`.
+- main a24a978: every team branch is merged (SIWC, analytics, realtime features, JITAI DSL and engine, AI context, Google Health API connector, test infra, data, collectors, background, interventions, and all UI screens).
+- JVM modules: 3,603/3,603 tests pass on CI (run 37050667319).
+- Android modules: NOT yet compiled after the merges. Every CI run since 58f44ed was cancelled or never started. Run 37053838903 did not start because GitHub Actions billing failed ("recent account payments have failed or your spending limit needs to be increased"). The Android build only runs on GitHub Actions, because Google Maven is blocked in the cloud container.
+- Open review findings are filed as GitHub issues #1 to #5.
 
-## Branches (not yet merged; all have origin/main cd64b4d merged)
-| Branch | Scope | State at pause |
-|---|---|---|
-| android/background | WorkManager scheduling | 11 review fixes verified; 3 P3 follow-ups open (local-date event cap, cap count under lock, sync-now drops streams on permanent error) |
-| android/ui-settings | settings screens | 65/65 tests, goldens verified; 1 P2 open (delete-everything double-tap guard must use local state) |
-| android/collectors | Android collectors | review: no P0/P1; fixing 6 P2/P3 (coverage gaps on rate-limit drops/failed flush/Bluetooth, 2FA filter all languages, SMS handler caching, calendar overlap) |
-| android/ui-hub | onboarding, hub, permission center, timeline | 1 failing Robolectric test (PermissionCenterJourneyTest second denial); goldens not recorded |
-| android/ui-connections | wearable, ChatGPT, AI sharing screens | 96 tests green; screenshot recording timed out, goldens not recorded |
-| android/ui-insights | JITAI and insights screens | finishing; no final report yet |
-| android/interventions | notification/image/voice/video delivery | closing test gaps; no final report yet |
-| android/data | Room storage, deletion, retention | building deletion services and wiring contracts; needs 3 reviewers (critical area) |
-
-Wiring contracts the app/data layer must honour are listed in the integrator's notes and in each branch's report (ledger range key `jitai_decision`, generation CAS on DecisionStore commit, NotificationContentPurger, EgressGuard as AiSendVerifier, per-install accountSalt, BackgroundStarter in Application.onCreate).
+## App wiring (app/src/main/kotlin/dev/agentle/app/wiring)
+- Wired:
+  - Timeline over the Room event table (paged).
+  - Dashboard: today's steps, unlocks and screen time from stored events, plus collector status.
+  - Data Sources, using the Android collectors graph.
+  - Scheduler collector sweeps (usage and device).
+  - Retention runs.
+  - Hub clock and settings time zone.
+  - AgentleApplication starts the collectors graph and BackgroundStarter.
+- Still staging (app/.../staging): onboarding, permission center, insights/JITAI screens, interventions, connections (wearable, ChatGPT, AI sharing), settings ports other than the time zone, the JITAI runner, wearable sync, feature refresh.
 
 ## Next
-1. Finish the open items above, verify, merge each branch to main.
-2. App wiring (implement feature ports over :data and connectors, remove `app/.../staging`), Play services Google authorization adapter.
-3. Test, security and emulator passes; 36-step scenario; final report with real test counts.
+1. Restore GitHub Actions (billing), then fix whatever the first Android compile reports.
+2. Wire the remaining staging ports (permission center and onboarding next, then JITAI screens over JitaiDefinitionStore, then settings deletion and retention).
+3. Reviews, issues #1 to #5, the 36-step scenario and the final report, when the budget allows.
 
 ## Rules
 Never use the legacy Fitbit Web API (Google Health API only). Agents work token-efficiently: targeted reads and tests, full suite only before completion. Update this file after each major milestone.
