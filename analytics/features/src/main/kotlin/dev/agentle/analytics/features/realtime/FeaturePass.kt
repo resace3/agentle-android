@@ -106,6 +106,20 @@ internal class FeaturePass(
         }
 
     /**
+     * For a feature "at t" (REALTIME-FEATURES-R1-5): the start of the stretch of [window] that [collectorId] covers
+     * without a gap up to its end, or `Missing(COLLECTOR_INACTIVE)` when it is not healthy at the end.
+     */
+    suspend fun coveredSince(collectorId: String, window: ClosedOpenRange): Read<Instant> =
+        memo(WindowKey("covered-since-$collectorId", window)) {
+            when (val read = inputs.collectorCoverage.intervals(collectorId, window).toPlainRead()) {
+                is Read.Fail -> read
+
+                is Read.Ok -> CoverageCheck.coveredSince(read.value, window)?.let { Read.Ok(it) }
+                    ?: Read.Fail(MissingReason.COLLECTOR_INACTIVE)
+            }
+        }
+
+    /**
      * The reason a daily value of [source] is absent: `NO_DATA` when the source asserted coverage within
      * [RealtimeFeatureConfig.dailyValueSyncLag], else `NOT_SYNCED` (absence is never zero, R10 §5.3).
      */
@@ -152,5 +166,26 @@ internal object CoverageCheck {
             if (cursor >= window.end) return null
         }
         return if (healthyAtEnd) MissingReason.COVERAGE_GAP else MissingReason.COLLECTOR_INACTIVE
+    }
+
+    /** The start (clipped to the window) of the gapless covered stretch that reaches the window end; null if none. */
+    fun coveredSince(intervals: List<CoverageInterval>, window: ClosedOpenRange): Instant? {
+        var from: Instant? = null
+        var to: Instant? = null
+        var open = false
+        var result: Instant? = null
+        for (interval in intervals.sortedBy { it.from }) {
+            if (interval.from >= window.end) break
+            val joins = from != null && (open || interval.from <= checkNotNull(to))
+            if (!joins) {
+                from = interval.from
+                to = interval.to
+                open = interval.to == null
+            } else if (!open) {
+                if (interval.to == null) open = true else to = maxOf(checkNotNull(to), interval.to)
+            }
+            if (open || checkNotNull(to) >= window.end) result = from
+        }
+        return result?.let { maxOf(it, window.start) }
     }
 }
