@@ -4,13 +4,13 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 
 /**
- * Root project: merged Kover report over every real module, the committed-secrets guard and the expected test suites
- * for the evidence report.
+ * Root project: merged Kover report over every real module except test support, the committed-secrets guard, the
+ * expected test suites and the coverage gates for the evidence report.
  */
 class RootConventionPlugin : Plugin<Project> {
     override fun apply(target: Project): Unit = with(target) {
         pluginManager.apply("org.jetbrains.kotlinx.kover")
-        subprojects.filter { it.buildFile.exists() }.forEach { module ->
+        subprojects.filter { it.buildFile.exists() && it.path !in CoverageGates.neverCounted }.forEach { module ->
             dependencies.add("kover", module)
         }
         tasks.register("verifyNoSecrets", VerifyNoSecretsTask::class.java) {
@@ -25,6 +25,7 @@ class RootConventionPlugin : Plugin<Project> {
             report.set(layout.buildDirectory.file("reports/verifyNoSecrets.txt"))
         }
         ExpectedSuites.register(this)
+        CoverageGates.registerRoot(this)
         Unit
     }
 }

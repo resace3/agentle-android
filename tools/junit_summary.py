@@ -3,7 +3,7 @@
 
 Usage:
   tools/junit_summary.py [--root DIR ...] [--expect SUITE ...] [--expect-file FILE] [--fresh-after ISO8601]
-                         [--skipped-allowlist FILE] [--json OUT.json] [--markdown OUT.md]
+                         [--skipped-allowlist FILE] [--coverage-gates FILE] [--json OUT.json] [--markdown OUT.md]
 
 Rules (so a report can never invent numbers):
   * Every number printed is computed from files found on disk; each file is listed with its SHA-256.
@@ -19,12 +19,19 @@ Rules (so a report can never invent numbers):
   * Robolectric tests in Android unit-test tasks (test<Variant>UnitTest) are split per SDK using the "[api]" suffix
     Robolectric appends to test names; run with -Drobolectric.alwaysIncludeVariantMarkersInTestName=true so the
     newest SDK is suffixed too. Tests without a suffix are counted under "jvm".
+  * Coverage: every Kover XML report (<module>/build/reports/kover/report[<Variant>].xml) is listed with its line and
+    branch totals; :fakes and :core:testing never count. --coverage-gates (written by `./gradlew writeCoverageGates`
+    from build-logic CoverageGates.kt) adds each gate and its status. Its `# enforce:` header mirrors
+    -Pagentle.coverage.enforce: when true, exit 1 for a gate below its minimum, without a fresh report, or whose
+    report measured no line (a stale class pattern); when false, gate misses are reported as warnings only.
 """
 import argparse, glob, hashlib, json, os, re, subprocess, sys, datetime
 import xml.etree.ElementTree as ET
 
 SDK_SUFFIX = re.compile(r"\[(\d{2})\]$")
 DEFAULT_ALLOWLIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skipped-allowlist.txt")
+NEVER_COUNTED = {":fakes", ":core:testing"}  # test support (build-logic CoverageGates.neverCounted)
+KOVER_DIR = "build/reports/kover/"
 
 
 def read_expect_file(path):
@@ -125,20 +132,87 @@ def parse_cases(path):
             yield cls, name, status, t, msg
 
 
-def coverage(roots):
+def read_coverage_gates(path):
+    """(enforce, {(module, report): [gate]}) from a :writeCoverageGates file; exits on a malformed line."""
+    enforce, gates = None, {}
+    if not os.path.exists(path):
+        sys.exit(f"{path} not found: run ./gradlew writeCoverageGates first")
+    with open(path) as f:
+        for n, raw in enumerate(f, 1):
+            line = raw.strip()
+            header = re.match(r"#\s*enforce:\s*(true|false)\s*$", line)
+            if header:
+                enforce = header.group(1) == "true"
+                continue
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) != 5 or not parts[3].isdigit() or not (parts[4] == "-" or parts[4].isdigit()):
+                sys.exit(f"{path}:{n}: expected '<module> <report> <area> <line minimum> <branch minimum or ->'")
+            gates.setdefault((parts[0], parts[1]), []).append(
+                {"area": parts[2], "line": int(parts[3]), "branch": None if parts[4] == "-" else int(parts[4])})
+    if enforce is None:
+        sys.exit(f"{path}: missing '# enforce: true|false' header")
+    return enforce, gates
+
+
+def kover_report_id(rel):
+    """(module path, report) for a Kover XML report path relative to the root: report.xml is `total`,
+    report<Variant>.xml the Kover variant, e.g. core/network/build/reports/kover/reportOauth.xml -> (':core:network', 'oauth')."""
+    module_dir, name = rel.rsplit(KOVER_DIR, 1)
+    module = ":" + module_dir.strip("/").replace("/", ":") if module_dir.strip("/") else ":"
+    variant = name[len("report"):-len(".xml")]
+    return module, (variant[:1].lower() + variant[1:]) if variant else "total"
+
+
+def pct(counts):
+    missed, covered = counts
+    return None if missed + covered == 0 else round(100.0 * covered / (missed + covered), 2)
+
+
+def coverage(roots, fresh_after=None):
+    """Kover XML reports by path: module, report, root-level line/branch totals, per-package numbers, freshness."""
     out = {}
     for root in roots:
-        for path in glob.glob(os.path.join(root, "**/build/reports/kover/report*.xml"), recursive=True):
-            rep = os.path.relpath(path, root)
+        for path in sorted(glob.glob(os.path.join(root, "**/" + KOVER_DIR + "report*.xml"), recursive=True)):
+            rep = os.path.relpath(path, root).replace(os.sep, "/")
+            module, report = kover_report_id(rep)
+            if module in NEVER_COUNTED:
+                continue
+            xml_root = ET.parse(path).getroot()
+            totals = {x.get("type"): (int(x.get("missed")), int(x.get("covered"))) for x in xml_root.findall("counter")}
             pkgs = {}
-            for pkg in ET.parse(path).getroot().findall("package"):
+            for pkg in xml_root.findall("package"):
                 c = {x.get("type"): (int(x.get("missed")), int(x.get("covered"))) for x in pkg.findall("counter")}
-                def pct(kind):
-                    m, cv = c.get(kind, (0, 0))
-                    return None if m + cv == 0 else round(100.0 * cv / (m + cv), 2)
-                pkgs[pkg.get("name").replace("/", ".")] = {"line": pct("LINE"), "branch": pct("BRANCH"), "instruction": pct("INSTRUCTION")}
-            out[rep] = {"sha256": sha256(path), "packages": pkgs}
+                pkgs[pkg.get("name").replace("/", ".")] = {
+                    "line": pct(c.get("LINE", (0, 0))), "branch": pct(c.get("BRANCH", (0, 0))),
+                    "instruction": pct(c.get("INSTRUCTION", (0, 0)))}
+            modified = datetime.datetime.fromtimestamp(os.path.getmtime(path), datetime.timezone.utc)
+            line, branch = totals.get("LINE", (0, 0)), totals.get("BRANCH", (0, 0))
+            out[rep] = {
+                "module": module, "report": report, "sha256": sha256(path),
+                "line": pct(line), "lines": {"missed": line[0], "covered": line[1]},
+                "branch": pct(branch), "branches": {"missed": branch[0], "covered": branch[1]},
+                "writtenAt": modified.isoformat(timespec="seconds"),
+                "stale": bool(fresh_after and modified < fresh_after), "packages": pkgs}
     return out
+
+
+def gate_status(gates, report):
+    """Status of one report against its gates: ok, BELOW, EMPTY (no line measured), NO REPORT or STALE."""
+    if report is None:
+        return "NO REPORT", []
+    if report["stale"]:
+        return "STALE", []
+    if report["lines"]["missed"] + report["lines"]["covered"] == 0:
+        return "EMPTY", []
+    misses = []
+    for g in gates:
+        if report["line"] < g["line"]:
+            misses.append(f"{g['area']} line {report['line']} < {g['line']}")
+        if g["branch"] is not None and report["branch"] is not None and report["branch"] < g["branch"]:
+            misses.append(f"{g['area']} branch {report['branch']} < {g['branch']}")
+    return ("BELOW" if misses else "ok"), misses
 
 
 def db_scale(roots):
@@ -160,6 +234,7 @@ def main():
     ap.add_argument("--fresh-after", help="ISO-8601 instant; suites whose XML is older are reported as stale (exit 1)")
     ap.add_argument("--skipped-allowlist", default=DEFAULT_ALLOWLIST,
                     help="skipped tests allowed to stay skipped, `<Class>#<test name> | <reason>` per line")
+    ap.add_argument("--coverage-gates", help="file from `./gradlew writeCoverageGates`: the Kover gates to check")
     ap.add_argument("--json")
     ap.add_argument("--markdown")
     a = ap.parse_args()
@@ -227,6 +302,14 @@ def main():
     for sk in skipped:
         reason = allowlist.get((sk["class"], sk["name"])) or allowlist.get((sk["class"], "*"))
         (skipped_allowed if reason else skipped_not_allowed).append(dict(sk, reason=reason))
+    cov = coverage(roots, fresh_after)
+    enforce, gates = read_coverage_gates(a.coverage_gates) if a.coverage_gates else (False, {})
+    by_id = {(c["module"], c["report"]): c for c in cov.values()}
+    gate_rows = []
+    for key in sorted(set(gates) | set(by_id)):
+        status, misses = gate_status(gates[key], by_id.get(key)) if key in gates else ("-", [])
+        gate_rows.append({"module": key[0], "report": key[1], "gates": gates.get(key, []), "status": status, "misses": misses})
+    gate_failures = [r for r in gate_rows if r["status"] not in ("ok", "-")] if enforce else []
     report = {
         "generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "gitCommit": commit, "buildMode": mode, "roots": [os.path.abspath(r) for r in roots],
@@ -236,7 +319,9 @@ def main():
         "expectedSuites": dict(sorted(expected.items())),
         "missingExpectedSuites": missing, "belowMinimum": below, "freshAfter": a.fresh_after, "staleSuites": sorted(stale),
         "skippedNotAllowed": skipped_not_allowed, "skippedAllowed": skipped_allowed, "allowlistErrors": allowlist_errors,
-        "files": file_list, "coverage": coverage(roots), "dbScale": db_scale(roots),
+        "files": file_list, "coverage": cov, "dbScale": db_scale(roots),
+        "coverageGates": ({"file": a.coverage_gates, "sha256": sha256(a.coverage_gates), "enforce": enforce,
+                           "rows": gate_rows, "failures": len(gate_failures)} if a.coverage_gates else None),
     }
     lines = [f"# Test evidence ({report['generatedAt']}, commit {commit or 'n/a'}, build mode {mode})", "",
              "| Suite | Kind | SDK | Tests | Passed | Failed | Errors | Skipped | Ran (UTC) |", "|---|---|---|---:|---:|---:|---:|---:|---|"]
@@ -256,9 +341,28 @@ def main():
                 lines.append(f"| `{e}` | {minimum} | - | {'MISSING' if minimum > 0 else 'no tests yet'} |")
     if failures:
         lines += ["", "## Failures", ""] + [f"- `{f['test']}` ({f['suite']}, {f['status']}): {f['message']}" for f in failures]
-    for rep, c in report["coverage"].items():
-        lines += ["", f"## Coverage: `{rep}`", "", "| Package | Line % | Branch % |", "|---|---:|---:|"]
-        lines += [f"| `{p}` | {v['line']} | {v['branch']} |" for p, v in sorted(c["packages"].items())]
+    if gate_rows:
+        def counted(c, kind, unit):
+            n = c[unit]
+            return f"{c[kind] if c[kind] is not None else '-'} ({n['covered']}/{n['missed'] + n['covered']})"
+        mode_note = ("enforced: a gate below its minimum fails the build (koverVerify) and any gate that is not ok "
+                     "fails this report" if enforce else
+                     "not enforced: misses are warnings (-Pagentle.coverage.enforce=true makes them fail)")
+        lines += ["", "## Coverage (Kover)", "",
+                  (f"Gates from `{a.coverage_gates}` (build-logic CoverageGates.kt), {mode_note}. " if a.coverage_gates
+                   else "No --coverage-gates file: numbers only. ") +
+                  "Line and branch %: covered/total in brackets; per-package numbers are in the JSON report.", "",
+                  "| Module | Report | Line % | Branch % | Gate | Status |", "|---|---|---:|---:|---|---|"]
+        for r in gate_rows:
+            c = by_id.get((r["module"], r["report"]))
+            gate = "; ".join(f"{g['area']}: line >= {g['line']}" + (f", branch >= {g['branch']}" if g["branch"] is not None else "")
+                             for g in r["gates"]) or "-"
+            status = r["status"] + ("" if enforce or r["status"] in ("ok", "-") else " (warning)")
+            if r["misses"]:
+                status += ": " + "; ".join(r["misses"])
+            line_cell = counted(c, "line", "lines") if c else "-"
+            branch_cell = counted(c, "branch", "branches") if c else "-"
+            lines.append(f"| `{r['module']}` | {r['report']} | {line_cell} | {branch_cell} | {gate} | {status} |")
     if report["dbScale"]:
         lines += ["", "## DB scale (JVM, sqlite-jdbc)", "", "| Events | SQLite | Insert ms | Events/s | Re-ingest 10% ms | 7-day steps ms | Latest HR ms | Full scan ms | DB MiB |",
                   "|---:|---|---:|---:|---:|---:|---:|---:|---:|"]
@@ -284,6 +388,10 @@ def main():
         lines += ["", "## Malformed allow-list lines", ""] + [f"- {err}" for err in allowlist_errors]
     if stale:
         lines += ["", f"## Stale suites (results older than {a.fresh_after})", ""] + [f"- `{m}`" for m in sorted(stale)]
+    if gate_failures:
+        lines += ["", "## Coverage gates not met (enforced)", ""] + \
+                 [f"- `{r['module']}` {r['report']}: {r['status']}" + (": " + "; ".join(r["misses"]) if r["misses"] else "")
+                  for r in gate_failures]
     lines += ["", f"Source files: {len(file_list)} JUnit XML file(s); SHA-256 of each in the JSON report."]
     md = "\n".join(lines) + "\n"
     if a.markdown:
@@ -296,7 +404,7 @@ def main():
     if not files:
         print("ERROR: no JUnit XML found; refusing to report success.", file=sys.stderr)
         return 1
-    return 1 if (failures or missing or below or stale or skipped_not_allowed or allowlist_errors) else 0
+    return 1 if (failures or missing or below or stale or skipped_not_allowed or allowlist_errors or gate_failures) else 0
 
 
 if __name__ == "__main__":

@@ -63,6 +63,7 @@ class QualityConventionPlugin : Plugin<Project> {
             }
         }
         ModuleGraphRules.register(this)
+        CoverageGates.configure(this)
     }
 
     private companion object {

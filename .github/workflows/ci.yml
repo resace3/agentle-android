@@ -2,6 +2,8 @@
 # variant that ships or is tested, runs Robolectric unit tests and lint, and checks that no fake reaches a prod
 # classpath. The emulator job runs instrumented tests on a matrix of API levels; it only runs when dispatched by hand
 # so routine pushes don't spend emulator minutes. Every test job prints exact counts (tools/junit_summary.py).
+# The JVM and Android jobs also print each module's Kover line and branch coverage next to its gate
+# (build-logic CoverageGates.kt); `-Pagentle.coverage.enforce=true` would make a missed gate fail them.
 # Android implementation teams push to `android/<team>` branches to get the Android build they cannot run locally
 # (Google Maven is unreachable from the development container); `tools/ci_wait.py` waits for the result.
 # Pushes to `android/**` run the Android job in branch-light mode (Robolectric SDKs 29 and 37 only, lintDebug only);
@@ -71,14 +73,17 @@ jobs:
         # An evidence run: --no-build-cache, so no test result is restored from a cache (Test counts checks with
         # --fresh-after). detektMain/detektTest are the type-resolved detekt tasks: plain `detekt` skips
         # ForbiddenMethodCall. writeExpectedSuites lists the suites that must have run (build/expected-suites.txt).
+        # verifyCoverageGates writes each module's Kover XML and runs koverVerify; writeCoverageGates lists the gates.
         run: >-
           mkdir -p build && ./gradlew --no-build-cache
-          test detekt detektMain detektTest spotlessCheck verifyNoSecrets writeExpectedSuites --continue
+          test detekt detektMain detektTest spotlessCheck verifyNoSecrets writeExpectedSuites
+          verifyCoverageGates writeCoverageGates --continue
           2>&1 | tee build/gradle-output.log
-      - name: Test counts
+      - name: Test counts and coverage
         if: always()
         run: >-
           mkdir -p build && python3 tools/junit_summary.py --root . --expect-file build/expected-suites.txt
+          --coverage-gates build/coverage-gates.txt
           --fresh-after "$START" --json build/junit-summary.json --markdown "$GITHUB_STEP_SUMMARY"
       - name: Failure digest
         if: failure()
@@ -151,7 +156,7 @@ jobs:
       - name: Build, unit tests, lint, fake isolation
         shell: bash
         # An evidence run (--no-build-cache, see the JVM job). The JVM modules' tests run in the JVM job, so the
-        # expected suites here are the Android modules' only.
+        # expected suites and the coverage reports here are the Android modules' only.
         run: >-
           mkdir -p build && ./gradlew --no-build-cache
           assembleFakeDebug assembleProdDebug assembleProdRelease
@@ -160,12 +165,14 @@ jobs:
           ${{ steps.mode.outputs.lint }}
           detekt detektMain detektTest spotlessCheck verifyNoFakesInProd
           writeExpectedSuites -Pagentle.expectedSuites=android
+          verifyCoverageGates writeCoverageGates -Pagentle.coverage.modules=android
           -ProbolectricSdks=${{ steps.mode.outputs.sdks }}
           --continue 2>&1 | tee build/gradle-output.log
-      - name: Test counts
+      - name: Test counts and coverage
         if: always()
         run: >-
           mkdir -p build && python3 tools/junit_summary.py --root . --expect-file build/expected-suites.txt
+          --coverage-gates build/coverage-gates.txt
           --fresh-after "$START" --json build/junit-summary.json --markdown "$GITHUB_STEP_SUMMARY"
       - name: Failure digest
         if: failure()
