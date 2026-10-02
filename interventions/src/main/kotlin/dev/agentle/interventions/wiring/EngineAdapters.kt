@@ -26,11 +26,8 @@ import dev.agentle.jitai.engine.response.ResponseStatus
  * still takes responses disables the JITAI through [stopper] (the list's Disable path), then calls `onDefinitionChanged`,
  * then records NOT_HELPFUL. A wrong or stale nonce changes nothing: the engine rejects the response.
  */
-class EngineResponseRecorder(
-    private val engine: JitaiEngine,
-    private val store: DecisionStore,
-    private val stopper: JitaiStopper,
-) : InterventionResponseRecorder {
+class EngineResponseRecorder(private val engine: JitaiEngine, private val store: DecisionStore, private val stopper: JitaiStopper) :
+    InterventionResponseRecorder {
     override suspend fun record(response: InterventionResponse): Outcome<ResponseVerdict> {
         val kind = when (response.kind) {
             ResponseKind.OPENED -> JitaiResponse.OPENED
@@ -67,7 +64,7 @@ object StopGate {
         setOf(DecisionState.DELIVERING, DecisionState.DELIVERED, DecisionState.DELIVERY_UNCERTAIN, DecisionState.CARD_PENDING)
 
     fun accepts(record: DecisionRecord?, nonce: String?): Boolean =
-        record != null && record.state in RESPONDABLE && record.content.response == null && Nonces.matches(record.nonce, nonce)
+        record != null && record.state in RESPONDABLE && record.content.response == JitaiResponse.NONE && Nonces.matches(record.nonce, nonce)
 }
 
 /** [CardDecisions] over `JitaiEngine.pendingCards` and `JitaiEngine.markCardDisplayed`. */

@@ -21,6 +21,7 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import dev.agentle.interventions.voice.Wav
 import dev.agentle.interventions.voice.WavInfo
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -98,9 +99,9 @@ object CodecPlan {
  * `useFallback` (frame processing, encoder init, unsupported format). Audio is encoded first (small: AAC at 64 kb/s), then
  * video streams into the muxer. 16-bit PCM WAV only. Temp file then rename; cancellation deletes the temp file.
  */
-class CodecVideoComposer : VideoComposer {
+class CodecVideoComposer(private val dispatcher: CoroutineDispatcher = Dispatchers.Default) : VideoComposer {
     override suspend fun compose(slides: List<Slide>, narration: File, out: File, spec: VideoSpec): VideoOutcome =
-        withContext(Dispatchers.Default) {
+        withContext(dispatcher) {
             val tmp = File(out.parentFile, out.name + ".tmp")
             out.parentFile?.mkdirs()
             try {

@@ -16,7 +16,7 @@ import org.junit.Test
 import kotlin.time.Instant
 
 class StopGateTest {
-    private fun record(state: DecisionState = DecisionState.DELIVERED, response: JitaiResponse? = null) = DecisionRecord(
+    private fun record(state: DecisionState = DecisionState.DELIVERED, response: JitaiResponse = JitaiResponse.NONE) = DecisionRecord(
         decisionKey = "v1|jitai-1|I|2026-10-01|10",
         jitaiId = "jitai-1",
         jitaiVersion = 1,
