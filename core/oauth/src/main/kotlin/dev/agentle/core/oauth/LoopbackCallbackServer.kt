@@ -13,7 +13,6 @@ import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Semaphore
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
@@ -166,7 +165,9 @@ public class LoopbackCallbackServer private constructor(
     private val result = CompletableDeferred<CallbackOutcome>()
     private val lock = Any()
     private val permits = Semaphore(config.maxConcurrentConnections)
-    private val sockets = ConcurrentHashMap.newKeySet<Socket>()
+
+    /** Open connections, oldest first; when every slot is taken the oldest is reclaimed (red team R1-1). */
+    private val sockets = java.util.concurrent.ConcurrentLinkedDeque<Socket>()
 
     @Volatile private var closed = false
 
@@ -229,7 +230,7 @@ public class LoopbackCallbackServer private constructor(
         when {
             socket == null -> Unit
 
-            !permits.tryAcquire() -> {
+            !permits.tryAcquire() && !reclaimSlot() -> {
                 runCatching { socket.close() }
                 logger.d(COMPONENT, "connection refused: too many connections")
             }
@@ -238,6 +239,22 @@ public class LoopbackCallbackServer private constructor(
                 sockets += socket
                 Thread({ serve(socket) }, "agentle-oauth-loopback-conn").apply { isDaemon = true }.start()
             }
+        }
+    }
+
+    /**
+     * Every slot is held (possibly by local connections that send nothing): close the oldest one so a real browser
+     * callback is never locked out, then wait briefly for its slot. False if no slot came free.
+     */
+    private fun reclaimSlot(): Boolean {
+        val oldest = sockets.pollFirst() ?: return false
+        runCatching { oldest.close() }
+        logger.d(COMPONENT, "oldest connection reclaimed")
+        return try {
+            permits.tryAcquire(RECLAIM_WAIT_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
         }
     }
 
@@ -264,7 +281,7 @@ public class LoopbackCallbackServer private constructor(
             // The browser went away or the listener was closed; nothing to answer.
         } finally {
             runCatching { socket.close() }
-            sockets -= socket
+            sockets.remove(socket)
             permits.release()
         }
     }
@@ -362,6 +379,7 @@ public class LoopbackCallbackServer private constructor(
         private const val BACKLOG = 16
         private const val DRAIN_CHUNK = 4096
         private const val MAX_DRAIN_BYTES = 64 * 1024
+        private const val RECLAIM_WAIT_MILLIS = 1_000L
         private const val CLOSE_JOIN_MILLIS = 2_000L
         private val ERROR_CODE = Regex("^[A-Za-z0-9_.-]{1,64}$")
         private val LOOPBACK_ADDRESS: InetAddress = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))

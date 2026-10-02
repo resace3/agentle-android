@@ -311,4 +311,17 @@ class SignInJourneyTest : SiwcFakeTest() {
         assertThat(attempt.await()).isEqualTo(SignInOutcome.NotCompleted)
         assertThat(siwc.session.snapshot.value.toProviderState()).isEqualTo(dev.agentle.ai.api.AiProviderState.Disconnected)
     }
+
+    @Test
+    fun `an account-change listener that disconnects does not deadlock and the sign-in is not applied (red team R2-2)`() = runTest {
+        lateinit var siwc: SiwcGraph
+        siwc = graph(accountChanges = { siwc.session.disconnect() })
+        siwc.connect()
+        scenario(ChatGptScenario.OTHER_ACCOUNT)
+
+        val outcome = siwc.signIn.signIn(SignInRequest(addAccount = true))
+
+        assertThat(outcome).isEqualTo(SignInOutcome.ConnectionChanged)
+        assertThat(vault().registration?.tokens).isNull()
+    }
 }

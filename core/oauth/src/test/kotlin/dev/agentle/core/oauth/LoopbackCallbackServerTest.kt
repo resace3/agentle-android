@@ -221,14 +221,19 @@ class LoopbackCallbackServerTest {
     }
 
     @Test
-    fun `connections above the cap are dropped without an answer`() {
-        val server = start(config.copy(maxConcurrentConnections = 1, connectionReadTimeout = 5.seconds))
-        Socket(RawHttp.LOOPBACK, server.port).use { holder ->
-            holder.getOutputStream().write("GET /".toByteArray())
-            val dropped = runCatching { RawHttp.get(server.port, "/auth/callback?code=c1&state=${state.value}") }.getOrNull()
-            assertThat(dropped).isNull()
+    fun `local connections holding every slot cannot lock out the real callback (red team R1-1)`() {
+        val server = start(config.copy(maxConcurrentConnections = 2, connectionReadTimeout = 5.seconds))
+        Socket(RawHttp.LOOPBACK, server.port).use { first ->
+            Socket(RawHttp.LOOPBACK, server.port).use { second ->
+                first.getOutputStream().write("GET /".toByteArray())
+                second.getOutputStream().write("GET /".toByteArray())
+
+                val reply = server.callback("code=c1&state=${state.value}")
+
+                assertThat(reply.status).isEqualTo(200)
+                assertThat(server.isSettled).isTrue()
+            }
         }
-        assertThat(server.isSettled).isFalse()
     }
 
     @Test

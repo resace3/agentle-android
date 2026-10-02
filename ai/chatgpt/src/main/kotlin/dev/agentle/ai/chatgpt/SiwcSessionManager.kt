@@ -132,7 +132,7 @@ public class SiwcSessionManager(
             val confirmed = registration == null || revokeAll(registration.clientId, refreshTokensOf(registration))
             epoch += 1
             disconnects += 1
-            commit(
+            val cleared = commitClearing(
                 vault.copy(
                     generation = vault.generation + 1,
                     registration = registration?.takeUnless { forgetRegistration }?.copy(tokens = null, pendingRotation = null),
@@ -142,7 +142,11 @@ public class SiwcSessionManager(
                 ),
             )
             logger.i(COMPONENT, "disconnected", fields = mapOf("revocation" to if (confirmed) "confirmed" else "unconfirmed"))
-            if (confirmed) DisconnectOutcome.Disconnected else DisconnectOutcome.RevocationUnconfirmed
+            when {
+                !cleared -> DisconnectOutcome.LocalClearFailed
+                confirmed -> DisconnectOutcome.Disconnected
+                else -> DisconnectOutcome.RevocationUnconfirmed
+            }
         }
     }
 
@@ -328,7 +332,7 @@ public class SiwcSessionManager(
                 if (terminal != null) {
                     val unusable = current.unusable || terminal.reason == SiwcReason.REGISTRATION_INVALID
                     epoch += 1
-                    commit(
+                    commitClearing(
                         vault.copy(
                             generation = generation + 1,
                             registration = current.copy(tokens = null, pendingRotation = null, unusable = unusable),
@@ -397,7 +401,7 @@ public class SiwcSessionManager(
         mutex.withLock {
             val current = vault.registration
             if (vault.generation == generation && current?.clientId == registration.clientId) {
-                commit(
+                commitClearing(
                     vault.copy(
                         generation = generation + 1,
                         registration = current.copy(pendingRotation = null),
@@ -456,7 +460,7 @@ public class SiwcSessionManager(
             val current = vault.registration
             if (vault.generation == generation && current?.clientId == registration.clientId) {
                 epoch += 1
-                commit(
+                commitClearing(
                     vault.copy(
                         generation = generation + 1,
                         registration = current.copy(tokens = null, pendingRotation = null),
@@ -577,7 +581,7 @@ public class SiwcSessionManager(
         val active = vault.registration
         if (plan.binding == Binding.REAUTH && active?.clientId == clientId) {
             epoch += 1
-            commit(
+            commitClearing(
                 vault.copy(
                     generation = vault.generation + 1,
                     registration = active.copy(tokens = null, pendingRotation = null, unusable = true),
@@ -603,45 +607,68 @@ public class SiwcSessionManager(
     ): Completion {
         val receivedAtElapsed = clock.elapsed()
         val receivedAtEpochMs = clock.now().toEpochMilliseconds()
-        return mutex.withLock {
-            ensureLoaded()
-            val active = vault.registration
-            val bound = when (plan.binding) {
-                Binding.REAUTH -> active?.takeIf { it.clientId == clientId && !it.unusable }
-                Binding.PENDING, Binding.NEW -> vault.pendingRegistration?.takeIf { it.clientId == clientId }
-            }
-            val previousSub = active?.sub
-            val accountChanged = previousSub != null && previousSub != identity.sub
-            when {
-                plan.disconnects != disconnects || bound == null -> Completion.ConnectionChanged
+        var callbackRanAt: Long? = null
+        while (true) {
+            val decided = decideSignIn(plan, clientId, identity, response, receivedAtElapsed, receivedAtEpochMs, callbackRanAt)
+            if (decided != null) return decided
+            // A confirmed account change: run the listener outside the non-reentrant Mutex (it may call disconnect()),
+            // then decide again; the generation recheck refuses the sign-in if anything changed meanwhile.
+            val generation = mutex.withLock { vault.generation }
+            onAccountChanged()
+            callbackRanAt = generation
+        }
+    }
 
-                accountChanged && (plan.binding == Binding.REAUTH || !plan.addAccount) -> Completion.AccountMismatch
+    /** Null when [onAccountChanged] must run first (outside the lock). */
+    private suspend fun decideSignIn(
+        plan: SignInPlan,
+        clientId: String,
+        identity: VerifiedIdentity,
+        response: TokenResponse,
+        receivedAtElapsed: kotlin.time.Duration,
+        receivedAtEpochMs: Long,
+        callbackRanAt: Long?,
+    ): Completion? = mutex.withLock {
+        ensureLoaded()
+        val active = vault.registration
+        val bound = when (plan.binding) {
+            Binding.REAUTH -> active?.takeIf { it.clientId == clientId && !it.unusable }
+            Binding.PENDING, Binding.NEW -> vault.pendingRegistration?.takeIf { it.clientId == clientId }
+        }
+        val previousSub = active?.sub
+        val accountChanged = previousSub != null && previousSub != identity.sub
+        when {
+            plan.disconnects != disconnects || bound == null -> Completion.ConnectionChanged
 
-                else -> {
-                    if (accountChanged) onAccountChanged()
-                    val tokens = StoredTokens.from(response, receivedAtElapsed, receivedAtEpochMs)
-                    val replaced = active?.takeIf { it.clientId != clientId }
-                    val registration = bound.copy(
-                        sub = identity.sub,
-                        accountLabel = identity.label,
-                        loginHint = identity.email,
-                        tokens = tokens,
-                        pendingRotation = null,
-                        unusable = false,
-                    )
-                    val status = if (tokens.planUsageGranted) SiwcStatus.CONNECTED else SiwcErrorMapper.planUsageNotGranted().status
-                    epoch += 1
-                    val persisted = commit(
-                        vault.copy(
-                            generation = vault.generation + 1,
-                            registration = registration,
-                            pendingRegistration = if (plan.binding == Binding.REAUTH) vault.pendingRegistration else null,
-                            status = status ?: vault.status,
-                        ),
-                    )
-                    replaced?.let { old -> refreshTokensOf(old).forEach { revokeLater(old.clientId, it) } }
-                    if (persisted) Completion.Applied(tokens.planUsageGranted, identity.label) else Completion.StorageFailed
-                }
+            callbackRanAt != null && callbackRanAt != vault.generation -> Completion.ConnectionChanged
+
+            accountChanged && (plan.binding == Binding.REAUTH || !plan.addAccount) -> Completion.AccountMismatch
+
+            accountChanged && callbackRanAt == null -> null
+
+            else -> {
+                val tokens = StoredTokens.from(response, receivedAtElapsed, receivedAtEpochMs)
+                val replaced = active?.takeIf { it.clientId != clientId }
+                val registration = bound.copy(
+                    sub = identity.sub,
+                    accountLabel = identity.label,
+                    loginHint = identity.email,
+                    tokens = tokens,
+                    pendingRotation = null,
+                    unusable = false,
+                )
+                val status = if (tokens.planUsageGranted) SiwcStatus.CONNECTED else SiwcErrorMapper.planUsageNotGranted().status
+                epoch += 1
+                val persisted = commit(
+                    vault.copy(
+                        generation = vault.generation + 1,
+                        registration = registration,
+                        pendingRegistration = if (plan.binding == Binding.REAUTH) vault.pendingRegistration else null,
+                        status = status ?: vault.status,
+                    ),
+                )
+                replaced?.let { old -> refreshTokensOf(old).forEach { revokeLater(old.clientId, it) } }
+                if (persisted) Completion.Applied(tokens.planUsageGranted, identity.label) else Completion.StorageFailed
             }
         }
     }
@@ -708,6 +735,18 @@ public class SiwcSessionManager(
         val persisted = persist()
         emit()
         return persisted
+    }
+
+    /**
+     * [commit] for a change that removes credentials (red team R2-1). If the write fails, the old blob would bring the
+     * tokens back after a restart, so the store is wiped and the cleared vault written again; false if that fails too.
+     */
+    private suspend fun commitClearing(next: SiwcVault): Boolean {
+        if (commit(next)) return true
+        val wiped = store.wipe() is Outcome.Success
+        val rewritten = wiped && persist()
+        if (!rewritten) logger.e(COMPONENT, "credential clear failed", SiwcErrorMapper.storage().error)
+        return rewritten
     }
 
     private suspend fun persist(): Boolean {

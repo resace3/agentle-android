@@ -132,4 +132,17 @@ class DisconnectTest : SiwcFakeTest() {
 
         assertThat(server.requests()).isEmpty()
     }
+
+    @Test
+    fun `a disconnect whose write fails wipes the store, so a restart is not connected (red team R2-1)`() = runTest {
+        graph().connect()
+        store.failWrites = true
+
+        assertThat(graph().signIn.disconnect()).isEqualTo(DisconnectOutcome.LocalClearFailed)
+
+        store.failWrites = false
+        val restarted = graph().session.start()
+        assertThat(restarted.status).isNotEqualTo(SiwcStatus.CONNECTED)
+        assertThat(store.snapshot()?.registration?.tokens).isNull()
+    }
 }

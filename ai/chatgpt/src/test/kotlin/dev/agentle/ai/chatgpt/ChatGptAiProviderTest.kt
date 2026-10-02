@@ -86,6 +86,24 @@ class ChatGptAiProviderTest : SiwcFakeTest() {
     }
 
     @Test
+    fun `an egress check that throws fails the call instead of crashing OkHttp's thread (red team R3-1)`() = runTest {
+        val siwc = graph(egressCheck = { _, _ -> error("consent store unreadable") })
+        siwc.connect()
+
+        assertThat(siwc.provider.analyze(envelope()).error()).isEqualTo(AppError.Unexpected("egress_check_failed"))
+    }
+
+    @Test
+    fun `a 200 answer whose JSON body is an error is mapped by its code (red team R3-2)`() = runTest {
+        val siwc = graph()
+        siwc.connect()
+        server.failNext(FakeRoute.RESPONSES, 200, ChatGptFixtures.USAGE_LIMIT, times = 2)
+
+        assertThat(siwc.provider.analyze(envelope()).error()).isEqualTo(AppError.NotEligible("usage_limit_reached"))
+        assertThat(siwc.session.snapshot.value.status.reason).isEqualTo(SiwcReason.PLAN_LIMIT)
+    }
+
+    @Test
     fun `structured output is the reply's JSON object, also inside a code fence`() = runTest {
         val siwc = graph()
         siwc.connect()

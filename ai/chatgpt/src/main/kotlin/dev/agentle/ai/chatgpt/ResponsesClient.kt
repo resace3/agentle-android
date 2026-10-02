@@ -175,6 +175,11 @@ public class ResponsesClient(
 
             contentType.startsWith("text/html", ignoreCase = true) -> SiwcResult.Failed(SiwcErrorMapper.captivePortal())
 
+            contentType.startsWith(
+                "application/json",
+                ignoreCase = true,
+            ) -> SiwcResult.Failed(SiwcApiHttp.okWithErrorBody(response, requestId, clock))
+
             else -> SiwcResult.Failed(SiwcErrorMapper.invalidResponse(requestId, "content_type"))
         }
     }
@@ -217,7 +222,17 @@ internal class GuardedBody(private val bytes: ByteArray, private val beforeSend:
     override fun isOneShot(): Boolean = true
 
     override fun writeTo(sink: BufferedSink) {
-        beforeSend.check(bytes.copyOf())?.let { throw BeforeSendRejected(it) }
+        val veto = try {
+            beforeSend.check(bytes.copyOf())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: BeforeSendRejected) {
+            throw e
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            // A throwing consent check must fail the call, never escape onto OkHttp's thread (red team R3-1).
+            AppError.Unexpected("egress_check_failed").also { e::class.simpleName }
+        }
+        veto?.let { throw BeforeSendRejected(it) }
         sink.write(bytes)
     }
 
@@ -246,6 +261,22 @@ internal object SiwcApiHttp {
         val now = clock.now()
         val retryAfter = RetryAfter.parse(response.header("Retry-After"), now)
         return SiwcErrorMapper.api(response.code, ErrorBody.parse(body, response.header("Content-Type")), requestId, retryAfter, now)
+    }
+
+    /** A 200 whose JSON body is an error object (red team R3-2): mapped by its code, otherwise an invalid response. */
+    fun okWithErrorBody(response: Response, requestId: String?, clock: AgentleClock): SiwcFailure {
+        val body = try {
+            response.bodyUpTo(MAX_ERROR_BYTES)
+        } catch (_: IOException) {
+            null
+        }
+        val parsed = ErrorBody.parse(body, response.header("Content-Type"))
+        return if (parsed.code == null) {
+            SiwcErrorMapper.invalidResponse(requestId, "content_type")
+        } else {
+            val now = clock.now()
+            SiwcErrorMapper.api(response.code, parsed, requestId, RetryAfter.parse(response.header("Retry-After"), now), now)
+        }
     }
 
     fun transportFailure(e: IOException): SiwcFailure =

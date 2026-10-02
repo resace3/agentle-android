@@ -66,6 +66,9 @@ public sealed interface DisconnectOutcome {
         public const val MESSAGE: String =
             "Local credentials were removed, but remote disconnection could not be confirmed. Disconnect the app in ChatGPT Settings."
     }
+
+    /** The cleared credentials could not be persisted, even after wiping the store (red team R2-1); tell the user to retry. */
+    public data object LocalClearFailed : DisconnectOutcome
 }
 
 /** Called when a confirmed account change replaces the saved account (red team privacy-ai-17). */

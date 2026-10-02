@@ -69,7 +69,6 @@ public enum class SiwcReason {
     CONNECTION_CHANGED,
     SIGN_IN_NOT_COMPLETED,
     NO_BROWSER,
-    INTERRUPTED,
 }
 
 /**
