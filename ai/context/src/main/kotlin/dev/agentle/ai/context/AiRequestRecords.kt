@@ -105,10 +105,10 @@ internal object PreviewRenderer {
             "text" -> item.text("text")
 
             "app_usage" -> item.text("app") + ": " + item.text("minutes") + " min" +
-                (item["opens"]?.takeUnless { it is JsonNull }?.let { ", " + it.jsonPrimitive.content + " opens" } ?: "")
+                (item["opens"]?.takeUnless { it is JsonNull }?.let { ", " + it.jsonPrimitive.content + " opens" }.orEmpty())
 
             else -> item.text("eventType") + " " + item.text("start") +
-                (item["end"]?.takeUnless { it is JsonNull }?.let { " to " + it.jsonPrimitive.content } ?: "") +
+                (item["end"]?.takeUnless { it is JsonNull }?.let { " to " + it.jsonPrimitive.content }.orEmpty()) +
                 item["values"]?.jsonObject?.entries.orEmpty().joinToString("") { (key, number) -> ", $key " + number.jsonPrimitive.content }
         }
         return AiPreviewItem(item.text("field"), value)

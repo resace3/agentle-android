@@ -213,7 +213,8 @@ public object PurposePolicy {
 }
 
 /**
- * Hard per-purpose limits (privacy-ai-13) on the personal input ([EnvelopeGate.personalBytes]),, failing closed with [GateCodes.CAP_BYTES], [GateCodes.CAP_EVENTS] or
+ * Hard per-purpose limits (privacy-ai-13) on the personal input ([EnvelopeGate.personalBytes]), failing closed with
+ * [GateCodes.CAP_BYTES], [GateCodes.CAP_EVENTS] or
  * [GateCodes.CAP_DAYS]. [maxOutputTokens] is set on the request as `max_output_tokens` (R06 section 4.4). The numbers
  * are UNVERIFIED design choices: no research document fixes them.
  */
