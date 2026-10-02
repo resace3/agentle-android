@@ -216,4 +216,23 @@ class WorkSchedulerTest {
         h.scheduler.onTriggerEventIngested()
         assertThat(events()).isEqualTo(WorkScheduler.EVENTS_CAP_LOW + 1)
     }
+
+    @Test
+    fun `event cap follows the local date, not the UTC day`() = runTest {
+        // St. John's is UTC-2:30: 12:00Z is 09:30 local; +13 h is a new UTC day but still the same local date.
+        h.clock.setZone(kotlinx.datetime.TimeZone.of("America/St_Johns"))
+        h.scheduler.reconcilePeriodic(CollectionProfile.LOW)
+        val events = { h.gateway.calls.count { it.name == WorkNames.JITAI_EVAL_EVENTS } }
+        val fire = {
+            kotlinx.coroutines.runBlocking { h.scheduler.onTriggerEventIngested() }
+            h.gateway.works.remove(WorkNames.JITAI_EVAL_EVENTS)
+        }
+        repeat(WorkScheduler.EVENTS_CAP_LOW) { fire() }
+        h.clock.advanceBy(13.hours)
+        fire()
+        assertThat(events()).isEqualTo(WorkScheduler.EVENTS_CAP_LOW)
+        h.clock.advanceBy(2.hours)
+        fire()
+        assertThat(events()).isEqualTo(WorkScheduler.EVENTS_CAP_LOW + 1)
+    }
 }

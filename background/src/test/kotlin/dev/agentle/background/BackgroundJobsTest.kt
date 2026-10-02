@@ -94,8 +94,18 @@ class BackgroundJobsTest {
         h.wearable.result = Outcome.failure(permanent)
         h.store.addSyncStreams(setOf("hr"))
         assertThat(h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH_NOW, 0)).isEqualTo(JobResult.SUCCESS)
-        assertThat(h.store.drainSyncStreams()).containsExactly("hr")
+        assertThat(h.store.drainSyncStreams()).isEmpty()
         assertThat(h.store.stats.value.getValue(WorkNames.JITAI_EVAL_EVENTS).lastFailureCode).isEqualTo(permanent.code)
+        val stats = BackgroundDiagnostics.merge(emptyList(), h.store.stats.value, null).workers
+        assertThat(stats.first { it.name == WorkNames.SYNC_GOOGLEHEALTH_NOW }.lastFailureCode).isEqualTo(permanent.code)
+    }
+
+    @Test
+    fun `sync-now keeps streams only for a retryable error`() = runTest {
+        h.wearable.result = Outcome.failure(transient)
+        h.store.addSyncStreams(setOf("hr"))
+        assertThat(h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH_NOW, 0)).isEqualTo(JobResult.RETRY)
+        assertThat(h.store.drainSyncStreams()).containsExactly("hr")
     }
 
     @Test

@@ -132,7 +132,8 @@ public class BackgroundJobs(
             store.addSyncStreams(streams)
             throw e
         }
-        if (result.errorOrNull() != null) store.addSyncStreams(streams)
+        // Keep the streams for the retry only; a permanent error drops them (the periodic sync still covers them).
+        if (result.errorOrNull()?.retryable == true) store.addSyncStreams(streams)
         return result
     }
 

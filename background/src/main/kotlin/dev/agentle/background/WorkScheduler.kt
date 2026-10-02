@@ -12,6 +12,7 @@ import dev.agentle.core.common.getOrNull
 import dev.agentle.core.time.AgentleClock
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -129,15 +130,23 @@ public class WorkScheduler(
      */
     public suspend fun onTriggerEventIngested() {
         if (blocked()) return
-        val day = clock.now().toEpochMilliseconds() / DAY_MS
+        enqueueCoalesced(WorkNames.JITAI_EVAL_EVENTS, NetworkType.NOT_REQUIRED, capped = true)
+    }
+
+    /**
+     * Daily cap (R02 §2.3 jitai.check 12/48/96), keyed on the local date: above it the dirty flag waits for the timer
+     * backstop. Called under [oneTimeLock] with the enqueue decision; returns false when the cap is reached.
+     */
+    private fun admitCapped(): Boolean {
+        val day = clock.now().toLocalDateTime(clock.zone()).date.toEpochDays().toLong()
         if (store.getLong(KEY_EVENTS_DAY) != day) {
             store.putLong(KEY_EVENTS_DAY, day)
             store.putLong(KEY_EVENTS_COUNT, 0)
         }
         val count = store.getLong(KEY_EVENTS_COUNT) ?: 0
-        // Daily cap (R02 §2.3 jitai.check 12/48/96): above it the dirty flag waits for the timer backstop.
-        if (count >= eventsCap()) return
-        if (enqueueCoalesced(WorkNames.JITAI_EVAL_EVENTS, NetworkType.NOT_REQUIRED)) store.putLong(KEY_EVENTS_COUNT, count + 1)
+        if (count >= eventsCap()) return false
+        store.putLong(KEY_EVENTS_COUNT, count + 1)
+        return true
     }
 
     private fun eventsCap(): Int = when (
@@ -165,12 +174,14 @@ public class WorkScheduler(
     }
 
     /** Returns true when a new request was enqueued (not coalesced into a pending one). */
-    private suspend fun enqueueCoalesced(name: String, network: NetworkType): Boolean = oneTimeLock.withLock {
+    private suspend fun enqueueCoalesced(name: String, network: NetworkType, capped: Boolean = false): Boolean = oneTimeLock.withLock {
         val infos = gateway.infos(name)
         val pending = infos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
         val running = infos.any { it.state == WorkInfo.State.RUNNING }
         when {
             pending -> return@withLock false
+
+            capped && !admitCapped() -> return@withLock false
 
             running -> gateway.enqueueOneTime(
                 name,
@@ -306,7 +317,6 @@ public class WorkScheduler(
         val DEGRADED = CollectionProfile.LOW.name
         val SAVER_DEBOUNCE = 30.minutes
         val SELF_HEAL = 24.hours
-        const val DAY_MS = 86_400_000L
         const val KEY_EVENTS_DAY = "events.day"
         const val KEY_EVENTS_COUNT = "events.count"
         const val EVENTS_CAP_LOW = 12
