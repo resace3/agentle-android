@@ -184,19 +184,20 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
         if (pendingRows.isNotEmpty()) {
             val batchEpoch = epoch ?: runtime.writer.epochSafely() ?: 0L
             val chunks = pendingRows.chunked(WriteBatch.MAX_ROWS)
-            for ((index, chunk) in chunks.withIndex()) {
+            var failed: WriteResult? = null
+            val failedAt = chunks.indexOfFirst { chunk ->
                 val result = runtime.writer.writeSafely(WriteBatch(epoch = batchEpoch, events = chunk.map { it.event }))
                 written += StateStream.committedRows(result)
-                if (result is WriteResult.Committed) {
-                    afterWrite(chunk.map { it.channel }.distinct(), result)
-                    continue
-                }
+                if (result is WriteResult.Committed) afterWrite(chunk.map { it.channel }.distinct(), result)
+                if (result !is WriteResult.Committed) failed = result
+                result !is WriteResult.Committed
+            }
+            if (failedAt >= 0) {
                 // Not retried in a loop: every channel with rows in this or a later chunk records the gap, and the
                 // skipped rows are counted and logged (never dropped silently).
-                val remaining = chunks.drop(index).flatten()
-                afterWrite(remaining.map { it.channel }.distinct(), gapResult(result))
+                val remaining = chunks.drop(failedAt).flatten()
+                afterWrite(remaining.map { it.channel }.distinct(), gapResult(failed ?: WriteResult.Rejected))
                 runtime.logger.w(COMPONENT, "Live rows skipped", fields = mapOf("rows" to remaining.size.toString()))
-                break
             }
         }
         written
