@@ -44,11 +44,16 @@ class JvmLibraryConventionPlugin : Plugin<Project> {
             add("testImplementation", libs.lib("turbine"))
         }
 
+        val testZone = providers.gradleProperty(TEST_ZONE_PROPERTY).orElse(DEFAULT_TEST_ZONE)
         tasks.withType<Test>().configureEach {
             useJUnitPlatform()
             // Unique names for parameterized tests in the JUnit XML (evidence counts depend on it).
             systemProperty("junit.jupiter.params.displayname.default", "{displayName}[{index}] {argumentsWithNames}")
-            systemProperty("user.timezone", "UTC")
+            // A non-UTC, half-hour, DST default zone (red team testing-build-04): code that uses the JVM or system
+            // default zone instead of AgentleClock.zone() gives wrong local days and fails tests. TZ is set too, so
+            // native code (SQLite 'localtime') sees the same zone.
+            systemProperty("user.timezone", testZone.get())
+            environment("TZ", testZone.get())
             maxHeapSize = "1g"
             testLogging {
                 events("failed", "skipped")
@@ -56,5 +61,16 @@ class JvmLibraryConventionPlugin : Plugin<Project> {
                 showStandardStreams = false
             }
         }
+    }
+
+    companion object {
+        /** `-Pagentle.testZone=UTC` overrides the test JVMs' default zone for local experiments. */
+        const val TEST_ZONE_PROPERTY: String = "agentle.testZone"
+
+        /**
+         * Default zone of every test JVM. Keep in sync with build-logic/android KotlinAndroid.kt. It must differ from
+         * TestAgentleClock's default zone (Australia/Adelaide) so mixing the two zones fails a test.
+         */
+        const val DEFAULT_TEST_ZONE: String = "America/St_Johns"
     }
 }

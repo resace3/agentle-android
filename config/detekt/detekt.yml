@@ -15,7 +15,11 @@ style:
     max: 4
   ForbiddenMethodCall:
     active: true
-    # One time source: AgentleClock (docs/ARCHITECTURE.md rule 8). Exempt: :core:time and the app clock binding.
+    # One time source: AgentleClock (docs/ARCHITECTURE.md rule 8), in main and test sources. The rule needs type
+    # resolution: only detektMain/detektTest report it (the plain `detekt` task silently skips it, red team
+    # testing-build-04), so CI runs those. Exempt: the system clock implementation in :core:time (the path below)
+    # and the app's clock binding, by @Suppress("ForbiddenMethodCall") with a comment in that one file. Nothing else.
+    excludes: ['**/core/time/src/main/kotlin/dev/agentle/core/time/SystemAgentleClock.kt']
     methods:
       - value: 'java.lang.System.currentTimeMillis'
         reason: 'Inject AgentleClock'
@@ -31,10 +35,40 @@ style:
         reason: 'Inject AgentleClock'
       - value: 'java.time.ZonedDateTime.now'
         reason: 'Inject AgentleClock'
+      - value: 'java.time.LocalTime.now'
+        reason: 'Inject AgentleClock'
+      - value: 'java.time.OffsetDateTime.now'
+        reason: 'Inject AgentleClock'
+      - value: 'java.time.Clock.systemUTC'
+        reason: 'Inject AgentleClock'
+      - value: 'java.time.Clock.systemDefaultZone'
+        reason: 'Inject AgentleClock'
       - value: 'java.util.Calendar.getInstance'
         reason: 'Inject AgentleClock'
+      - value: 'java.util.Date.<init>()'
+        reason: 'Inject AgentleClock (new Date() reads the wall clock)'
+      - value: 'java.time.ZoneId.systemDefault'
+        reason: 'Use AgentleClock.zone(): the default zone is not the user zone in tests or after travel'
+      - value: 'java.util.TimeZone.getDefault'
+        reason: 'Use AgentleClock.zone(): the default zone is not the user zone in tests or after travel'
+      - value: 'kotlinx.datetime.TimeZone.Companion.currentSystemDefault'
+        reason: 'Use AgentleClock.zone(): the default zone is not the user zone in tests or after travel'
       - value: 'android.os.SystemClock.elapsedRealtime'
-        reason: 'Inject AgentleClock'
+        reason: 'Inject AgentleClock (elapsed)'
+      - value: 'android.os.SystemClock.elapsedRealtimeNanos'
+        reason: 'Inject AgentleClock (elapsed)'
+      - value: 'android.os.SystemClock.uptimeMillis'
+        reason: 'Inject AgentleClock (elapsed)'
+      - value: 'kotlin.time.TimeSource.Monotonic.markNow'
+        reason: 'Use AgentleClock.elapsed(): TimeSource.Monotonic is a second, unsynchronized monotonic clock'
+      - value: 'kotlin.time.measureTime'
+        reason: 'Use AgentleClock.elapsed(): measureTime reads TimeSource.Monotonic'
+      - value: 'kotlin.time.measureTimedValue'
+        reason: 'Use AgentleClock.elapsed(): measureTimedValue reads TimeSource.Monotonic'
+      - value: 'kotlin.system.measureTimeMillis'
+        reason: 'Use AgentleClock.elapsed(): measureTimeMillis reads System.currentTimeMillis'
+      - value: 'kotlin.system.measureNanoTime'
+        reason: 'Use AgentleClock.elapsed(): measureNanoTime reads System.nanoTime'
       - value: 'kotlin.io.println'
         reason: 'Use the Logger facade (sanitized)'
 complexity:
