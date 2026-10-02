@@ -24,6 +24,7 @@ import dev.agentle.core.time.AgentleClock
 import dev.agentle.core.time.ClosedOpenRange
 import dev.agentle.core.time.EngineDay
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
@@ -33,9 +34,9 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.minus
-import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
@@ -74,8 +75,8 @@ public class EgressGuard(
     private val policy: AiSharingPolicy = DenyByDefaultSharingPolicy(consent.currentVersion, sourcePolicy),
     private val instructions: AiInstructionSet = AiInstructionSet(),
     private val logger: Logger = Logger.NONE,
-    /** Salt of the account hash in audit records; the app passes a per-install secret so hashes stay comparable. */
-    private val accountSalt: String = RequestIds.next(SecureRandom()),
+    /** Per-install secret salting the account hash in audit records, so hashes stay comparable across restarts. */
+    private val accountSalt: String,
 ) : AiProvider,
     AiSendVerifier {
     private class InFlight(val envelope: AiRequestEnvelope) {
@@ -150,6 +151,11 @@ public class EgressGuard(
         }
         val result = try {
             watchConsent { guarded(call, outgoing) }
+        } catch (e: CancellationException) {
+            // The caller went away: close the row (it may have been sent, so it still counts against budgets).
+            val cancelled = Outcome.Failure(AppError.Cancelled(CALLER_CANCELLED))
+            withContext(NonCancellable) { finish(outgoing, cancelled, flight.verified, createdAt) }
+            throw e
         } finally {
             inFlight.remove(outgoing.requestId, flight)
         }
@@ -296,7 +302,7 @@ public class EgressGuard(
         val status = when {
             error == null -> AiRequestStatus.SENT
 
-            error is AppError.Cancelled && error.detail == CONSENT_CHANGED -> AiRequestStatus.CANCELLED
+            error is AppError.Cancelled && error.detail in CANCELLATIONS -> AiRequestStatus.CANCELLED
 
             // A provider that answered without its send-time check may have sent: never report it as not sent.
             verified || (error is AppError.Unexpected && error.detail == SEND_NOT_VERIFIED) -> AiRequestStatus.FAILED
@@ -359,6 +365,8 @@ public class EgressGuard(
         public const val DAILY_BUDGET: String = "background_daily_budget"
         public const val CADENCE: String = "background_cadence"
         public const val AUDIT_UNAVAILABLE: String = "audit_unavailable"
+        public const val CALLER_CANCELLED: String = "caller_cancelled"
+        private val CANCELLATIONS = setOf(CONSENT_CHANGED, CALLER_CANCELLED)
 
         private const val COMPONENT = "ai.egress"
         private const val MAX_USED_IDS = 512

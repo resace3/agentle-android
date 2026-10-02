@@ -38,6 +38,9 @@ import kotlin.time.Instant
 
 const val ACCOUNT: String = "acct-test-one"
 
+/** The per-install salt of test worlds. */
+const val SALT: String = "test-install-salt"
+
 /** A zone with a 45-minute offset and no DST, so a JVM-default-zone bug cannot pass by accident (testing-build-04). */
 val KATHMANDU: TimeZone = TimeZone.of("Asia/Kathmandu")
 
@@ -305,6 +308,7 @@ class World(
         policy = guardPolicy ?: DenyByDefaultSharingPolicy(currentVersion, sources),
         instructions = instructions,
         logger = logger,
+        accountSalt = SALT,
     )
 
     val provider: FakeAiProvider get() = checkNotNull(fake) { "this world has a custom provider" }

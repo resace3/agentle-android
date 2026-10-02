@@ -9,6 +9,8 @@ import java.util.Random
 
 /** Build-time choices of the AI context layer. */
 public data class AiContextOptions(
+    /** Per-install secret (kept in the app's private storage) that salts the account hash of audit records. */
+    val accountSalt: String,
     /** Whether Health Connect data may be sent at all. It is false in Play builds (R04 section 3.8, control 10). */
     val healthConnectToAi: Boolean = false,
     val instructions: AiInstructionSet = AiInstructionSet(),
@@ -27,7 +29,7 @@ public class AiContext(
     auditLog: AiAuditLog,
     clock: AgentleClock,
     providerFactory: (AiSendVerifier) -> AiProvider,
-    options: AiContextOptions = AiContextOptions(),
+    options: AiContextOptions,
     logger: Logger = Logger.NONE,
 ) {
     public val consent: AiConsentRepository = AiConsentRepository(consentStore, account, clock, logger)
@@ -59,5 +61,6 @@ public class AiContext(
         policy = DenyByDefaultSharingPolicy(consent.currentVersion, sources),
         instructions = options.instructions,
         logger = logger,
+        accountSalt = options.accountSalt,
     )
 }

@@ -126,7 +126,7 @@ class AiLineageTablesTest {
             if (field.categories.isNotEmpty()) assertThat(field.primary).isIn(field.categories)
         }
         val open = AiFieldRegistry.all.filter { it.kind == ItemKind.CODE && it.codes == null }.map { it.code }
-        assertThat(open).containsExactly("pattern.kind", "evidence.template")
+        assertThat(open).isEmpty() // every CODE field has a closed vocabulary (fail closed)
         assertThat(AiFieldRegistry["sleep.minutes_avg"]?.sources).containsExactly(SourceFamily.GH_API, SourceFamily.HEALTH_CONNECT)
         assertThat(AiFieldRegistry["no.such_field"]).isNull()
         val covered = AiFieldRegistry.all.flatMap { it.categories }.toSet()

@@ -1,0 +1,4 @@
+{ "type": "all", "of": [
+  { "type": "gte", "feature": "screen_minutes_last_60m", "args": {}, "value": 45, "onUnknown": null },
+  { "type": "gte", "feature": "local_time", "args": {}, "value": "22:00", "onUnknown": null }
+] }

@@ -88,7 +88,7 @@ public class AiConsentRepository(
         }
         val sub = activeSub() ?: return Outcome.Failure(AppError.AuthenticationRequired(ACCOUNT_PROVIDER))
         val now = clock.now()
-        return mutate { snapshot ->
+        return mutate(adds = true) { snapshot ->
             val kept = snapshot.grants.filterNot { it.purpose == purpose && it.category in categories }
             snapshot.copy(grants = kept + categories.sorted().map { ConsentGrant(it, purpose, currentVersion, now, sub) })
         }
@@ -136,7 +136,7 @@ public class AiConsentRepository(
             grantedAt = now,
             accountSub = sub,
         )
-        val written = mutate { snapshot ->
+        val written = mutate(adds = true) { snapshot ->
             val grants = snapshot.grants.filterNot { it.purpose == template.purpose && it.category in template.categories } +
                 template.categories.sorted().map { ConsentGrant(it, template.purpose, currentVersion, now, sub) }
             ConsentSnapshot(grants, snapshot.standing.filterNot { it.purpose == template.purpose } + standing)
@@ -166,10 +166,22 @@ public class AiConsentRepository(
 
     private suspend fun activeSub(): String? = account.activeAccountSub()?.takeIf { it.isNotBlank() }
 
-    private suspend fun mutate(change: (ConsentSnapshot) -> ConsentSnapshot): Outcome<Unit> = mutex.withLock {
+    /**
+     * [adds] is true for grants: they start again from EMPTY only when the document is corrupt, never when a load failed
+     * (that would wipe the other grants). Revocations may always write EMPTY.
+     */
+    private suspend fun mutate(adds: Boolean = false, change: (ConsentSnapshot) -> ConsentSnapshot): Outcome<Unit> = mutex.withLock {
         val current = when (val state = read()) {
             is ConsentState.Readable -> state.snapshot
-            is ConsentState.Unreadable -> ConsentSnapshot.EMPTY
+
+            is ConsentState.Unreadable ->
+                if (adds &&
+                    state.code != CODE_CORRUPT
+                ) {
+                    return@withLock Outcome.Failure(AppError.DatabaseError(state.code))
+                } else {
+                    ConsentSnapshot.EMPTY
+                }
         }
         try {
             store.save(ConsentDocuments.encode(change(current)))

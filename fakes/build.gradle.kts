@@ -12,6 +12,7 @@ dependencies {
     api(project(":core:time"))
     api(project(":ai:api"))
     api(project(":ai:context"))
+    api(project(":core:oauth"))
     implementation(project(":ai:chatgpt"))
     implementation(project(":core:network"))
     implementation(libs.nimbus.jose.jwt)

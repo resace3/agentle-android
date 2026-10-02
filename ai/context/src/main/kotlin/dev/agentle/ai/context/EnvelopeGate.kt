@@ -136,6 +136,7 @@ internal object EnvelopeGate {
     private fun rangeWithin(envelope: AiRequestEnvelope, limit: ClosedOpenRange?): Boolean {
         val start = envelope.rangeStart
         val end = envelope.rangeEnd
+        if (start != null && end != null && start > end) return false
         return if (limit == null) {
             start == null && end == null
         } else {
@@ -207,7 +208,7 @@ internal object EnvelopeGate {
 
         is DataItem.TimeOfDay -> TIME.matches(item.time)
 
-        is DataItem.Code -> CODE.matches(item.code) && field?.codes?.contains(item.code) != false
+        is DataItem.Code -> CODE.matches(item.code) && field?.codes?.contains(item.code) == true
 
         is DataItem.Text -> SafeText.isSafe(item.text, SafeText.ITEM_MAX)
 

@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "status": "OK",
+  "unsupported": null,
+  "questions": [],
+  "assumptions": [
+    { "path": "/jitai/conditions/value", "text": "\"Too much\" means 30 minutes or more on Instagram since 10 PM." },
+    { "path": "/jitai/activeWindow/end", "text": "\"After 10 PM\" covers 10 PM to 2 AM." },
+    { "path": "/jitai/maxPerDay", "text": "At most one wind-down reminder per night." }
+  ],
+  "jitai": {
+    "name": "Instagram wind-down",
+    "description": "After 10 PM, if I have used Instagram for 30 minutes or more, remind me to start winding down.",
+    "kind": "INTERVENTION",
+    "category": "SLEEP_WIND_DOWN",
+    "trigger": { "type": "interval", "everyMinutes": 30 },
+    "activeWindow": { "start": "22:00", "end": "02:00", "days": null },
+    "conditions": {
+      "type": "gte", "feature": "app_minutes_since",
+      "args": { "package": null, "appLabel": "Instagram", "category": null, "since": "22:00", "jitai": null },
+      "value": 30, "onUnknown": null
+    },
+    "contextRequirements": {
+      "type": "eq", "feature": "device_interactive",
+      "args": { "package": null, "appLabel": null, "category": null, "since": null, "jitai": null },
+      "value": true, "onUnknown": null
+    },
+    "delivery": { "channel": "NOTIFICATION", "quietHoursPolicy": "ALLOW_WHEN_INTERACTIVE", "notificationTimeoutMinutes": 60 },
+    "content": {
+      "type": "template",
+      "title": "Time to wind down?",
+      "body": "{{app_minutes_since}} minutes on Instagram since 10 PM. How about putting the phone away and getting ready for bed?"
+    },
+    "cooldownMinutes": 120,
+    "maxPerDay": 1,
+    "maxPerWeek": 7,
+    "priority": 50,
+    "snooze": { "mode": "SUPPRESS_ONLY", "options": ["MINUTES_30", "UNTIL_TOMORROW"] },
+    "expiresInDays": null,
+    "outcome": {
+      "proximal": {
+        "metric": "APP_MINUTES_AFTER",
+        "args": { "package": null, "appLabel": "Instagram", "category": null, "since": null, "jitai": null },
+        "windowMinutes": 30
+      },
+      "distal": {
+        "metric": "BEDTIME_NEXT",
+        "args": { "package": null, "appLabel": null, "category": null, "since": null, "jitai": null },
+        "windowMinutes": null
+      }
+    },
+    "suppression": null
+  }
+}

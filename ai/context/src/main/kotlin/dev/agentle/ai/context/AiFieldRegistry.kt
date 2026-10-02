@@ -37,7 +37,7 @@ public enum class ItemKind { QUANTITY, TIME_OF_DAY, CODE, TEXT, APP_USAGE, EVENT
  *   the producer, or [AiLineageTables] for events, reports, and it must not be empty.
  * - [purposes] limits a field to some purposes (null: any purpose whose allow-list covers its categories).
  * - [codes] is the closed vocabulary of a CODE field, so text cannot be smuggled in as a code. It is null only for
- *   `pattern.kind` and `evidence.template`, whose codes the analytics layer defines; producers fill them from enums only.
+ *   nothing: every CODE field has a closed vocabulary, and a code outside it is refused (fail closed).
  */
 public data class AiField(
     val code: String,
@@ -63,6 +63,12 @@ public object AiFieldRegistry {
     private val ANY_SOURCE = SourceFamily.entries.toSet()
     private val TRENDS = setOf("UP", "DOWN", "STABLE")
     private val YES_NO = setOf("YES", "NO")
+
+    /** Closed vocabulary of `pattern.kind` (UNVERIFIED: the analytics layer defines no enum yet; extend together). */
+    private val PATTERN_KINDS = setOf("LATE_SCREEN_SHORT_SLEEP", "ACTIVITY_BETTER_SLEEP", "WEEKDAY_WEEKEND", "TREND", "OTHER")
+
+    /** Closed vocabulary of `evidence.template` (UNVERIFIED, as above). */
+    private val EVIDENCE_TEMPLATES = setOf("RATE_ON_DAYS", "AVERAGE_DIFFERENCE", "COUNT_OF_DAYS", "OTHER")
 
     /** JITAI categories of docs/research/10-jitai-engine-design.md section 2.1 (the `category` enum). */
     private val JITAI_CATEGORIES = setOf("PHYSICAL_ACTIVITY", "SLEEP_WIND_DOWN", "DIGITAL_WELLBEING", "STRESS_BREAK", "GENERAL")
@@ -200,7 +206,7 @@ public object AiFieldRegistry {
         val pattern = setOf(AiPurpose.PATTERN_EXPLANATION)
         addAll(
             group("pattern", emptySet(), ANY_SOURCE) {
-                c("pattern.kind", null, pattern)
+                c("pattern.kind", PATTERN_KINDS, pattern)
                 q("pattern.nights", "nights", pattern)
                 q("pattern.effect_minutes", "min", pattern)
                 q("pattern.share", "pct", pattern)
@@ -210,7 +216,7 @@ public object AiFieldRegistry {
         addAll(
             group("evidence", emptySet(), ANY_SOURCE) {
                 c("evidence.tier", EvidenceStrength.entries.mapTo(LinkedHashSet()) { it.name }, wording)
-                c("evidence.template", null, wording)
+                c("evidence.template", EVIDENCE_TEMPLATES, wording)
                 q("evidence.count", "count", wording)
                 q("evidence.rate", "pct", wording)
             },

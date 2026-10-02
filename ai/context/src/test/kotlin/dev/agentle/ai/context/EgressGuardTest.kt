@@ -534,7 +534,7 @@ class EgressGuardTest {
             auditLog = audit,
             clock = clock,
             providerFactory = { verifier -> FakeAiProvider(verifier).also { fake = it } },
-            options = AiContextOptions(healthConnectToAi = false, random = Random(3)),
+            options = AiContextOptions(accountSalt = "install-salt", healthConnectToAi = false, random = Random(3)),
         )
         context.consent.grant(setOf(STEPS), AiPurpose.GENERAL_QUESTION).getOrThrow()
         val confirmation = context.engine.confirmRawEvents(AiPurpose.GENERAL_QUESTION).getOrThrow()
@@ -547,7 +547,7 @@ class EgressGuardTest {
         assertThat(audit[envelope.requestId]!!.status).isEqualTo(AiRequestStatus.SENT)
         val template = context.engine.standingConsentTemplate(AiPurpose.SLEEP_INSIGHT).getOrThrow()
         assertThat(template.sourceFamilies).containsExactly(SourceFamily.ON_DEVICE)
-        assertThat(AiContextOptions().healthConnectToAi).isFalse()
+        assertThat(AiContextOptions(accountSalt = "s").healthConnectToAi).isFalse()
     }
 
     /** A provider that answers without ever calling its send verifier: a bug the guard must catch. */

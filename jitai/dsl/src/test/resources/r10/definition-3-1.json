@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "3f6c1d2e-8b7a-4c1e-9a55-0d7e2b9c4a10",
+  "version": 3,
+  "name": "Afternoon walk nudge",
+  "description": "If I am under 3,000 steps at 5 PM, suggest a short walk.",
+  "kind": "INTERVENTION",
+  "category": "PHYSICAL_ACTIVITY",
+  "status": "ACTIVE",
+  "enabled": true,
+  "trigger": { "type": "daily_at", "times": ["17:00"], "maxLatenessMinutes": 30 },
+  "activeWindow": null,
+  "conditions": { "type": "lt", "feature": "steps_today", "args": {}, "value": 3000, "onUnknown": null },
+  "contextRequirements": null,
+  "delivery": {
+    "channel": "NOTIFICATION",
+    "quietHoursPolicy": "RESPECT",
+    "notificationTimeoutMinutes": 120,
+    "deliveryDeadlineMinutes": 10
+  },
+  "content": {
+    "type": "template",
+    "title": "Time for a short walk?",
+    "body": "You are at {{steps_today}} steps today. A few minutes on foot now would get you moving."
+  },
+  "cooldownMinutes": 60,
+  "maxPerDay": 1,
+  "maxPerWeek": 7,
+  "priority": 50,
+  "snooze": { "mode": "SUPPRESS_ONLY", "options": ["MINUTES_60", "UNTIL_TOMORROW"] },
+  "expiresAt": null,
+  "createdBy": "USER_MANUAL",
+  "createdAt": "2026-09-20T08:15:00Z",
+  "modifiedAt": "2026-10-01T18:02:11Z",
+  "outcome": {
+    "proximal": { "metric": "STEPS_AFTER", "args": {}, "windowMinutes": 30 },
+    "distal": { "metric": "STEPS_DAY_TOTAL", "args": {}, "windowMinutes": null }
+  },
+  "suppression": null,
+  "experiment": { "mode": "NONE", "deliverProbability": null },
+  "userConfirmedUnknownOverrides": false,
+  "provenance": null
+}
