@@ -1,0 +1,8 @@
+{
+  "revision": 12,
+  "installId": "0123456789abcdef0123456789abcdef",
+  "grants": [
+    {"category": "SLEEP", "purpose": "SLEEP_INSIGHT", "consentVersion": 1, "grantedAtMs": 1789000000000, "accountSub": "account-sub-1"},
+    {"category": "STEPS", "purpose": "ACTIVITY_INSIGHT", "consentVersion": 1, "grantedAtMs": 1789000100000}
+  ]
+}

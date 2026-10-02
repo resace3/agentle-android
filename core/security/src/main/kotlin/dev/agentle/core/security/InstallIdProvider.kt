@@ -36,6 +36,17 @@ class InstallIdProvider(private val paths: SecurityPaths, private val random: Se
         return mac.doFinal("$purpose|$value".toByteArray(Charsets.UTF_8)).toHex()
     }
 
+    /**
+     * [bytes] secret bytes for [purpose] derived from this install's salt (for example the seed of the JITAI
+     * micro-randomization draw, R10 §15.3). Stable for the install, different per purpose, never the salt itself.
+     */
+    fun derivedSalt(purpose: String, bytes: Int = DERIVED_SALT_BYTES): ByteArray {
+        require(bytes in 1..SALT_BYTES) { "bytes must be in 1..$SALT_BYTES" }
+        val mac = Mac.getInstance(HMAC)
+        mac.init(SecretKeySpec(salt(), HMAC))
+        return mac.doFinal("salt|$purpose".toByteArray(Charsets.UTF_8)).copyOf(bytes)
+    }
+
     @Synchronized
     private fun salt(): ByteArray {
         cachedSalt?.let { return it }
@@ -74,6 +85,7 @@ class InstallIdProvider(private val paths: SecurityPaths, private val random: Se
         const val SALT_FILE = "install-salt.bin"
         const val ID_BYTES = 16
         const val SALT_BYTES = 32
+        const val DERIVED_SALT_BYTES = 16
         const val HMAC = "HmacSHA256"
         const val BYTE_MASK = 0xFF
         val ID_PATTERN = Regex("[0-9a-f]{32}")

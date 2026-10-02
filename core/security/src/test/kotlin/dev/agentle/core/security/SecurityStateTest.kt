@@ -90,6 +90,12 @@ class SecurityStateTest {
         val otherInstall = SecurityPaths(temp.newFolder("other"), paths.databaseFile)
         assertThat(InstallIdProvider(otherInstall).installId()).isNotEqualTo(id)
         assertThat(InstallIdProvider(otherInstall).pseudonymize("bluetooth", "AA:BB:CC:DD:EE:FF")).isNotEqualTo(pseudonym)
+
+        val seed = ids.derivedSalt("jitai-randomization")
+        assertThat(seed).hasLength(16)
+        assertThat(InstallIdProvider(paths).derivedSalt("jitai-randomization")).isEqualTo(seed)
+        assertThat(ids.derivedSalt("other-purpose")).isNotEqualTo(seed)
+        assertThat(InstallIdProvider(otherInstall).derivedSalt("jitai-randomization")).isNotEqualTo(seed)
     }
 
     @Test
