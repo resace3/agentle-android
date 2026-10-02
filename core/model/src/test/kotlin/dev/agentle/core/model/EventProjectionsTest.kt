@@ -55,4 +55,17 @@ class EventProjectionsTest {
         assertThat(EventProjections.subjectOf(unknown)).isNull()
         assertThat(EventProjections.valueOf(unknown)).isNull()
     }
+
+    @Test
+    fun `day-keyed records project their metric, value and authoritative date`() {
+        val date = kotlinx.datetime.LocalDate(2026, 10, 1)
+        val total = DailyTotalPayload(date, DailyTotalMetric.STEPS, 8421.0)
+        assertThat(EventProjections.subjectOf(total)).isEqualTo("STEPS")
+        assertThat(EventProjections.valueOf(total)).isEqualTo(8421.0)
+        assertThat(EventProjections.localDateOf(total)).isEqualTo(date)
+        val resting = RestingHeartRatePayload(54.0, date)
+        assertThat(EventProjections.valueOf(resting)).isEqualTo(54.0)
+        assertThat(EventProjections.localDateOf(resting)).isEqualTo(date)
+        assertThat(EventProjections.localDateOf(StepsPayload(3))).isNull()
+    }
 }

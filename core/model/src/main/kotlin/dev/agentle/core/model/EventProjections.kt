@@ -1,5 +1,7 @@
 package dev.agentle.core.model
 
+import kotlinx.datetime.LocalDate
+
 /**
  * Typed projections of a payload, stored next to its JSON in the `event` table (`subject`, `value_num`) so features can
  * aggregate in SQL without parsing JSON (docs/ARCHITECTURE.md §5.2).
@@ -30,9 +32,10 @@ public object EventProjections {
         is JitaiEventPayload -> payload.jitaiId
         is InsightEventPayload -> payload.kind
         is GeneratedMediaPayload -> payload.method
+        is DailyTotalPayload -> payload.metric.name
         NoPayload, is ScreenPayload, is StepsPayload, is DistancePayload, is FloorsPayload, is CaloriesPayload,
-        is HeartRatePayload, is SleepSessionPayload, is WeightPayload, is BodyFatPayload, is PowerStatePayload,
-        is DndPayload, is SystemEventPayload, is UnknownPayload,
+        is HeartRatePayload, is RestingHeartRatePayload, is SleepSessionPayload, is WeightPayload, is BodyFatPayload,
+        is PowerStatePayload, is DndPayload, is SystemEventPayload, is UnknownPayload,
         -> null
     }
 
@@ -51,6 +54,8 @@ public object EventProjections {
         is ActivityTransitionPayload -> if (payload.transition == TransitionKind.ENTER) 1.0 else 0.0
         is ExercisePayload -> payload.durationMs.toDouble()
         is HeartRatePayload -> payload.bpm
+        is RestingHeartRatePayload -> payload.bpm
+        is DailyTotalPayload -> payload.value
         is SleepSessionPayload -> (payload.minutesAsleep ?: minutesAsleep(payload.stages))?.toDouble()
         is WeightPayload -> payload.kilograms
         is BodyFatPayload -> payload.percent
@@ -67,6 +72,16 @@ public object EventProjections {
         NoPayload, is NotificationPayload, is LocationSamplePayload, is BluetoothPayload, is SystemEventPayload,
         is CallEventPayload, is JitaiEventPayload, is InsightEventPayload, is UnknownPayload,
         -> null
+    }
+
+    /**
+     * The authoritative civil date of a day-keyed record (a source-computed daily total or resting heart rate), or
+     * null for records keyed by their instants. Never derived from the instants.
+     */
+    public fun localDateOf(payload: EventPayload): LocalDate? = when (payload) {
+        is DailyTotalPayload -> payload.date
+        is RestingHeartRatePayload -> payload.date
+        else -> null
     }
 
     private val NOT_ASLEEP = setOf(SleepStageKind.AWAKE, SleepStageKind.OUT_OF_BED, SleepStageKind.UNKNOWN)
