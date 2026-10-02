@@ -363,6 +363,15 @@ def main():
             line_cell = counted(c, "line", "lines") if c else "-"
             branch_cell = counted(c, "branch", "branches") if c else "-"
             lines.append(f"| `{r['module']}` | {r['report']} | {line_cell} | {branch_cell} | {gate} | {status} |")
+        # Merged: each module counted once, from its whole-module report (JVM total, Android debug / app prodDebug).
+        whole = [c for c in cov.values() if c["module"] != ":" and c["report"] in ("total", "debug", "prodDebug") and not c["stale"]]
+        if whole:
+            merged = {u: {k: sum(c[u][k] for c in whole) for k in ("missed", "covered")} for u in ("lines", "branches")}
+            merged.update(line=pct((merged["lines"]["missed"], merged["lines"]["covered"])),
+                          branch=pct((merged["branches"]["missed"], merged["branches"]["covered"])))
+            report["coverageMerged"] = dict(merged, modules=len(whole))
+            lines.append(f"| **merged ({len(whole)} modules)** | - | {counted(merged, 'line', 'lines')} | "
+                         f"{counted(merged, 'branch', 'branches')} | - | - |")
     if report["dbScale"]:
         lines += ["", "## DB scale (JVM, sqlite-jdbc)", "", "| Events | SQLite | Insert ms | Events/s | Re-ingest 10% ms | 7-day steps ms | Latest HR ms | Full scan ms | DB MiB |",
                   "|---:|---|---:|---:|---:|---:|---:|---:|---:|"]
