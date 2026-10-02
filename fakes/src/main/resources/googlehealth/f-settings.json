@@ -1,0 +1,17 @@
+{
+  "name": "users/1234567890/settings",
+  "timeZone": "America/New_York",
+  "utcOffset": "-14400s",
+  "distanceUnit": "DISTANCE_UNIT_MILES",
+  "weightUnit": "WEIGHT_UNIT_POUNDS",
+  "heightUnit": "HEIGHT_UNIT_INCHES",
+  "temperatureUnit": "TEMPERATURE_UNIT_FAHRENHEIT",
+  "waterUnit": "WATER_UNIT_FL_OZ",
+  "glucoseUnit": "GLUCOSE_UNIT_MG_DL",
+  "swimUnit": "SWIM_UNIT_YARDS",
+  "languageLocale": "en_US",
+  "autoStrideEnabled": true,
+  "strideLengthWalkingType": "STRIDE_LENGTH_TYPE_AUTO",
+  "strideLengthRunningType": "STRIDE_LENGTH_TYPE_AUTO",
+  "foodLanguageCode": "en-US"
+}

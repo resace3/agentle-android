@@ -1,0 +1,21 @@
+{
+  "error": {
+    "code": 429,
+    "message": "Quota exceeded for quota metric 'Requests' and limit 'Requests per minute per user' of service 'health.googleapis.com' for consumer 'project_number:000000000000'.",
+    "status": "RESOURCE_EXHAUSTED",
+    "details": [
+      {
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "RATE_LIMIT_EXCEEDED",
+        "domain": "googleapis.com",
+        "metadata": {
+          "service": "health.googleapis.com",
+          "consumer": "projects/000000000000",
+          "quota_metric": "health.googleapis.com/requests",
+          "quota_limit": "RequestsPerMinutePerUser",
+          "quota_limit_value": "300"
+        }
+      }
+    ]
+  }
+}
