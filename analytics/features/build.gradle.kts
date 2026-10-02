@@ -8,5 +8,6 @@ dependencies {
     api(project(":core:common"))
     api(project(":core:time"))
     testImplementation(project(":core:testing"))
+    testImplementation(project(":connectors:api"))
     testImplementation(project(":fakes"))
 }
