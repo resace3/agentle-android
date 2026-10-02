@@ -19,9 +19,10 @@ import kotlin.time.Instant
  * The JITAI definitions (`jitai_definition`, ANDROID-DATA's `JitaiRepository`).
  *
  * Every change of a definition (save of a new version, enable, disable, delete, a status change, and the two changes the
- * engine itself requests below) deletes that JITAI's timer rows in the **same transaction** as the change; the engine
- * re-plans afterwards (jitai-correctness-05/07). A timer row that survives anyway is caught by the version check of the
- * firing timer.
+ * engine itself requests below) deletes that JITAI's timer rows in the **same transaction** as the change, except its
+ * OUTCOME rows: outcomes of decisions already made are still measured after a pause or edit (a deleted definition's
+ * OUTCOME rows are dropped by the engine when they fire). The engine re-plans afterwards (jitai-correctness-05/07). A
+ * timer row that survives anyway is caught by the version check of the firing timer.
  */
 public interface JitaiRepositoryPort {
     /** The current version of every stored definition that is not ARCHIVED; the engine selects the effective ones. */

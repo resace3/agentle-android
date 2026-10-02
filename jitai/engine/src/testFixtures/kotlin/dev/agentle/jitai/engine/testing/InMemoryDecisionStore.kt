@@ -16,6 +16,7 @@ import dev.agentle.jitai.engine.ports.LedgerView
 import dev.agentle.jitai.engine.ports.ResponseWrite
 import dev.agentle.jitai.engine.ports.RetentionCutoffs
 import dev.agentle.jitai.engine.ports.RetentionReport
+import dev.agentle.jitai.engine.schedule.TimerKind
 import dev.agentle.jitai.engine.schedule.TimerRow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -153,11 +154,11 @@ public class InMemoryDecisionStore(
     }
 
     /**
-     * Deletes the timer rows of [jitaiId]: what `jitai_definition` changes do in their own transaction
-     * ([dev.agentle.jitai.engine.ports.JitaiRepositoryPort]).
+     * Deletes the timer rows of [jitaiId] except OUTCOME rows: what `jitai_definition` changes do in their own
+     * transaction ([dev.agentle.jitai.engine.ports.JitaiRepositoryPort]).
      */
     public suspend fun deleteTimersOf(jitaiId: String) {
-        write { working -> working.timers.values.removeAll { it.jitaiId == jitaiId } }
+        write { working -> working.timers.values.removeAll { it.jitaiId == jitaiId && it.kind != TimerKind.OUTCOME } }
     }
 
     // -- DecisionStore ------------------------------------------------------------------------------------------

@@ -172,8 +172,9 @@ public interface DecisionTransaction : LedgerView {
  * module's test fixtures has the same semantics. Expected failures (I/O, a generation mismatch, an illegal transition)
  * are [Outcome.Failure]; implementations never throw for them.
  *
- * Definition changes (save, enable, disable, delete, expiry, backoff pause) delete the JITAI's timer rows in the same
- * transaction as the change ([JitaiRepositoryPort]); the engine re-plans afterwards (jitai-correctness-05/07).
+ * Definition changes (save, enable, disable, delete, expiry, backoff pause) delete the JITAI's timer rows except OUTCOME
+ * rows in the same transaction as the change ([JitaiRepositoryPort]); the engine re-plans afterwards
+ * (jitai-correctness-05/07).
  */
 public interface DecisionStore {
     /**
