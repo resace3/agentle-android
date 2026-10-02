@@ -52,7 +52,10 @@ public object EventProjections {
 
         is DailyTotalPayload -> payload.metric.name
 
-        NoPayload, is ScreenPayload, is StepsPayload, is DistancePayload, is FloorsPayload, is CaloriesPayload,
+        is StandbyBucketPayload -> payload.packageName
+
+        NoPayload, is NextAlarmPayload, is StoragePayload, is ScreenPayload, is StepsPayload, is DistancePayload,
+        is FloorsPayload, is CaloriesPayload,
         is HeartRatePayload, is RestingHeartRatePayload, is SleepSessionPayload, is WeightPayload, is BodyFatPayload,
         is PowerStatePayload, is DndPayload, is SystemEventPayload, is UnknownPayload,
         -> null
@@ -114,7 +117,11 @@ public object EventProjections {
 
         is GeneratedMediaPayload -> payload.sizeBytes.toDouble()
 
-        NoPayload, is NotificationPayload, is LocationSamplePayload, is BluetoothPayload, is SystemEventPayload,
+        is StandbyBucketPayload -> payload.bucket.toDouble()
+
+        is StoragePayload -> payload.freeBytes.toDouble()
+
+        NoPayload, is NextAlarmPayload, is NotificationPayload, is LocationSamplePayload, is BluetoothPayload, is SystemEventPayload,
         is CallEventPayload, is JitaiEventPayload, is InsightEventPayload, is UnknownPayload,
         -> null
     }

@@ -149,6 +149,7 @@ public object AiLineageTables {
         EventType.BLUETOOTH_STATE_CHANGED, EventType.BLUETOOTH_CONNECTED, EventType.BLUETOOTH_DISCONNECTED, EventType.AUDIO_STATE,
         EventType.HEADSET_CONNECTED, EventType.HEADSET_DISCONNECTED, EventType.DND_CHANGED, EventType.TIMEZONE_CHANGED,
         EventType.TIME_CHANGED, EventType.LOCALE_CHANGED, EventType.BOOT_COMPLETED, EventType.SHUTDOWN,
+        EventType.NEXT_ALARM_CHANGED, EventType.STANDBY_BUCKET_CHANGED, EventType.STORAGE_SAMPLE,
         -> setOf(DEVICE_STATE)
 
         // Calls, media, insights and generated media may hold third-party or AI-written content; types appended later
