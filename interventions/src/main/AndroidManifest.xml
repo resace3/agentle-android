@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Interventions post notifications; the app asks for it in context (first JITAI setup), never at launch. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- TextToSpeech.getEngines() only sees installed engines with this package-visibility entry (R09 §2.2). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
+
+    <application>
+        <!-- Notification actions (snooze, not now, stop, dismiss): only this app's immutable PendingIntents reach it. -->
+        <receiver
+            android:name=".notification.NotificationActionReceiver"
+            android:exported="false" />
+
+        <!-- Share copies in cacheDir/share/ only; generated media itself stays in noBackupFilesDir (R09 §9.1). -->
+        <provider
+            android:name=".storage.InterventionsFileProvider"
+            android:authorities="${applicationId}.interventions.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/interventions_share_paths" />
+        </provider>
+    </application>
+</manifest>
