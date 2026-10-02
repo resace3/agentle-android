@@ -256,6 +256,9 @@ public class JitaiEngine(
         val definitions: List<JitaiDefinition>,
     ) {
         val byId: Map<String, JitaiDefinition> = definitions.associateBy { it.id }
+
+        /** The same definitions and settings at a later instant (the zone is re-read). */
+        fun at(now: MonotonicStamp, zone: TimeZone): Context = Context(now, zone, settings, notifications, definitions)
     }
 
     private suspend fun context(): Context {
@@ -268,9 +271,9 @@ public class JitaiEngine(
     private suspend fun tick(): TickReport {
         val start = context()
         val recovery = coordinator.recover(start.byId, start.settings)
-        val context = context()
+        val context = start.at(clock.now(), clock.zone())
         val pass = intervalPass(context)
-        val events = eventPass(context())
+        val events = eventPass(start.at(clock.now(), clock.zone()))
         val next = SchedulePlanner.tickPlan(
             context.definitions,
             context.now.wall,

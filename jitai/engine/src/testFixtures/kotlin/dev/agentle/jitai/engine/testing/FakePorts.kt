@@ -203,6 +203,9 @@ public class FakeFeatureResolver(
     public val resolutions: MutableList<Set<FeatureRef>> = mutableListOf()
     public var throwOnResolve: Boolean = false
 
+    /** Runs inside every resolution, i.e. between a pass's evaluation start and its commit (R10 §12.M1). */
+    public var onResolve: (suspend () -> Unit)? = null
+
     public fun set(ref: FeatureRef, value: FeatureValue) {
         providers.remove(ref.key)
         values[ref.key] = value
@@ -224,6 +227,7 @@ public class FakeFeatureResolver(
         yield()
         check(!throwOnResolve) { "resolver failure" }
         resolutions += refs
+        onResolve?.invoke()
         val currentZone = zone()
         val resolved = refs.associateWith { ref ->
             values[ref.key]

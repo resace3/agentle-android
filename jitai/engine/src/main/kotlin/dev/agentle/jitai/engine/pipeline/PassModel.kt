@@ -82,7 +82,15 @@ public data class PassReport(
     val followUp: List<PlannedWork> = emptyList(),
     val outcomes: List<PlannedOutcome> = emptyList(),
 ) {
-    public fun stateOf(key: String): DecisionState? = written.firstOrNull { it.decisionKey == key }?.state
+    /** The state of [key] after this pass: the delivery outcome for a DECIDED row, else the state it was written in. */
+    public fun stateOf(key: String): DecisionState? {
+        val written = written.firstOrNull { it.decisionKey == key }?.state ?: return null
+        return when (val delivery = deliveries.firstOrNull { it.decisionKey == key }) {
+            is DeliveryResult.Delivered -> DecisionState.DELIVERED
+            is DeliveryResult.Ended -> delivery.state
+            else -> written
+        }
+    }
 }
 
 /** Crash recovery (R10 §8.5): what each DECIDED or expired-lease DELIVERING row became; [error] when the scan failed. */

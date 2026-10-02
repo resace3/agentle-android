@@ -26,6 +26,16 @@ import kotlin.time.Instant
 /** Thrown by the fakes to simulate the process dying at a protocol step. An [Error], so no engine code catches it. */
 public class SimulatedCrash(public val point: CrashPoint) : Error("simulated crash at $point")
 
+/** Runs [block] and returns the [SimulatedCrash] it must throw; fails when it returns normally. */
+public suspend fun expectCrash(block: suspend () -> Unit): SimulatedCrash {
+    try {
+        block()
+    } catch (crash: SimulatedCrash) {
+        return crash
+    }
+    throw AssertionError("expected a simulated crash")
+}
+
 /** Where a fake simulates process death (R10 §12.P). */
 public enum class CrashPoint {
     /** The commit transaction never starts. */
