@@ -7,6 +7,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import dev.agentle.analytics.features.daily.DailyFeatureStore
 import dev.agentle.connectors.api.EventSink
 import dev.agentle.core.database.ContentScrubber
 import dev.agentle.core.database.DatabaseProvider
@@ -18,6 +19,9 @@ import dev.agentle.core.security.CryptoEraser
 import dev.agentle.core.security.InstallIdProvider
 import dev.agentle.core.time.AgentleClock
 import dev.agentle.data.DataAccess
+import dev.agentle.data.analytics.EventChangeFeed
+import dev.agentle.data.analytics.RoomDailyFeatureStore
+import dev.agentle.data.analytics.RoomEventChangeFeed
 import dev.agentle.data.deletion.AndroidDeleteAllSteps
 import dev.agentle.data.deletion.DataProducers
 import dev.agentle.data.deletion.DeleteAllService
@@ -83,6 +87,8 @@ class DataGraph @Inject internal constructor(
     val eventSink: EventSink get() = writer
     val eventBatchWriter: EventBatchWriter get() = writer
     val events: EventRepository by lazy { RoomEventRepository(access) }
+    val changeFeed: EventChangeFeed by lazy { RoomEventChangeFeed(access) }
+    val dailyFeatures: DailyFeatureStore by lazy { RoomDailyFeatureStore(access) }
     val syncState: SyncStateRepository by lazy { RoomSyncStateRepository(access, clock, diagnosticWriter) }
     val collectorCoverage: CollectorCoverageStore by lazy { RoomCollectorCoverageStore(access) }
     val diagnostics: DiagnosticsRepository by lazy { RoomDiagnosticsRepository(access, diagnosticWriter) }
@@ -139,6 +145,10 @@ object DataModule {
     @Provides fun eventBatchWriter(graph: DataGraph): EventBatchWriter = graph.eventBatchWriter
 
     @Provides fun events(graph: DataGraph): EventRepository = graph.events
+
+    @Provides fun changeFeed(graph: DataGraph): EventChangeFeed = graph.changeFeed
+
+    @Provides fun dailyFeatures(graph: DataGraph): DailyFeatureStore = graph.dailyFeatures
 
     @Provides fun syncState(graph: DataGraph): SyncStateRepository = graph.syncState
 

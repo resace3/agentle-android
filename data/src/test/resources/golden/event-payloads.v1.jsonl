@@ -1,0 +1,11 @@
+{"kind":"none"}
+{"kind":"app_usage","packageName":"com.example.social","durationMs":90000,"appCategory":"social"}
+{"kind":"steps","count":1234}
+{"kind":"distance","meters":812.5}
+{"kind":"heart_rate","bpm":61.5}
+{"kind":"location_visit","placeId":"p1","placeClass":"HOME","durationMs":3600000}
+{"kind":"sleep_session","minutesAsleep":412,"minutesAwake":31,"processed":true,"sleepType":"STAGES"}
+{"kind":"notification","packageName":"com.chat","channelHash":"ab12","hasText":true,"keyHash":"k1","updateCount":2}
+{"kind":"calendar_event","eventIdHash":"e1","allDay":false,"busy":true,"attendeeCount":3}
+{"kind":"user_log","logKind":"MOOD","value":4.0}
+{"kind":"a_kind_from_a_future_version","x":1}
