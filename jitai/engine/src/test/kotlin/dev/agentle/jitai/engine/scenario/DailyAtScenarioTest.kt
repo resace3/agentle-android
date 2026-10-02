@@ -1,340 +1,196 @@
 package dev.agentle.jitai.engine.scenario
 
 import com.google.common.truth.Truth.assertThat
-import dev.agentle.analytics.features.FeatureScalar
+import com.google.common.truth.Truth.assertWithMessage
 import dev.agentle.analytics.features.FeatureValue
 import dev.agentle.analytics.features.MissingReason
-import dev.agentle.core.common.getOrThrow
-import dev.agentle.jitai.dsl.model.ActiveWindow
 import dev.agentle.jitai.dsl.model.Trigger
 import dev.agentle.jitai.engine.F0
 import dev.agentle.jitai.engine.Leaves
 import dev.agentle.jitai.engine.Rules
-import dev.agentle.jitai.engine.decision.DecisionKeys
+import dev.agentle.jitai.engine.Vector
 import dev.agentle.jitai.engine.decision.DecisionState
 import dev.agentle.jitai.engine.decision.ReasonCode
 import dev.agentle.jitai.engine.int
 import dev.agentle.jitai.engine.missing
-import dev.agentle.jitai.engine.pipeline.DailyAtStatus
+import dev.agentle.jitai.engine.pipeline.SyncReason
+import dev.agentle.jitai.engine.pipeline.SyncRequest
+import dev.agentle.jitai.engine.ports.DisplaySettings
 import dev.agentle.jitai.engine.ports.EvalOutcome
-import dev.agentle.jitai.engine.schedule.RescheduleSignal
-import dev.agentle.jitai.engine.schedule.SchedulePlanner
-import dev.agentle.jitai.engine.schedule.WorkInput
-import dev.agentle.jitai.engine.schedule.WorkPolicy
-import dev.agentle.jitai.engine.seedCounted
+import dev.agentle.jitai.engine.row
+import dev.agentle.jitai.engine.schedule.TimerKeys
+import dev.agentle.jitai.engine.schedule.TimerKind
 import dev.agentle.jitai.engine.stale
 import dev.agentle.jitai.engine.testing.EngineHarness
+import dev.agentle.jitai.engine.timer
+import dev.agentle.jitai.engine.timerAt
 import kotlinx.coroutines.test.runTest
-import kotlinx.datetime.LocalDate
-import org.junit.jupiter.api.Test
-import kotlin.time.Duration.Companion.minutes
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 import kotlin.time.Instant
 
-/** R10 §12.D (engine side, R2 at 17:00) and the `daily_at` rows of §12.O (O1, O2, O6, O7). */
+/** R10 §12.D (engine side: R2 `daily_at 17:00`, lateness 30) and the `daily_at` DST rows §12.O1-O2, through `jitai-timer`. */
 class DailyAtScenarioTest {
-    private val date = LocalDate.parse("2026-10-01")
-    private val key = "v1|R2|D|2026-10-01|17:00"
+    @ParameterizedTest(quoteTextArguments = false, name = "{0}")
+    @MethodSource("vectors")
+    fun `R10 12_D and 12_O daily_at`(vector: Vector) = runTest { vector.body(this) }
 
-    private fun r2(at: String = "2026-10-01T17:00", steps: FeatureValue?): EngineHarness {
-        val harness = F0.harness(F0.local(at), Rules.R2)
-        if (steps != null) harness.features.set(Leaves.STEPS, steps)
-        return harness
-    }
+    companion object {
+        private const val KEY = "v1|R2|D|2026-10-01|17:00"
+        private val SLOT_ROW = TimerKeys.slot(KEY)
+        private val AT_1631: Instant = F0.local("2026-10-01T16:31")
+        private val AT_1615: Instant = F0.local("2026-10-01T16:15")
 
-    private suspend fun EngineHarness.run(time: String = "17:00", on: LocalDate = date) = engine.runDailyAt("R2", on, time).getOrThrow()
+        private fun r2(steps: FeatureValue?, at: String = "2026-10-01T17:00"): EngineHarness {
+            val harness = F0.harness(F0.local(at), Rules.R2)
+            if (steps != null) harness.features.set(Leaves.STEPS, steps)
+            return harness
+        }
 
-    @Test
-    fun `D1 known 2,999 at 17_00 is DELIVERED with the template filled from the snapshot`() = runTest {
-        val harness = r2(steps = int(2_999, F0.local("2026-10-01T16:31")))
+        /** The slot resolves at 17:00 into [expected]; a delivery posts the template filled from the stored snapshot. */
+        private fun at1700(id: String, title: String, steps: FeatureValue, expected: DecisionState, body: String? = null) =
+            Vector(id, title) {
+                val harness = r2(steps)
 
-        val report = harness.run()
+                val report = harness.timer()
 
-        assertThat(report.status).isEqualTo(DailyAtStatus.EVALUATED)
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.DELIVERED)
-        assertThat(harness.delivery.posts.single().body).isEqualTo("Only 2,999 steps so far today.")
-        assertThat(harness.delivery.posts.single().nonce).isEqualTo(harness.store.row(key)!!.nonce)
-        // The worker planned the next date before evaluating (red team lifecycle-battery-04).
-        assertThat(report.replan!!.input).isEqualTo(WorkInput.DailyAt("R2", LocalDate.parse("2026-10-02"), "17:00"))
-        assertThat(report.replan!!.uniqueName).isEqualTo("jitai-at-R2-20261002-1700")
-    }
+                assertWithMessage(id).that(harness.row(KEY).state).isEqualTo(expected)
+                assertThat(report.syncRequests).isEmpty()
+                assertThat(harness.store.timer(SLOT_ROW)).isNull()
+                if (body == null) {
+                    assertThat(harness.delivery.posts).isEmpty()
+                } else {
+                    val post = harness.delivery.posts.single()
+                    assertThat(post.body).isEqualTo(body)
+                    // Correction 10: the posted text is generic while detailed notifications are off (the default).
+                    assertThat(post.postedBody).isEqualTo(DisplaySettings.DEFAULT_GENERIC_BODY)
+                    assertThat(post.nonce).isEqualTo(harness.row(KEY).nonce)
+                }
+                // The next occurrence is planned, with its prefetch 10 minutes ahead (R2 reads remote steps).
+                assertThat(harness.store.timer(TimerKeys.slot("v1|R2|D|2026-10-02|17:00"))!!.dueAt).isEqualTo(F0.local("2026-10-02T17:00"))
+                assertThat(harness.store.timer(TimerKeys.prefetch("v1|R2|D|2026-10-02|17:00"))!!.dueAt)
+                    .isEqualTo(F0.local("2026-10-02T16:50"))
+            }
 
-    @Test
-    fun `D2 known 3,000 is NOT_TRIGGERED`() = runTest {
-        val harness = r2(steps = int(3_000, F0.local("2026-10-01T16:31")))
+        /** U at 17:00 and 17:10 with a sync each time, then the row UNKNOWN at 17:20 without a notification. */
+        private fun neverSynced(id: String, title: String, steps: FeatureValue) = Vector(id, title) {
+            val harness = r2(steps)
 
-        harness.run()
+            val first = harness.timer()
+            assertThat(first.syncRequests).containsExactly(SyncRequest("R2", KEY, setOf(Leaves.STEPS), SyncReason.STALENESS_RETRY))
+            assertThat(harness.store.timer(SLOT_ROW)!!.dueAt).isEqualTo(F0.local("2026-10-01T17:10"))
+            val second = harness.timerAt(F0.local("2026-10-01T17:10"))
+            assertThat(second.syncRequests).hasSize(1)
+            assertThat(harness.store.timer(SLOT_ROW)!!.dueAt).isEqualTo(F0.local("2026-10-01T17:20"))
+            assertThat(harness.store.row(KEY)).isNull()
+            harness.timerAt(F0.local("2026-10-01T17:20"))
 
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.NOT_TRIGGERED)
-        assertThat(harness.delivery.posts).isEmpty()
-    }
+            val row = harness.row(KEY)
+            assertWithMessage(id).that(row.state).isEqualTo(DecisionState.UNKNOWN)
+            assertThat(row.decisionPointAt).isEqualTo(F0.local("2026-10-01T17:20"))
+            assertThat(harness.delivery.posts).isEmpty()
+            assertThat(harness.store.evalLog().map { it.outcome }).containsExactly(EvalOutcome.RETRY, EvalOutcome.RETRY)
+        }
 
-    @Test
-    fun `D3 stale 3,200 from today - the lower bound gives F, NOT_TRIGGERED without a retry`() = runTest {
-        val harness = r2(steps = stale(3_200, F0.local("2026-10-01T16:15")))
+        @JvmStatic
+        fun vectors(): List<Vector> = listOf(
+            at1700(
+                "D1",
+                "coverage 16:31, 2,999 steps: Known T, DELIVERED",
+                int(2_999, AT_1631),
+                DecisionState.DELIVERED,
+                "Only 2,999 steps so far today.",
+            ),
+            at1700("D2", "coverage 16:31, 3,000 steps: Known F, NOT_TRIGGERED", int(3_000, AT_1631), DecisionState.NOT_TRIGGERED),
+            at1700(
+                "D3",
+                "stale 3,200 from today: the bound gives F, NOT_TRIGGERED without a retry",
+                stale(3_200, AT_1615),
+                DecisionState.NOT_TRIGGERED,
+            ),
+            Vector("D4", "stale 2,800: U at 17:00 and a sync; known 2,950 at the 17:10 retry: DELIVERED, decisionPointAt 17:10") {
+                val harness = r2(stale(2_800, AT_1615))
 
-        val report = harness.run()
+                val first = harness.timer()
 
-        assertThat(report.status).isEqualTo(DailyAtStatus.EVALUATED)
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.NOT_TRIGGERED)
-    }
+                assertThat(first.syncRequests).containsExactly(SyncRequest("R2", KEY, setOf(Leaves.STEPS), SyncReason.STALENESS_RETRY))
+                assertThat(harness.store.row(KEY)).isNull()
+                assertThat(harness.store.timer(SLOT_ROW)!!.dueAt).isEqualTo(F0.local("2026-10-01T17:10"))
+                assertThat(first.nextDueAt).isEqualTo(F0.local("2026-10-01T17:10"))
+                // A sync at 17:08 brings coverage to 17:05 with 2,950.
+                harness.clock.advanceTo(F0.local("2026-10-01T17:08"))
+                harness.features.set(Leaves.STEPS, int(2_950, F0.local("2026-10-01T17:05")))
+                harness.timerAt(F0.local("2026-10-01T17:10"))
 
-    @Test
-    fun `D4 stale 2,800 - U at 17_00 and a sync, then known 2,950 at 17_10 is DELIVERED with decisionPointAt 17_10`() = runTest {
-        val harness = r2(steps = stale(2_800, F0.local("2026-10-01T16:15")))
+                val row = harness.row(KEY)
+                assertThat(row.state).isEqualTo(DecisionState.DELIVERED)
+                assertThat(row.decisionPointAt).isEqualTo(F0.local("2026-10-01T17:10"))
+                assertThat(row.nominalAt).isEqualTo(F0.local("2026-10-01T17:00"))
+                assertThat(harness.delivery.posts.single().body).isEqualTo("Only 2,950 steps so far today.")
+            },
+            neverSynced("D5", "as D4 but no sync arrives: U at 17:00, 17:10 and 17:20, row UNKNOWN at 17:20", stale(2_800, AT_1615)),
+            neverSynced("D6", "no step interval today, Missing(NO_DATA): row UNKNOWN after the retries", missing(MissingReason.NO_DATA)),
+            at1700(
+                "D7",
+                "true zeros up to 16:59, total 0: Known 0, DELIVERED",
+                int(0, F0.local("2026-10-01T16:59")),
+                DecisionState.DELIVERED,
+                "Only 0 steps so far today.",
+            ),
+            Vector("D6", "a missing value no sync can fix (no permission) writes UNKNOWN at once") {
+                val harness = r2(missing(MissingReason.NO_PERMISSION))
 
-        val first = harness.run()
+                val report = harness.timer()
 
-        assertThat(first.status).isEqualTo(DailyAtStatus.RETRY)
-        assertThat(first.pass!!.retryAt).isEqualTo(F0.local("2026-10-01T17:10"))
-        assertThat(first.pass!!.syncFeatures).containsExactly(Leaves.STEPS)
-        val retry = first.pass!!.followUp.single { it.input is WorkInput.DailyAt }
-        assertThat(retry.uniqueName).isEqualTo("jitai-at-R2-20261001-1700-r10")
-        assertThat(retry.policy).isEqualTo(WorkPolicy.KEEP)
-        assertThat(retry.runAt).isEqualTo(F0.local("2026-10-01T17:10"))
-        val sync = first.pass!!.followUp.single { it.input is WorkInput.Prefetch }
-        assertThat((sync.input as WorkInput.Prefetch).featureIds).containsExactly(Leaves.STEPS)
-        assertThat(sync.tags).containsExactly(SchedulePlanner.jitaiTag("R2"), SchedulePlanner.TAG_PREFETCH)
-        assertThat(harness.store.row(key)).isNull()
+                assertThat(harness.row(KEY).state).isEqualTo(DecisionState.UNKNOWN)
+                assertThat(report.syncRequests).isEmpty()
+            },
+            Vector("D4", "the prefetch 10 minutes ahead becomes one sync request and is not planned again") {
+                val harness = r2(int(2_000, AT_1631), at = "2026-10-01T16:00")
 
-        // A sync at 17:08 brings coverage to 17:05 with 2,950.
-        harness.clock.advanceTo(F0.local("2026-10-01T17:08"))
-        harness.features.set(Leaves.STEPS, int(2_950, F0.local("2026-10-01T17:05")))
-        harness.clock.advanceTo(F0.local("2026-10-01T17:10"))
-        val second = harness.run()
+                val reports = harness.runTimerUntil(F0.local("2026-10-01T17:00"))
 
-        assertThat(second.status).isEqualTo(DailyAtStatus.EVALUATED)
-        val row = harness.store.row(key)!!
-        assertThat(row.state).isEqualTo(DecisionState.DELIVERED)
-        assertThat(row.decisionPointAt).isEqualTo(F0.local("2026-10-01T17:10"))
-        assertThat(harness.delivery.posts.single().body).isEqualTo("Only 2,950 steps so far today.")
-    }
+                val prefetch = reports.single { it.syncRequests.isNotEmpty() }
+                assertThat(prefetch.at).isEqualTo(F0.local("2026-10-01T16:50"))
+                assertThat(prefetch.syncRequests).containsExactly(SyncRequest("R2", KEY, setOf(Leaves.STEPS), SyncReason.PREFETCH))
+                assertThat(harness.row(KEY).state).isEqualTo(DecisionState.DELIVERED)
+                assertThat(harness.store.timerRows().filter { it.kind == TimerKind.PREFETCH }.map { it.decisionKey })
+                    .containsExactly("v1|R2|D|2026-10-02|17:00")
+            },
+            Vector("D1", "a late run within the lateness still evaluates; past slot + 30 min it is MISSED(TOO_LATE)") {
+                val harness = r2(int(2_999, AT_1631), at = "2026-10-01T17:29")
+                harness.timer()
+                assertThat(harness.row(KEY).state).isEqualTo(DecisionState.DELIVERED)
 
-    @Test
-    fun `D5 no sync arrives - U at 17_00, 17_10 and 17_20, row UNKNOWN at 17_20 and no notification`() = runTest {
-        val harness = r2(steps = stale(2_800, F0.local("2026-10-01T16:15")))
+                val late = r2(int(2_999, AT_1631), at = "2026-10-01T17:31")
+                late.timer()
+                assertThat(late.row(KEY).state).isEqualTo(DecisionState.MISSED)
+                assertThat(late.row(KEY).reason).isEqualTo(ReasonCode.TOO_LATE)
+                assertThat(late.delivery.posts).isEmpty()
+            },
+            Vector("O1", "daily_at 02:30 on 2026-03-29 in Berlin (gap) runs at 03:30+02:00 (01:30Z), key D|2026-03-29|02:30") {
+                val rule = Rules.rule("O1", Trigger.DailyAt(listOf("02:30")), createdAt = Instant.parse("2026-03-28T12:00:00Z"))
+                val harness = F0.harness(Instant.parse("2026-03-29T00:00:00Z"), rule)
 
-        assertThat(harness.run().status).isEqualTo(DailyAtStatus.RETRY)
-        harness.clock.advanceTo(F0.local("2026-10-01T17:10"))
-        val second = harness.run()
-        assertThat(second.status).isEqualTo(DailyAtStatus.RETRY)
-        assertThat(second.pass!!.retryAt).isEqualTo(F0.local("2026-10-01T17:20"))
-        harness.clock.advanceTo(F0.local("2026-10-01T17:20"))
-        val third = harness.run()
+                harness.runTimerUntil(Instant.parse("2026-03-29T03:00:00Z"))
 
-        assertThat(third.status).isEqualTo(DailyAtStatus.EVALUATED)
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.UNKNOWN)
-        assertThat(harness.store.row(key)!!.decisionPointAt).isEqualTo(F0.local("2026-10-01T17:20"))
-        assertThat(harness.delivery.posts).isEmpty()
-    }
+                val row = harness.row("v1|O1|D|2026-03-29|02:30")
+                assertThat(row.state).isEqualTo(DecisionState.DELIVERED)
+                assertThat(row.decisionPointAt).isEqualTo(Instant.parse("2026-03-29T01:30:00Z"))
+                assertThat(harness.store.rows()).hasSize(1)
+            },
+            Vector("O2", "daily_at 02:30 on 2026-10-25 in Berlin (overlap) runs at 02:30+02:00 (00:30Z) and not again at 01:30Z") {
+                val rule = Rules.rule("O2", Trigger.DailyAt(listOf("02:30")), createdAt = Instant.parse("2026-10-24T12:00:00Z"))
+                val harness = F0.harness(Instant.parse("2026-10-24T23:00:00Z"), rule)
 
-    @Test
-    fun `D6 no step interval today - Missing(NO_DATA), row UNKNOWN after the retries`() = runTest {
-        val harness = r2(steps = missing(MissingReason.NO_DATA))
+                val reports = harness.runTimerUntil(Instant.parse("2026-10-25T03:00:00Z"))
 
-        assertThat(harness.run().status).isEqualTo(DailyAtStatus.RETRY)
-        harness.clock.advanceTo(F0.local("2026-10-01T17:10"))
-        assertThat(harness.run().status).isEqualTo(DailyAtStatus.RETRY)
-        harness.clock.advanceTo(F0.local("2026-10-01T17:20"))
-        harness.run()
-
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.UNKNOWN)
-    }
-
-    @Test
-    fun `a missing value a sync cannot fix (no permission) writes UNKNOWN at once`() = runTest {
-        val harness = r2(steps = missing(MissingReason.NO_PERMISSION))
-
-        assertThat(harness.run().status).isEqualTo(DailyAtStatus.EVALUATED)
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.UNKNOWN)
-    }
-
-    @Test
-    fun `D7 a true zero is a value - known 0 is DELIVERED`() = runTest {
-        val harness = r2(steps = int(0, F0.local("2026-10-01T16:59")))
-
-        harness.run()
-
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.DELIVERED)
-        assertThat(harness.delivery.posts.single().body).isEqualTo("Only 0 steps so far today.")
-    }
-
-    @Test
-    fun `D9 steps_today gte 3000 with stale 3,200 from today is T`() = runTest {
-        val harness = F0.harness(F0.local("2026-10-01T17:00"), Rules.R2.copy(conditions = Leaves.gte(Leaves.STEPS, 3_000)))
-        harness.features.set(Leaves.STEPS, stale(3_200, F0.local("2026-10-01T16:15")))
-
-        harness.run()
-
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.DELIVERED)
-    }
-
-    // -- worker timing (red team lifecycle-battery-04) ------------------------------------------------------------------
-
-    @Test
-    fun `a worker that wakes more than 2 minutes early re-plans the slot and exits`() = runTest {
-        val harness = r2(at = "2026-10-01T16:57", steps = int(100, F0.local("2026-10-01T16:50")))
-
-        val report = harness.run()
-
-        assertThat(report.status).isEqualTo(DailyAtStatus.TOO_EARLY)
-        assertThat(report.replan!!.runAt).isEqualTo(F0.local("2026-10-01T17:00"))
-        assertThat(report.replan!!.uniqueName).isEqualTo("jitai-at-R2-20261001-1700")
-        assertThat(harness.store.rows()).isEmpty()
-    }
-
-    @Test
-    fun `within 2 minutes before the slot the worker evaluates`() = runTest {
-        val harness = r2(at = "2026-10-01T16:58", steps = int(100, F0.local("2026-10-01T16:50")))
-
-        assertThat(harness.run().status).isEqualTo(DailyAtStatus.EVALUATED)
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.DELIVERED)
-    }
-
-    @Test
-    fun `a worker later than maxLateness writes MISSED(TOO_LATE) and plans the next date`() = runTest {
-        val harness = r2(at = "2026-10-01T17:31", steps = int(100, F0.local("2026-10-01T16:50")))
-
-        val report = harness.run()
-
-        assertThat(report.status).isEqualTo(DailyAtStatus.MISSED)
-        val row = harness.store.row(key)!!
-        assertThat(row.state).isEqualTo(DecisionState.MISSED)
-        assertThat(row.reason).isEqualTo(ReasonCode.TOO_LATE)
-        assertThat(row.reasonDetail).isEqualTo("late=1860s")
-        assertThat(row.decisionPointAt).isEqualTo(F0.local("2026-10-01T17:00"))
-        assertThat(report.replan!!.runAt).isEqualTo(F0.local("2026-10-02T17:00"))
-    }
-
-    @Test
-    fun `a run for a removed time, an unknown JITAI or a paused one is NOT_SCHEDULED`() = runTest {
-        val harness = r2(steps = int(100, F0.local("2026-10-01T16:50")))
-
-        assertThat(harness.engine.runDailyAt("R2", date, "18:00").getOrThrow().status).isEqualTo(DailyAtStatus.NOT_SCHEDULED)
-        assertThat(harness.engine.runDailyAt("nope", date, "17:00").getOrThrow().status).isEqualTo(DailyAtStatus.NOT_SCHEDULED)
-        harness.repository.update("R2") { it.copy(status = dev.agentle.jitai.dsl.model.JitaiStatus.PAUSED) }
-        assertThat(harness.run().status).isEqualTo(DailyAtStatus.NOT_SCHEDULED)
-        assertThat(harness.store.rows()).isEmpty()
-    }
-
-    @Test
-    fun `a daily_at slot outside the active window is logged OUTSIDE_WINDOW and writes no row`() = runTest {
-        val harness = F0.harness(F0.local("2026-10-01T17:00"), Rules.R2.copy(activeWindow = ActiveWindow("18:00", "22:00")))
-        harness.features.set(Leaves.STEPS, int(100, F0.local("2026-10-01T16:50")))
-
-        val report = harness.run()
-
-        assertThat(report.status).isEqualTo(DailyAtStatus.OUTSIDE_WINDOW)
-        assertThat(harness.store.evalLog().single().outcome).isEqualTo(EvalOutcome.OUTSIDE_WINDOW)
-        assertThat(harness.store.row(key)).isNull()
-    }
-
-    @Test
-    fun `a second run of a resolved slot is a no-op`() = runTest {
-        val harness = r2(steps = int(100, F0.local("2026-10-01T16:50")))
-        harness.run()
-        harness.clock.advanceBy(5.minutes)
-
-        val again = harness.run()
-
-        assertThat(again.pass!!.written).isEmpty()
-        assertThat(harness.delivery.posts).hasSize(1)
-    }
-
-    // -- §12.O daily_at vectors -----------------------------------------------------------------------------------------
-
-    private val at0230 = Rules.R2.copy(id = "N", trigger = Trigger.DailyAt(listOf("02:30"), maxLatenessMinutes = 30), conditions = null)
-
-    @Test
-    fun `O1 daily_at 02_30 on the spring gap day runs at 03_30+02_00 (01_30Z) with key D 2026-03-29 02_30`() = runTest {
-        val plan = SchedulePlanner.plan(listOf(at0230), Instant.parse("2026-03-28T12:00:00Z"), F0.BERLIN, F0.SETTINGS.tickProfile)
-        val work = plan.work.single { it.input is WorkInput.DailyAt }
-        assertThat(work.runAt).isEqualTo(Instant.parse("2026-03-29T01:30:00Z"))
-        assertThat(work.uniqueName).isEqualTo("jitai-at-N-20260329-0230")
-
-        val harness = F0.harness(Instant.parse("2026-03-29T01:30:00Z"), at0230)
-        val report = harness.engine.runDailyAt("N", LocalDate.parse("2026-03-29"), "02:30").getOrThrow()
-
-        assertThat(report.slotAt).isEqualTo(Instant.parse("2026-03-29T01:30:00Z"))
-        assertThat(harness.store.row("v1|N|D|2026-03-29|02:30")!!.state).isEqualTo(DecisionState.DELIVERED)
-    }
-
-    @Test
-    fun `O2 daily_at 02_30 on the autumn overlap runs once at 00_30Z, nothing at the second 02_30 (01_30Z)`() = runTest {
-        val edited = Instant.parse("2026-10-24T12:00:00Z")
-        val harness = F0.harness(Instant.parse("2026-10-25T00:30:00Z"), at0230.copy(createdAt = edited, modifiedAt = edited))
-        val day = LocalDate.parse("2026-10-25")
-
-        val first = harness.engine.runDailyAt("N", day, "02:30").getOrThrow()
-        harness.clock.advanceTo(Instant.parse("2026-10-25T01:30:00Z"))
-        val second = harness.engine.runDailyAt("N", day, "02:30").getOrThrow()
-        val plan = harness.engine.plan(RescheduleSignal.PROCESS_START).getOrThrow().plan
-
-        assertThat(first.slotAt).isEqualTo(Instant.parse("2026-10-25T00:30:00Z"))
-        assertThat(second.pass!!.written).isEmpty()
-        assertThat(harness.delivery.posts).hasSize(1)
-        assertThat(plan.work.map { it.uniqueName }).containsExactly("jitai-at-N-20261026-0230")
-        assertThat(plan.missed).isEmpty()
-    }
-
-    @Test
-    fun `O6 westward - R2 delivered in Berlin at 15_00Z, at 17_00 New York (21_00Z) the used key prevents a second delivery`() = runTest {
-        val harness = r2(steps = int(100, F0.local("2026-10-01T16:50")))
-        harness.run()
-        assertThat(harness.store.row(key)!!.state).isEqualTo(DecisionState.DELIVERED)
-
-        harness.clock.advanceTo(Instant.parse("2026-10-01T18:00:00Z"))
-        harness.clock.setZone(F0.NEW_YORK)
-        val plan = harness.engine.plan(RescheduleSignal.TIMEZONE_CHANGED).getOrThrow().plan
-        harness.clock.advanceTo(Instant.parse("2026-10-01T21:00:00Z"))
-        val stale = harness.run()
-
-        assertThat(plan.cancelTags).containsExactly(SchedulePlanner.TAG_AT, SchedulePlanner.TAG_PREFETCH)
-        assertThat(plan.work.filter { it.input is WorkInput.DailyAt }.map { it.uniqueName }).containsExactly("jitai-at-R2-20261002-1700")
-        assertThat(stale.pass!!.written).isEmpty()
-        assertThat(harness.delivery.posts).hasSize(1)
-    }
-
-    @Test
-    fun `O7 eastward - 07_00 Berlin is 60 min late at the zone change - MISSED, next run 2026-10-04 07_00+02_00`() = runTest {
-        val at0700 = Rules.R2.copy(id = "M", trigger = Trigger.DailyAt(listOf("07:00"), maxLatenessMinutes = 30), conditions = null)
-        val harness = EngineHarness(Instant.parse("2026-10-02T22:00:00Z"), F0.NEW_YORK, listOf(at0700), F0.SETTINGS)
-        harness.seedCounted(
-            "M",
-            Instant.parse("2026-10-02T11:00:00Z"),
-            key = DecisionKeys.dailyAt("M", LocalDate.parse("2026-10-02"), "07:00"),
+                val row = harness.row("v1|O2|D|2026-10-25|02:30")
+                assertThat(row.decisionPointAt).isEqualTo(Instant.parse("2026-10-25T00:30:00Z"))
+                assertThat(harness.store.rows()).hasSize(1)
+                assertThat(harness.delivery.posts).hasSize(1)
+                assertThat(reports.mapNotNull { it.pass }.flatMap { it.written }).hasSize(1)
+            },
         )
-
-        harness.clock.advanceTo(Instant.parse("2026-10-03T06:00:00Z"))
-        harness.clock.setZone(F0.BERLIN)
-        val report = harness.engine.plan(RescheduleSignal.TIMEZONE_CHANGED).getOrThrow()
-
-        assertThat(report.plan.missed.single().decisionKey).isEqualTo("v1|M|D|2026-10-03|07:00")
-        assertThat(harness.store.row("v1|M|D|2026-10-03|07:00")!!.state).isEqualTo(DecisionState.MISSED)
-        assertThat(harness.store.row("v1|M|D|2026-10-03|07:00")!!.reason).isEqualTo(ReasonCode.TOO_LATE)
-        assertThat(report.plan.work.single { it.input is WorkInput.DailyAt }.runAt).isEqualTo(Instant.parse("2026-10-04T05:00:00Z"))
-    }
-
-    @Test
-    fun `O7 with daily_at 07_45 the slot is 15 min late at the zone change and is evaluated immediately`() = runTest {
-        val at0745 = Rules.R2.copy(id = "M", trigger = Trigger.DailyAt(listOf("07:45"), maxLatenessMinutes = 30), conditions = null)
-        val harness = EngineHarness(Instant.parse("2026-10-02T22:00:00Z"), F0.NEW_YORK, listOf(at0745), F0.SETTINGS)
-        harness.features.set("device_interactive", FeatureValue.Known(FeatureScalar.BoolValue(true), F0.CREATED))
-        harness.seedCounted(
-            "M",
-            Instant.parse("2026-10-02T11:45:00Z"),
-            key = DecisionKeys.dailyAt("M", LocalDate.parse("2026-10-02"), "07:45"),
-        )
-
-        harness.clock.advanceTo(Instant.parse("2026-10-03T06:00:00Z"))
-        harness.clock.setZone(F0.BERLIN)
-        val plan = harness.engine.plan(RescheduleSignal.TIMEZONE_CHANGED).getOrThrow().plan
-        val catchUp = plan.work.single { it.runAt == Instant.parse("2026-10-03T06:00:00Z") }
-        val input = catchUp.input as WorkInput.DailyAt
-        val report = harness.engine.runDailyAt("M", input.date, input.time).getOrThrow()
-
-        assertThat(plan.missed).isEmpty()
-        assertThat(input.date).isEqualTo(LocalDate.parse("2026-10-03"))
-        assertThat(report.status).isEqualTo(DailyAtStatus.EVALUATED)
-        assertThat(harness.store.row("v1|M|D|2026-10-03|07:45")!!.state).isEqualTo(DecisionState.DELIVERED)
     }
 }

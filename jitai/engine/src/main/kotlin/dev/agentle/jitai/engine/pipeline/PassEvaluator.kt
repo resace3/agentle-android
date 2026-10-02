@@ -80,6 +80,17 @@ public object PassEvaluator {
     }
 
     /**
+     * What the claim re-reads live (jitai-correctness-12): `device_interactive` (G06), the state an event implied and the
+     * references of every effective SUPPRESSION rule (G08).
+     */
+    public fun liveRefs(implied: ImpliedState?, suppressions: List<JitaiDefinition>): Set<FeatureRef> {
+        val refs = linkedSetOf(INTERACTIVE)
+        implied?.let { refs += it.ref }
+        suppressions.forEach { refs += RuleRefs.of(it.conditions) }
+        return refs
+    }
+
+    /**
      * The SUPPRESSION rules that block at the snapshot's instant (R10 §6.5): window open and `K3(conditions)` TRUE or
      * UNKNOWN. Evaluated once per pass with the SUPPRESSION polarity table for `onUnknown`.
      */
@@ -147,7 +158,7 @@ public object PassEvaluator {
         val unknownLeaves = tree.nodes.filter { it.feature != null && it.result == Tri.UNKNOWN }
         if (unknownLeaves.isEmpty()) return null
         val retryable = unknownLeaves.all { node ->
-            val remote = when (RealtimeFeatureCatalog[node.feature!!]?.freshness) {
+            val remote = when (node.feature?.let { RealtimeFeatureCatalog[it] }?.freshness) {
                 is Freshness.SourceLag, Freshness.DailyValue -> true
                 else -> false
             }

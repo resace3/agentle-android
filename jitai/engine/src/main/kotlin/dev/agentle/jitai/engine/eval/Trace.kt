@@ -4,15 +4,19 @@ import dev.agentle.analytics.features.FeatureScalar
 import dev.agentle.analytics.features.FeatureValue
 import dev.agentle.analytics.features.MissingReason
 import dev.agentle.analytics.features.Quality
+import dev.agentle.core.model.DataCategory
 import dev.agentle.jitai.dsl.rule.ClockTime
 import dev.agentle.jitai.dsl.rule.OnUnknown
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
 
-/** How a leaf's feature value looked in the snapshot. */
+/**
+ * How a leaf's feature value looked in the snapshot. DELETED replaces the value once the user deleted its data category
+ * ([dev.agentle.jitai.engine.content.CategoryScrubber], jitai-correctness-19).
+ */
 @Serializable
-public enum class ValueState { KNOWN, STALE, MISSING, NOT_RESOLVED }
+public enum class ValueState { KNOWN, STALE, MISSING, NOT_RESOLVED, DELETED }
 
 /** The value part of a leaf trace (R10 §6.7): state, scalar as text, reason and `asOf`. */
 @Serializable
@@ -25,6 +29,9 @@ public data class TraceValue(
 ) {
     public companion object {
         public val NOT_RESOLVED: TraceValue = TraceValue(ValueState.NOT_RESOLVED)
+
+        /** The marker that replaces a value of a deleted data category. */
+        public val DELETED: TraceValue = TraceValue(ValueState.DELETED)
 
         public fun of(value: FeatureValue): TraceValue = when (value) {
             is FeatureValue.Known -> TraceValue(ValueState.KNOWN, display(value.value), asOf = value.asOf, quality = value.quality)
@@ -66,8 +73,9 @@ public enum class TraceNote {
 
 /**
  * One evaluated node (R10 §6.7): its JSON-pointer [path] (`""` for the root, `/of/0` for the first child), wire [type]
- * and [result]; leaves add the feature, args, value, literals and whether the monotone lower bound or an `onUnknown`
- * override decided the result.
+ * and [result]; leaves add the feature, its data [category] (`FeatureDefinition.category`, null for clock and calendar
+ * features; jitai-correctness-19), args, value, literals and whether the monotone lower bound or an `onUnknown` override
+ * decided the result.
  */
 @Serializable
 public data class TraceNode(
@@ -75,6 +83,7 @@ public data class TraceNode(
     val type: String,
     val result: Tri,
     val feature: String? = null,
+    val category: DataCategory? = null,
     val args: Map<String, String>? = null,
     val value: TraceValue? = null,
     val literals: List<String>? = null,

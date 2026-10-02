@@ -143,6 +143,7 @@ public class RuleEvaluator(private val catalog: (String) -> FeatureDefinition? =
             type = leaf.operator.wire,
             result = raw.result,
             feature = leaf.feature,
+            category = catalog(leaf.feature)?.category,
             args = leaf.args.takeIf { it.isNotEmpty() }?.toSortedMap(),
             value = raw.value,
             literals = leaf.literals.map { it.json },
@@ -168,6 +169,10 @@ public class RuleEvaluator(private val catalog: (String) -> FeatureDefinition? =
         val definition = catalog(leaf.feature) ?: return Raw(note = TraceNote.UNKNOWN_FEATURE)
         if (!TypedLiterals.isAllowed(definition.type, leaf.operator)) return Raw(note = TraceNote.OPERATOR_NOT_ALLOWED)
         val literals = typedLiterals(definition, leaf) ?: return Raw(note = TraceNote.INVALID_LITERAL)
+        return valued(definition, leaf, literals, context)
+    }
+
+    private fun valued(definition: FeatureDefinition, leaf: Condition.FeatureLeaf, literals: List<TypedLiteral>, context: Context): Raw {
         val value = context.snapshot[leaf.ref] ?: return Raw(value = TraceValue.NOT_RESOLVED)
         val traced = TraceValue.of(value)
         return when (value) {
@@ -195,14 +200,16 @@ public class RuleEvaluator(private val catalog: (String) -> FeatureDefinition? =
         traced: TraceValue,
         context: Context,
     ): Raw {
-        if (!definition.monotoneNonDecreasing) return Raw(value = traced)
-        val zone = context.zone ?: return Raw(value = traced, note = TraceNote.INVALID_ZONE)
-        if (value.asOf.toLocalDateTime(zone).date != context.local?.date) return Raw(value = traced, note = TraceNote.STALE_OTHER_DAY)
-        val bound = (value.lastValue as? FeatureScalar.IntValue)?.value ?: return Raw(value = traced, note = TraceNote.TYPE_MISMATCH)
+        val zone = context.zone
+        val bound = (value.lastValue as? FeatureScalar.IntValue)?.value
         val ints = literals.mapNotNull { (it.scalar as? FeatureScalar.IntValue)?.value }
-        if (ints.size != literals.size) return Raw(value = traced, note = TraceNote.TYPE_MISMATCH)
-        val result = lowerBound(operator, bound, ints)
-        return Raw(result, traced, lowerBound = result != Tri.UNKNOWN)
+        return when {
+            !definition.monotoneNonDecreasing -> Raw(value = traced)
+            zone == null -> Raw(value = traced, note = TraceNote.INVALID_ZONE)
+            value.asOf.toLocalDateTime(zone).date != context.local?.date -> Raw(value = traced, note = TraceNote.STALE_OTHER_DAY)
+            bound == null || ints.size != literals.size -> Raw(value = traced, note = TraceNote.TYPE_MISMATCH)
+            else -> lowerBound(operator, bound, ints).let { Raw(it, traced, lowerBound = it != Tri.UNKNOWN) }
+        }
     }
 
     public companion object {

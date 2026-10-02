@@ -3,238 +3,221 @@ package dev.agentle.jitai.engine.schedule
 import dev.agentle.analytics.features.Freshness
 import dev.agentle.analytics.features.RealtimeFeatureCatalog
 import dev.agentle.jitai.dsl.model.JitaiDefinition
+import dev.agentle.jitai.dsl.model.JitaiEventType
+import dev.agentle.jitai.dsl.model.SnoozeMode
 import dev.agentle.jitai.dsl.model.Trigger
+import dev.agentle.jitai.dsl.rule.ClockTime
 import dev.agentle.jitai.engine.decision.DecisionKeys
-import dev.agentle.jitai.engine.decision.ReasonCode
 import dev.agentle.jitai.engine.eval.RuleRefs
+import dev.agentle.jitai.engine.ports.JitaiRuntimeState
 import dev.agentle.jitai.engine.ports.TickProfile
+import dev.agentle.jitai.engine.time.MonotonicStamp
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.minus
 import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
-/** What a planned one-time work runs. The background team maps these to WorkManager requests. */
-public sealed interface WorkInput {
-    /** Evaluate the `daily_at` slot ([date], [time]) of [jitaiId]. */
-    public data class DailyAt(val jitaiId: String, val date: LocalDate, val time: String) : WorkInput
-
-    /** Sync [featureIds]' sources ahead of a `daily_at` slot (R10 §7.4 prefetch; network constraint). */
-    public data class Prefetch(val jitaiId: String, val date: LocalDate, val time: String, val featureIds: Set<String>) : WorkInput
-
-    /** Run the `RE_EVALUATE_AFTER` follow-up of the snoozed decision [originalKey] (R10 §9.5). */
-    public data class SnoozeFollowUp(val jitaiId: String, val originalKey: String) : WorkInput
-
-    /** Run the event worker again (debounced or newly arrived events, red team lifecycle-battery-05). */
-    public data object EventsFollowUp : WorkInput
-}
-
-/** How an enqueue treats an existing unique work of the same name. */
-public enum class WorkPolicy { KEEP, REPLACE }
-
-/** One unique one-time work to enqueue at [runAt] (now or earlier means "run now"). */
-public data class PlannedWork(
-    val uniqueName: String,
-    val tags: Set<String>,
-    val runAt: Instant,
-    val input: WorkInput,
-    val policy: WorkPolicy,
-)
-
-/**
- * The periodic `jitai-tick` (R10 §7.4): exists only while an effective `interval` rule exists. [nextRunOverride] is the
- * `setNextScheduleTimeOverride` instant that skips inactive windows (null: keep the normal period).
- */
-public data class TickPlan(val periodMinutes: Int, val flexMinutes: Int, val nextRunOverride: Instant?) {
-    public val uniqueName: String get() = TICK_NAME
-
-    public companion object {
-        public const val TICK_NAME: String = "jitai-tick"
-    }
-}
-
-/** A scheduled slot that will never run on time: resolve it as MISSED (insert-if-absent). */
-public data class MissedSlot(val jitaiId: String, val decisionKey: String, val slotAt: Instant, val reason: ReasonCode)
-
-/** A rule whose interval is shorter than the tick period (red team lifecycle-battery-11): reported, never silent. */
-public data class CadenceIssue(val jitaiId: String, val everyMinutes: Int, val tickMinutes: Int)
-
 /** A rule none of whose trigger events can be observed now (red team lifecycle-battery-06/07). */
-public data class UnavailableTrigger(val jitaiId: String, val unavailable: Set<dev.agentle.jitai.dsl.model.JitaiEventType>)
+public data class UnavailableTrigger(val jitaiId: String, val unavailable: Set<JitaiEventType>)
 
-/** Why the schedule is being recomputed (R10 §7.5; red team lifecycle-battery-04). */
-public enum class RescheduleSignal {
-    PROCESS_START,
-    BOOT_COMPLETED,
-    TIMEZONE_CHANGED,
-    TIME_SET,
-    PACKAGE_REPLACED,
-    PROFILE_CHANGED,
-    DEFINITION_CHANGED,
-}
-
-/** Everything the background team must schedule or cancel. [cancelTags] are cancelled before [work] is enqueued. */
-public data class SchedulePlan(
-    val cancelTags: Set<String>,
-    val tick: TickPlan?,
-    val work: List<PlannedWork>,
-    val missed: List<MissedSlot>,
-    val cadenceIssues: List<CadenceIssue>,
-    val unavailableTriggers: List<UnavailableTrigger>,
+/**
+ * What the pure planner reads besides the clock.
+ *
+ * @property usedKeys the subset of [SchedulePlanner.candidateKeys] that already has a decision row.
+ * @property existing the timer table as stored (deferrals, fired prefetches, outcome rows and the backstop survive).
+ * @property runtimes runtime state by JITAI id (snooze follow-ups and debounced events).
+ * @property backstopMinutes the BACKSTOP period: the collection profile's tick (jitai-correctness-10).
+ */
+public data class PlanInput(
+    val definitions: List<JitaiDefinition>,
+    val usedKeys: Set<String> = emptySet(),
+    val existing: List<TimerRow> = emptyList(),
+    val runtimes: Map<String, JitaiRuntimeState> = emptyMap(),
+    val backstopMinutes: Int = TickProfile.BALANCED.tickMinutes,
+    val listenerConnected: Boolean = true,
 )
 
 /**
- * The pure scheduling planner (R10 §7.4-7.6): what to schedule, never how. WorkManager specifics (expedited or not,
- * constraints, the `UPDATE` policy of the tick) are the background team's.
+ * The rebuilt timer table.
+ *
+ * @property intervalCadenceMinutes `min(everyMinutes)` (>= 15) of the effective interval rules: how often interval slots
+ *   are due, independent of the collection profile (jitai-correctness-09); null without interval rules.
+ */
+public data class TimerPlan(
+    val reason: ReplanReason,
+    val rows: List<TimerRow>,
+    val unavailableTriggers: List<UnavailableTrigger>,
+    val intervalCadenceMinutes: Int?,
+) {
+    /** Where the `jitai-timer` work must aim next: the minimum `dueAt` (null: nothing to wake for). */
+    public val nextDueAt: Instant? get() = rows.minOfOrNull { it.dueAt }
+}
+
+/**
+ * The pure scheduling planner (jitai-correctness-04/05/07/09/10): the complete timer table for the current definitions
+ * at a given instant and zone. WorkManager specifics are the background team's: it keeps one unique one-time work
+ * [TIMER_WORK] aimed at [TimerPlan.nextDueAt].
+ *
+ * - SLOT rows: every `daily_at` occurrence of yesterday and today that no evaluation resolved (due now; the evaluator
+ *   evaluates it within `maxLatenessMinutes` or resolves it as MISSED), the next occurrence of every time, and for every
+ *   `interval` rule the slots no evaluation reached, the current slot and the start of the first later slot whose key is
+ *   unused. Slots outside the active window are never planned. A deferred row keeps its later `dueAt` while its key and
+ *   version are unchanged.
+ * - PREFETCH rows: 10 minutes before a `daily_at` slot whose rule reads remote health data, planned once per slot.
+ * - SNOOZE rows: the pending `RE_EVALUATE_AFTER` follow-up of each JITAI, at its snooze end on the monotonic clock.
+ * - OUTCOME rows: kept as they are while their JITAI exists.
+ * - BACKSTOP: while an event or interval rule is effective, every [PlanInput.backstopMinutes], earlier when a debounced
+ *   event becomes due.
  */
 public object SchedulePlanner {
-    public const val TAG_AT: String = "jitai-at"
-    public const val TAG_PREFETCH: String = "jitai-prefetch"
+    public const val TIMER_WORK: String = "jitai-timer"
+
+    /** Points due within this window of the earliest one are evaluated together and arbitrated (jitai-correctness-05). */
+    public val COALESCE: Duration = 2.minutes
+
     public const val PREFETCH_LEAD_MINUTES: Int = 10
-    private const val MIN_FLEX_MINUTES = 5
-    private const val FLEX_DIVISOR = 3
+
+    /** The shortest interval cadence (R10 §3.2: `everyMinutes` is a multiple of 15). Shorter stored values plan nothing. */
+    public const val MIN_INTERVAL_MINUTES: Int = 15
+
+    /** How long after its start an interval slot may still be deferred (never past the slot's end). */
+    public const val INTERVAL_LATENESS_MINUTES: Int = Trigger.DEFAULT_MAX_LATENESS_MINUTES
+
     private const val LOOKAHEAD_DAYS = 3
 
-    /** The tag every unit of work of one JITAI carries, so an edit or a disable cancels all of it. */
-    public fun jitaiTag(jitaiId: String): String = "jitai:$jitaiId"
-
-    /**
-     * The full plan at [now]. [signal] decides what is cancelled first: a zone change or a manual clock change cancels
-     * every `daily_at` and prefetch work by tag and re-plans it in the current zone; a definition change cancels that
-     * JITAI's work ([changedJitaiId]). [usedKeys] (decision keys already resolved) only avoids pointless runs: a run for
-     * a used key is a no-op anyway.
-     */
-    public fun plan(
+    /** The decision keys [replan] needs to look up (whether each is used decides which rows exist). */
+    public fun candidateKeys(
         definitions: List<JitaiDefinition>,
         now: Instant,
         zone: TimeZone,
-        profile: TickProfile,
-        signal: RescheduleSignal = RescheduleSignal.PROCESS_START,
-        changedJitaiId: String? = null,
-        usedKeys: Set<String> = emptySet(),
-        listenerConnected: Boolean = true,
-    ): SchedulePlan {
-        val effective = definitions.filter { Effectiveness.isIntervention(it) && Effectiveness.isEffective(it, now) }
-        val dailyAt = effective.filter { it.trigger is Trigger.DailyAt }
-        val work = mutableListOf<PlannedWork>()
-        val missed = mutableListOf<MissedSlot>()
-        dailyAt.forEach { definition ->
-            val trigger = definition.trigger as Trigger.DailyAt
-            trigger.times.distinct().forEach { time ->
-                val (planned, lost) = planDailyAt(definition, time, now, zone, usedKeys)
-                work += planned
-                missed += lost
+        runtimes: Map<String, JitaiRuntimeState> = emptyMap(),
+    ): Set<String> {
+        val keys = linkedSetOf<String>()
+        val today = now.toLocalDateTime(zone).date
+        planned(definitions).forEach { definition ->
+            when (val trigger = definition.trigger) {
+                is Trigger.DailyAt -> validTimes(trigger).forEach { time ->
+                    for (offset in -1..LOOKAHEAD_DAYS) {
+                        keys +=
+                            DecisionKeys.dailyAt(definition.id, today.plus(offset, DateTimeUnit.DAY), time)
+                    }
+                }
+
+                is Trigger.Interval -> intervalSlots(definition, now, zone).forEach { keys += it.key(definition.id) }
+
+                else -> Unit
             }
         }
-        val cancelTags = when (signal) {
-            RescheduleSignal.TIMEZONE_CHANGED, RescheduleSignal.TIME_SET -> setOf(TAG_AT, TAG_PREFETCH)
-            RescheduleSignal.DEFINITION_CHANGED -> setOfNotNull(changedJitaiId?.let(::jitaiTag))
-            else -> emptySet()
+        runtimes.values.forEach { runtime ->
+            runtime.followUpOf?.let { keys += DecisionKeys.snoozeFollowUp(runtime.jitaiId, it) }
         }
-        return SchedulePlan(
-            cancelTags = cancelTags,
-            tick = tickPlan(effective, now, zone, profile, afterCurrentSlot = false),
-            work = work,
-            missed = missed,
-            cadenceIssues = cadenceIssues(effective, profile),
-            unavailableTriggers = unavailableTriggers(effective, listenerConnected),
+        return keys
+    }
+
+    /** The pure re-plan: every timer row from the current definitions at [now] in [zone] (jitai-correctness-04). */
+    public fun replan(reason: ReplanReason, now: MonotonicStamp, zone: TimeZone, input: PlanInput): TimerPlan {
+        val wall = now.wall
+        val effective = planned(input.definitions)
+        val existing = input.existing.associateBy { it.key }
+        val rows = mutableListOf<TimerRow>()
+        effective.forEach { definition ->
+            when (definition.trigger) {
+                is Trigger.DailyAt -> rows += dailyAtRows(definition, wall, zone, input.usedKeys, existing)
+                is Trigger.Interval -> rows += intervalRows(definition, wall, zone, input.usedKeys)
+                else -> Unit
+            }
+        }
+        // After a system broadcast the stored wall instants may name other moments: deferrals and the backstop start over.
+        val merged = rows.distinctBy { it.key }.map { if (reason.external) it else merge(it, existing[it.key]) }.toMutableList()
+        merged += snoozeRows(effective, now, input)
+        val known = input.definitions.mapTo(hashSetOf()) { it.id }
+        merged += input.existing.filter { it.kind == TimerKind.OUTCOME && it.jitaiId in known }
+        backstop(effective, now, input, keepStored = !reason.external)?.let { merged += it }
+        return TimerPlan(
+            reason = reason,
+            rows = merged.distinctBy { it.key }.sortedWith(compareBy<TimerRow>({ it.dueAt }, { it.key })),
+            unavailableTriggers = unavailableTriggers(effective, input.listenerConnected),
+            intervalCadenceMinutes = intervalCadence(effective),
         )
     }
 
-    /**
-     * The tick for [definitions] (null when no effective `interval` rule exists). When the next interval slot is further
-     * away than one period (outside every active window), the override moves the next run to it (R10 §7.4).
-     * [afterCurrentSlot] is true at the end of a tick, whose own slots are resolved.
-     */
-    public fun tickPlan(
-        definitions: List<JitaiDefinition>,
-        now: Instant,
-        zone: TimeZone,
-        profile: TickProfile,
-        afterCurrentSlot: Boolean,
-    ): TickPlan? {
-        val interval = definitions.filter {
-            it.trigger is Trigger.Interval && Effectiveness.isIntervention(it) && Effectiveness.isEffective(it, now)
-        }
-        if (interval.isEmpty()) return null
-        val period = profile.tickMinutes
-        val next = interval.mapNotNull { nextDue(it, now, zone, afterCurrentSlot) }.minOrNull()
-        val override = next?.takeIf { it - now > period.minutes }
-        return TickPlan(period, maxOf(MIN_FLEX_MINUTES, period / FLEX_DIVISOR), override)
-    }
-
-    /** The next instant an interval slot of [definition] is due: now inside a window, else the next instance start. */
-    public fun nextDue(definition: JitaiDefinition, now: Instant, zone: TimeZone, afterCurrentSlot: Boolean): Instant? {
-        if (definition.trigger !is Trigger.Interval) return null
-        val current = IntervalSlots.currentSlot(definition, now, zone)
-            ?: return IntervalSlots.nextInstance(definition, now, zone)?.start
-        return when {
-            !afterCurrentSlot -> now
-            current.end < current.instance.end -> current.end
-            else -> IntervalSlots.nextInstance(definition, current.instance.end - 1.milliseconds, zone)?.start
-        }
-    }
-
-    /** Rules whose interval is shorter than the profile's tick period (lifecycle-battery-11): their extra slots become MISSED. */
-    public fun cadenceIssues(definitions: List<JitaiDefinition>, profile: TickProfile): List<CadenceIssue> = definitions.mapNotNull {
-        val trigger = it.trigger as? Trigger.Interval ?: return@mapNotNull null
-        if (trigger.everyMinutes < profile.tickMinutes) CadenceIssue(it.id, trigger.everyMinutes, profile.tickMinutes) else null
-    }
+    /** `min(everyMinutes)` of [definitions]' interval rules, at least 15 (jitai-correctness-09). */
+    public fun intervalCadence(definitions: List<JitaiDefinition>): Int? = definitions
+        .mapNotNull { (it.trigger as? Trigger.Interval)?.everyMinutes?.takeIf { minutes -> minutes >= MIN_INTERVAL_MINUTES } }
+        .minOrNull()
 
     /** Event rules none of whose event types can be observed now. */
     public fun unavailableTriggers(definitions: List<JitaiDefinition>, listenerConnected: Boolean): List<UnavailableTrigger> =
         definitions.mapNotNull {
             val trigger = it.trigger as? Trigger.Event ?: return@mapNotNull null
             val unavailable = trigger.events.filter { type ->
-                EventPolicy.availability(type, listenerConnected) ==
-                    EventAvailability.UNAVAILABLE
+                EventPolicy.availability(type, listenerConnected) == EventAvailability.UNAVAILABLE
             }
-            if (unavailable.isNotEmpty() &&
-                unavailable.size == trigger.events.distinct().size
-            ) {
+            if (unavailable.isNotEmpty() && unavailable.size == trigger.events.distinct().size) {
                 UnavailableTrigger(it.id, unavailable.toSet())
             } else {
                 null
             }
         }
 
+    /** The wall instant at which [stamp] falls when seen from [now] (same boot: by elapsed time; otherwise its wall time). */
+    public fun wallOf(stamp: MonotonicStamp, now: MonotonicStamp): Instant =
+        if (stamp.sameBootAs(now)) now.wall + (stamp.elapsedMillis - now.elapsedMillis).milliseconds else stamp.wall
+
+    /** The remote health features a rule reads (a sync can refresh them): `SourceLag` and `DailyValue` freshness. */
+    public fun remoteFeatures(definition: JitaiDefinition): Set<String> = RuleRefs.of(definition).map { it.featureId }.filter { id ->
+        when (RealtimeFeatureCatalog[id]?.freshness) {
+            is Freshness.SourceLag, Freshness.DailyValue -> true
+            else -> false
+        }
+    }.toSortedSet()
+
     /**
-     * Work for one `daily_at` time (red team lifecycle-battery-04): a catch-up run now for a recent unresolved slot that is
-     * still within `maxLatenessMinutes`, MISSED for one past it, then the next future occurrence (per-date unique name,
-     * tags `jitai:<id>` and `jitai-at`) and its prefetch when the rule reads remote health data.
+     * The INTERVENTION rules that get rows: armed ones. A rule past `expiresAt` keeps its rows until its status moves to
+     * EXPIRED, so its next point is resolved as SUPPRESSED(EXPIRED) by G02 and the status change happens (R10 §12.M2/N7).
      */
-    public fun planDailyAt(
+    private fun planned(definitions: List<JitaiDefinition>): List<JitaiDefinition> =
+        definitions.filter { Effectiveness.isIntervention(it) && Effectiveness.isArmed(it) }
+
+    private fun validTimes(trigger: Trigger.DailyAt): List<String> = trigger.times.distinct().filter { ClockTime.isValid(it) }
+
+    private fun dailyAtRows(
         definition: JitaiDefinition,
-        time: String,
         now: Instant,
         zone: TimeZone,
-        usedKeys: Set<String> = emptySet(),
-    ): Pair<List<PlannedWork>, List<MissedSlot>> {
-        val trigger = definition.trigger as? Trigger.DailyAt ?: return emptyList<PlannedWork>() to emptyList()
+        used: Set<String>,
+        existing: Map<String, TimerRow>,
+    ): List<TimerRow> {
+        val trigger = definition.trigger as Trigger.DailyAt
         val today = now.toLocalDateTime(zone).date
-        val work = mutableListOf<PlannedWork>()
-        val missed = mutableListOf<MissedSlot>()
-        listOf(today.plus(-1, DateTimeUnit.DAY), today).forEach { date ->
-            val slot = DailyAtSlots.slotInstant(date, time, zone) ?: return@forEach
-            val key = DecisionKeys.dailyAt(definition.id, date, time)
-            if (slot > now || key in usedKeys || slot < definition.modifiedAt) return@forEach
-            if (now - slot <= trigger.maxLatenessMinutes.minutes) {
-                work += dailyAtWork(definition.id, date, time, runAt = now)
-            } else {
-                missed += MissedSlot(definition.id, key, slot, ReasonCode.TOO_LATE)
+        val rows = mutableListOf<TimerRow>()
+        validTimes(trigger).forEach { time ->
+            listOf(today.minus(1, DateTimeUnit.DAY), today).forEach { date ->
+                val slot = DailyAtSlots.slotInstant(date, time, zone) ?: return@forEach
+                val key = DecisionKeys.dailyAt(definition.id, date, time)
+                val unresolved = slot <= now && key !in used && slot >= definition.modifiedAt
+                if (unresolved && Effectiveness.windowOpen(definition, slot, zone)) {
+                    rows += slotRow(definition, key, TimerSlot.DailyAt(date, time), slot)
+                }
+            }
+            nextOccurrence(definition, time, now, zone, used)?.let { (date, slot) ->
+                val key = DecisionKeys.dailyAt(definition.id, date, time)
+                val timerSlot = TimerSlot.DailyAt(date, time)
+                rows += slotRow(definition, key, timerSlot, slot)
+                prefetchRow(definition, key, timerSlot, slot, now, existing)?.let { rows += it }
             }
         }
-        nextOccurrence(definition, time, now, zone, usedKeys)?.let { (date, slot) ->
-            work += dailyAtWork(definition.id, date, time, runAt = slot)
-            prefetch(definition, date, time, slot, now)?.let { work += it }
-        }
-        return work to missed
+        return rows
     }
 
-    /** The first date from today whose slot is after [now] and whose key is unused, with its slot instant. */
+    /** The first date from today whose slot is after [now], inside the active window and whose key is unused. */
     public fun nextOccurrence(
         definition: JitaiDefinition,
         time: String,
@@ -246,46 +229,127 @@ public object SchedulePlanner {
         return (0..LOOKAHEAD_DAYS).asSequence()
             .map { today.plus(it, DateTimeUnit.DAY) }
             .mapNotNull { date -> DailyAtSlots.slotInstant(date, time, zone)?.let { date to it } }
-            .firstOrNull { (date, slot) -> slot > now && DecisionKeys.dailyAt(definition.id, date, time) !in usedKeys }
+            .firstOrNull { (date, slot) ->
+                slot > now &&
+                    DecisionKeys.dailyAt(definition.id, date, time) !in usedKeys &&
+                    Effectiveness.windowOpen(definition, slot, zone)
+            }
+    }
+
+    private fun intervalSlots(definition: JitaiDefinition, now: Instant, zone: TimeZone): List<IntervalSlot> {
+        val trigger = definition.trigger as? Trigger.Interval ?: return emptyList()
+        if (trigger.everyMinutes < MIN_INTERVAL_MINUTES) return emptyList()
+        val current = IntervalSlots.currentSlot(definition, now, zone)
+        return IntervalSlots.unreached(definition, now, zone, notBefore = definition.modifiedAt) +
+            listOfNotNull(current) + upcoming(definition, current, now, zone)
     }
 
     /**
-     * The occurrence a `daily_at` worker for ([date], [time]) plans before it evaluates: the next date's slot in the
-     * current zone (red team lifecycle-battery-04).
+     * Every unresolved slot that already started (backfilled as MISSED or evaluated now) and the first future slot whose
+     * key is unused: after the wall clock moved back or the zone changed, the next slots may already be resolved
+     * (R10 §12.O10b, O14), so the row aims at the first one that is not.
      */
-    public fun nextAfterRun(definition: JitaiDefinition, date: LocalDate, time: String, now: Instant, zone: TimeZone): PlannedWork? {
-        val next = (1..LOOKAHEAD_DAYS + 1).asSequence()
-            .map { date.plus(it, DateTimeUnit.DAY) }
-            .mapNotNull { d -> DailyAtSlots.slotInstant(d, time, zone)?.let { d to it } }
-            .firstOrNull { (_, slot) -> slot > now } ?: return null
-        return dailyAtWork(definition.id, next.first, time, runAt = next.second)
+    private fun intervalRows(definition: JitaiDefinition, now: Instant, zone: TimeZone, used: Set<String>): List<TimerRow> {
+        val (future, started) = intervalSlots(definition, now, zone).filter { it.key(definition.id) !in used }.partition { it.start > now }
+        return (started + listOfNotNull(future.firstOrNull()))
+            .map { slotRow(definition, it.key(definition.id), TimerSlot.Interval(it.instance.startDate, it.index), it.start) }
     }
 
-    /** One `daily_at` work unit. */
-    public fun dailyAtWork(jitaiId: String, date: LocalDate, time: String, runAt: Instant): PlannedWork = PlannedWork(
-        uniqueName = DailyAtSlots.uniqueName(jitaiId, date, time),
-        tags = setOf(jitaiTag(jitaiId), TAG_AT),
-        runAt = runAt,
-        input = WorkInput.DailyAt(jitaiId, date, time),
-        policy = WorkPolicy.REPLACE,
+    /** The slots after [current] to the end of its window instance, then the first slot of the next instance. */
+    private fun upcoming(definition: JitaiDefinition, current: IntervalSlot?, now: Instant, zone: TimeZone): List<IntervalSlot> {
+        val every = (definition.trigger as Trigger.Interval).everyMinutes
+        val rest = current?.let { IntervalSlots.slots(it.instance, every).drop(it.index + 1) }.orEmpty()
+        val after = current?.let { it.instance.end - 1.milliseconds } ?: now
+        val next = IntervalSlots.nextInstance(definition, after, zone)?.let { IntervalSlots.slots(it, every).firstOrNull() }
+        return rest + listOfNotNull(next)
+    }
+
+    private fun slotRow(definition: JitaiDefinition, key: String, slot: TimerSlot, dueAt: Instant): TimerRow = TimerRow(
+        key = TimerKeys.slot(key),
+        kind = TimerKind.SLOT,
+        dueAt = dueAt,
+        jitaiId = definition.id,
+        version = definition.version,
+        slot = slot,
+        decisionKey = key,
     )
 
-    private fun prefetch(definition: JitaiDefinition, date: LocalDate, time: String, slot: Instant, now: Instant): PlannedWork? {
-        val remote = RuleRefs.of(definition).map { it.featureId }.filter { id ->
-            when (RealtimeFeatureCatalog[id]?.freshness) {
-                is Freshness.SourceLag, Freshness.DailyValue -> true
-                else -> false
-            }
-        }.toSet()
-        if (remote.isEmpty()) return null
-        val runAt = slot - PREFETCH_LEAD_MINUTES.minutes
-        if (runAt <= now) return null
-        return PlannedWork(
-            uniqueName = DailyAtSlots.prefetchName(definition.id, date, time),
-            tags = setOf(jitaiTag(definition.id), TAG_PREFETCH),
-            runAt = runAt,
-            input = WorkInput.Prefetch(definition.id, date, time, remote),
-            policy = WorkPolicy.REPLACE,
+    /**
+     * One prefetch per slot: not planned again once the slot row exists without its prefetch (it already fired). A stored
+     * prefetch row that is already due is kept until the timer handles it; a past one is never planned anew.
+     */
+    private fun prefetchRow(
+        definition: JitaiDefinition,
+        key: String,
+        slot: TimerSlot,
+        slotAt: Instant,
+        now: Instant,
+        existing: Map<String, TimerRow>,
+    ): TimerRow? {
+        val remote = remoteFeatures(definition)
+        val at = slotAt - PREFETCH_LEAD_MINUTES.minutes
+        val prefetchKey = TimerKeys.prefetch(key)
+        val stored = prefetchKey in existing
+        val fired = existing[TimerKeys.slot(key)]?.version == definition.version && !stored
+        if (remote.isEmpty() || fired || (at <= now && !stored)) return null
+        return TimerRow(
+            key = prefetchKey,
+            kind = TimerKind.PREFETCH,
+            dueAt = at,
+            jitaiId = definition.id,
+            version = definition.version,
+            slot = slot,
+            decisionKey = key,
+            featureIds = remote,
         )
+    }
+
+    /** A deferred SLOT row keeps its later `dueAt` and its deferral count while its key and version are unchanged. */
+    private fun merge(planned: TimerRow, existing: TimerRow?): TimerRow {
+        if (existing == null || existing.kind != planned.kind || existing.version != planned.version || existing.deferrals == 0) {
+            return planned
+        }
+        return planned.copy(dueAt = maxOf(planned.dueAt, existing.dueAt), deferrals = existing.deferrals)
+    }
+
+    private fun snoozeRows(effective: List<JitaiDefinition>, now: MonotonicStamp, input: PlanInput): List<TimerRow> {
+        val byId = effective.associateBy { it.id }
+        return input.runtimes.values.mapNotNull { runtime ->
+            val original = runtime.followUpOf
+            val until = runtime.snoozedUntil
+            val definition = byId[runtime.jitaiId]
+            if (original == null || until == null || definition == null || runtime.snoozeMode != SnoozeMode.RE_EVALUATE_AFTER) {
+                return@mapNotNull null
+            }
+            val followUp = DecisionKeys.snoozeFollowUp(definition.id, original)
+            if (followUp in input.usedKeys) return@mapNotNull null
+            TimerRow(
+                key = TimerKeys.snooze(followUp),
+                kind = TimerKind.SNOOZE,
+                dueAt = wallOf(until, now),
+                jitaiId = definition.id,
+                version = definition.version,
+                decisionKey = followUp,
+                originalKey = original,
+            )
+        }
+    }
+
+    /**
+     * The BACKSTOP row. A stored one keeps its `dueAt`, even when overdue, until the evaluator handles and deletes it, so a
+     * late run still drains the events; [keepStored] is false after a system broadcast, which starts a new period.
+     */
+    private fun backstop(effective: List<JitaiDefinition>, now: MonotonicStamp, input: PlanInput, keepStored: Boolean): TimerRow? {
+        if (effective.none { it.trigger is Trigger.Event || it.trigger is Trigger.Interval }) return null
+        val stored = input.existing.firstOrNull { it.kind == TimerKind.BACKSTOP }?.dueAt?.takeIf { keepStored }
+        val regular = stored ?: (now.wall + input.backstopMinutes.coerceAtLeast(MIN_INTERVAL_MINUTES).minutes)
+        val byId = effective.associateBy { it.id }
+        val debounced = input.runtimes.values.mapNotNull { runtime ->
+            val trigger = byId[runtime.jitaiId]?.trigger as? Trigger.Event ?: return@mapNotNull null
+            val last = runtime.lastEventEvaluation
+            if (runtime.pendingEvent == null || last == null) return@mapNotNull null
+            wallOf(last + trigger.debounceSeconds.coerceAtLeast(0).seconds, now)
+        }
+        return TimerRow(TimerKeys.BACKSTOP, TimerKind.BACKSTOP, (debounced + regular).min())
     }
 }

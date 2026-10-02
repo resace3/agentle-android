@@ -25,3 +25,9 @@ kover {
         }
     }
 }
+
+// testing-build-04: the engine reads zones only from its clock, never the JVM default, so the tests run under a default
+// zone that no fixture uses (America/St_Johns, UTC-3:30 with DST).
+tasks.withType<Test>().configureEach {
+    systemProperty("user.timezone", "America/St_Johns")
+}

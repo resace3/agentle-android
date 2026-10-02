@@ -1,12 +1,11 @@
 package dev.agentle.jitai.engine.delivery
 
-import dev.agentle.analytics.features.FeatureSnapshot
-import dev.agentle.analytics.features.FeatureValue
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Logger
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.common.getOrNull
 import dev.agentle.core.common.outcomeOf
+import dev.agentle.jitai.dsl.codec.RuleCodec
 import dev.agentle.jitai.dsl.model.ContentStrategy
 import dev.agentle.jitai.dsl.model.DeliveryChannel
 import dev.agentle.jitai.dsl.model.JitaiDefinition
@@ -15,31 +14,43 @@ import dev.agentle.jitai.engine.content.ContentRef
 import dev.agentle.jitai.engine.content.ContentRenderer
 import dev.agentle.jitai.engine.content.DefaultPlaceholderFormatter
 import dev.agentle.jitai.engine.content.RenderedIntervention
+import dev.agentle.jitai.engine.content.StoredSnapshots
 import dev.agentle.jitai.engine.decision.DecisionRecord
 import dev.agentle.jitai.engine.decision.DecisionState
-import dev.agentle.jitai.engine.decision.ImpliedState
 import dev.agentle.jitai.engine.decision.ReasonCode
+import dev.agentle.jitai.engine.decision.TriggerKind
+import dev.agentle.jitai.engine.eval.RuleEvaluator
+import dev.agentle.jitai.engine.eval.Tri
+import dev.agentle.jitai.engine.gates.GateEvaluator
+import dev.agentle.jitai.engine.gates.GateInput
 import dev.agentle.jitai.engine.pipeline.DeliveryResult
+import dev.agentle.jitai.engine.pipeline.PassEvaluator
 import dev.agentle.jitai.engine.pipeline.RecoveryReport
+import dev.agentle.jitai.engine.ports.DecisionTransaction
+import dev.agentle.jitai.engine.ports.DeliveryPrerequisite
 import dev.agentle.jitai.engine.ports.EngineSettings
+import dev.agentle.jitai.engine.ports.InterruptionFilter
 import dev.agentle.jitai.engine.ports.NotificationSystemState
-import dev.agentle.jitai.engine.ports.PooledText
 import dev.agentle.jitai.engine.ports.PostResult
 import dev.agentle.jitai.engine.ports.PrepareResult
 import dev.agentle.jitai.engine.ports.PreparedDelivery
 import dev.agentle.jitai.engine.schedule.Effectiveness
 import dev.agentle.jitai.engine.time.EngineClock
+import dev.agentle.jitai.engine.time.EngineDays
 import dev.agentle.jitai.engine.time.MonotonicStamp
-import dev.agentle.jitai.engine.time.elapsedBetween
 import dev.agentle.jitai.engine.time.isBefore
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import kotlinx.datetime.TimeZone
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
 /** Constants of the delivery protocol (R10 §8.5). */
 public object DeliveryProtocol {
-    /** A claimed row is owned by its worker for this long; afterwards recovery decides by tag lookup. */
+    /** A claimed row is owned by its worker for this long (elapsed time within one boot); then recovery decides by tag. */
     public val LEASE: Duration = 2.minutes
 
     /** Downgrade reason when VOICE text cannot be synthesized (red team lifecycle-battery-18). */
@@ -48,106 +59,271 @@ public object DeliveryProtocol {
     /** Downgrade reason when an IMAGE or VIDEO asset cannot be prepared. */
     public const val MEDIA_UNAVAILABLE: String = "MEDIA_UNAVAILABLE"
 
-    /** Fail-closed notification state used when the live state cannot be read (G05 and G07 then block). */
-    public val UNKNOWN_NOTIFICATION_STATE: NotificationSystemState = NotificationSystemState(
-        permissionGranted = false,
-        appNotificationsEnabled = false,
-        interruptionFilter = dev.agentle.jitai.engine.ports.InterruptionFilter.UNKNOWN,
-        notificationListenerConnected = false,
-    )
+    /** Fail-closed live state used when the platform cannot be read (G07 then blocks). */
+    public val UNKNOWN_NOTIFICATION_STATE: NotificationSystemState =
+        NotificationSystemState(interruptionFilter = InterruptionFilter.UNKNOWN, notificationListenerConnected = false)
 }
 
+/** What a delivery reads besides its row: the current definitions by id, the effective settings and the pass zone. */
+public class DeliveryEnvironment(
+    public val definitions: Map<String, JitaiDefinition>,
+    public val settings: EngineSettings,
+    public val zone: TimeZone,
+)
+
 /**
- * The two-phase delivery protocol and crash recovery (R10 §8.5 with red team lifecycle-battery-05/18):
+ * The two-phase delivery protocol and crash recovery (R10 §8.5 with red team lifecycle-battery-05/18 and
+ * jitai-correctness-12/13):
  *
- * 1. Checks before the claim: the delivery deadline (EXPIRED), that the JITAI is still effective (CANCELLED) and, for
- *    event decisions, that the live state the event implied still holds (SUPPRESSED(STATE_CHANGED)).
- * 2. Content is chosen and rendered from the stored snapshot, and slow media (TTS) is prepared **before** the lease, with
- *    a downgrade to a plain notification when it is unavailable.
- * 3. Claim: conditional update DECIDED -> DELIVERING with the 2-minute lease and the content ref; zero rows changed means
- *    another worker owns the row.
- * 4. Notification permission and channel state are re-checked (FAILED(NOTIFICATIONS_BLOCKED)), then the notification is
- *    posted with `tag = decisionKey` and the row becomes DELIVERED.
+ * 1. Cheap checks first: the delivery deadline (EXPIRED), the JITAI still armed (CANCELLED(JITAI_DISABLED)) and still
+ *    at the decided version (CANCELLED(DEFINITION_CHANGED)).
+ * 2. While the row is still DECIDED: content is chosen and rendered from the stored snapshot (text, image, TTS), with a
+ *    downgrade to a plain notification when media is unavailable; then the live inputs of the claim are read (delivery
+ *    prerequisite, interruption filter, a fresh snapshot for the implied state, `device_interactive` and the
+ *    SUPPRESSION rules).
+ * 3. The claim is one transaction: it re-reads the row and the definition and re-evaluates G01-G08 and the implied
+ *    state. It writes DELIVERING with a 2-minute lease (elapsed time and boot count) only when everything passes;
+ *    otherwise CANCELLED (G01, version), SUPPRESSED (G02-G08, STATE_CHANGED), CARD_PENDING (notifications blocked with
+ *    the in-app card fallback on) or EXPIRED (deadline).
+ * 4. The post with `tag = decisionKey`, then DELIVERED. A worker cancelled between the claim and the post reverts its
+ *    claim (DELIVERING -> DECIDED) in a non-cancellable step; one cancelled during the post leaves the row to recovery.
  *
- * Recovery handles DECIDED rows (continue or expire) and DELIVERING rows whose lease expired: an active notification with
- * the tag means DELIVERED (`deliveredAt = claimedAt`, recovered); otherwise DELIVERY_UNCERTAIN, never re-posted and still
- * counted. Port failures leave the row where it is, so a later run retries within the deadline.
+ * Recovery continues or expires DECIDED rows, resolves DELIVERING rows whose lease expired by looking up the tag (an
+ * active notification means DELIVERED, recovered; otherwise DELIVERY_UNCERTAIN, never re-posted and still counted) and
+ * expires in-app cards that were not displayed in time. Port failures leave the row where it is, so a later run retries
+ * within the deadline.
  */
 public class DeliveryCoordinator(
     private val ports: EnginePorts,
     private val clock: EngineClock,
     private val logger: Logger = Logger.NONE,
+    private val evaluator: RuleEvaluator = RuleEvaluator(),
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
-
-    /** Delivers the DECIDED row [record]. [definitions] are the current definitions by id. */
-    public suspend fun deliver(
-        record: DecisionRecord,
-        definitions: Map<String, JitaiDefinition>,
-        settings: EngineSettings,
-    ): DeliveryResult {
+    /** Delivers the DECIDED row [record]. */
+    public suspend fun deliver(record: DecisionRecord, env: DeliveryEnvironment): DeliveryResult {
         if (record.state != DecisionState.DECIDED) return DeliveryResult.Skipped(record.decisionKey, record.state)
-        val definition = definitions[record.jitaiId]
-        val deadline = deadlineOf(definition)
         val start = clock.now()
-        if (elapsedBetween(record.decided, start) > deadline) return end(record, DecisionState.EXPIRED, ReasonCode.DEADLINE_PASSED, start)
-        if (definition == null || !Effectiveness.isEffective(definition, start.wall)) {
-            return end(record, DecisionState.CANCELLED, ReasonCode.JITAI_DISABLED, start)
+        val definition = env.definitions[record.jitaiId]
+        val ended = when {
+            deadlinePassed(record, definition, start) -> DecisionState.EXPIRED to ReasonCode.DEADLINE_PASSED
+            definition == null || !Effectiveness.isArmed(definition) -> DecisionState.CANCELLED to ReasonCode.JITAI_DISABLED
+            definition.version != record.jitaiVersion -> DecisionState.CANCELLED to ReasonCode.DEFINITION_CHANGED
+            else -> null
         }
-        record.impliedState?.let { implied ->
-            val holds = impliedHolds(implied, start) ?: return DeliveryResult.Error(record.decisionKey, "implied_state_unreadable")
-            if (!holds) return end(record, DecisionState.SUPPRESSED, ReasonCode.STATE_CHANGED, start)
+        if (ended != null || definition == null) {
+            val (state, reason) = ended ?: (DecisionState.CANCELLED to ReasonCode.JITAI_DISABLED)
+            return end(record, state, reason, start)
         }
-        val rendered = render(record, definition, settings, start)
+        return renderAndClaim(record, definition, env, start)
+    }
+
+    /** Renders while DECIDED (text, image, speech), then claims only around the post (jitai-correctness-12). */
+    private suspend fun renderAndClaim(
+        record: DecisionRecord,
+        definition: JitaiDefinition,
+        env: DeliveryEnvironment,
+        start: MonotonicStamp,
+    ): DeliveryResult {
+        val rendered = render(record, definition, env, start)
         val prepared = prepare(rendered) ?: return DeliveryResult.Error(record.decisionKey, "prepare_failed")
-        return claimAndPost(record, definition, deadline, prepared)
+        val live = live(record, definition, env, clock.now())
+        if (live == null) {
+            discard(prepared)
+            return DeliveryResult.Error(record.decisionKey, "live_state_unreadable")
+        }
+        return claimAndPost(record, definition, env, prepared, live)
+    }
+
+    /** The live inputs of the claim (jitai-correctness-12/13), read outside the transaction. */
+    private class Live(
+        val prerequisite: DeliveryPrerequisite,
+        val filter: InterruptionFilter,
+        val interactive: Tri,
+        val impliedHolds: Boolean,
+        val suppressedBy: List<String>,
+    )
+
+    /** What the claim transaction decided. */
+    private sealed interface Claim {
+        data class Claimed(val row: DecisionRecord) : Claim
+
+        data class Ended(val state: DecisionState, val reason: ReasonCode) : Claim
+
+        data class Lost(val state: DecisionState?) : Claim
+    }
+
+    private suspend fun live(record: DecisionRecord, definition: JitaiDefinition, env: DeliveryEnvironment, now: MonotonicStamp): Live? {
+        val prerequisite = outcomeOf(mapError = { AppError.Unexpected("prerequisite:${it::class.simpleName}") }) {
+            ports.delivery.prerequisite(definition.category).getOrNull()
+        }.getOrNull() ?: DeliveryPrerequisite.UNKNOWN
+        val filter = ports.settings.notificationState().getOrNull()?.interruptionFilter ?: InterruptionFilter.UNKNOWN
+        val suppressions = PassEvaluator.suppressions(env.definitions.values.toList(), now.wall)
+        val refs = PassEvaluator.liveRefs(record.impliedState, suppressions)
+        val snapshot = outcomeOf(mapError = { AppError.Unexpected("live:${it::class.simpleName}") }) {
+            ports.features.resolve(refs, now.wall)
+        }.getOrNull() ?: return null
+        val blocking = PassEvaluator.blocking(suppressions, snapshot, env.zone, evaluator)
+        return Live(
+            prerequisite = prerequisite,
+            filter = filter,
+            interactive = PassEvaluator.interactive(snapshot),
+            impliedHolds = record.impliedState?.let { PassEvaluator.impliedHolds(it, snapshot) } ?: true,
+            suppressedBy = PassEvaluator.blockers(definition, blocking),
+        )
     }
 
     private suspend fun claimAndPost(
         record: DecisionRecord,
         definition: JitaiDefinition,
-        deadline: Duration,
+        env: DeliveryEnvironment,
         prepared: PreparedDelivery,
+        live: Live,
     ): DeliveryResult {
         val key = record.decisionKey
-        val now = clock.now()
-        if (elapsedBetween(record.decided, now) > deadline) {
+        val generation = ports.store.engineState().getOrNull()?.dbGeneration
+        if (generation == null) {
             discard(prepared)
-            return end(record, DecisionState.EXPIRED, ReasonCode.DEADLINE_PASSED, now)
+            return DeliveryResult.Error(key, "engine_state_unreadable")
         }
-        val claimed = record.copy(
+        val now = clock.now()
+        // The claim always completes, so the worker knows whether it owns the row (jitai-correctness-12).
+        val result = withContext(NonCancellable) {
+            ports.store.commit(generation) { tx -> claim(tx, record, definition, env, prepared, live, now) }
+        }
+        val claim = when (result) {
+            is Outcome.Failure -> {
+                discard(prepared)
+                return DeliveryResult.Error(key, result.error.code)
+            }
+
+            is Outcome.Success -> result.value
+        }
+        return when (claim) {
+            is Claim.Claimed -> post(record, claim.row, prepared, env)
+
+            is Claim.Ended -> {
+                discard(prepared)
+                DeliveryResult.Ended(key, claim.state, claim.reason)
+            }
+
+            is Claim.Lost -> {
+                discard(prepared)
+                DeliveryResult.Skipped(key, claim.state)
+            }
+        }
+    }
+
+    /** The claim transaction: re-reads the row and the definition and re-evaluates G01-G08 and the implied state. */
+    private suspend fun claim(
+        tx: DecisionTransaction,
+        record: DecisionRecord,
+        definition: JitaiDefinition,
+        env: DeliveryEnvironment,
+        prepared: PreparedDelivery,
+        live: Live,
+        now: MonotonicStamp,
+    ): Claim {
+        val current = tx.decision(record.decisionKey) ?: return Claim.Lost(null)
+        if (current.state != DecisionState.DECIDED) return Claim.Lost(current.state)
+        val state = tx.definitionState(record.jitaiId)
+        val checks = GateEvaluator.liveChecks(
+            GateInput(
+                definition = definition,
+                definitionState = state,
+                channel = current.channel,
+                now = now,
+                zone = env.zone,
+                runtime = tx.runtime(record.jitaiId),
+                settings = env.settings,
+                interruptionFilter = live.filter,
+                deliveryReady = live.prerequisite.met,
+                interactive = live.interactive,
+                suppressedBy = live.suppressedBy,
+                snoozeFollowUp = current.triggerKind == TriggerKind.SNOOZE_FOLLOW_UP,
+            ),
+        )
+        val failure = checks.firstOrNull { !it.passed }
+        val ended: Pair<DecisionState, ReasonCode>? = when {
+            deadlinePassed(current, definition, now) -> DecisionState.EXPIRED to ReasonCode.DEADLINE_PASSED
+
+            failure?.gate == ReasonCode.NOT_EFFECTIVE -> DecisionState.CANCELLED to ReasonCode.JITAI_DISABLED
+
+            state != null && state.version != current.jitaiVersion -> DecisionState.CANCELLED to ReasonCode.DEFINITION_CHANGED
+
+            failure?.gate == ReasonCode.NOTIFICATIONS_BLOCKED && env.settings.inAppCards ->
+                DecisionState.CARD_PENDING to ReasonCode.NOTIFICATIONS_BLOCKED
+
+            failure != null -> DecisionState.SUPPRESSED to failure.gate
+
+            !live.impliedHolds -> DecisionState.SUPPRESSED to ReasonCode.STATE_CHANGED
+
+            else -> null
+        }
+        if (ended != null) {
+            val (target, reason) = ended
+            val updated = current.copy(
+                state = target,
+                reason = reason,
+                reasonDetail = failure?.takeIf { it.gate == reason }?.detail,
+                claimed = if (target == DecisionState.CARD_PENDING) now else current.claimed,
+                finishedAt = if (target.isFinal) now.wall else current.finishedAt,
+                content = current.content.copy(contentRef = prepared.intervention.contentRef.encoded),
+            )
+            return if (tx.compareAndSet(DecisionState.DECIDED, updated)) Claim.Ended(target, reason) else Claim.Lost(current.state)
+        }
+        val claimed = current.copy(
             state = DecisionState.DELIVERING,
             claimed = now,
             leaseUntil = now + DeliveryProtocol.LEASE,
-            content = record.content.copy(contentRef = prepared.intervention.contentRef.encoded),
+            content = current.content.copy(contentRef = prepared.intervention.contentRef.encoded),
         )
-        when (val claim = ports.store.compareAndSet(DecisionState.DECIDED, claimed)) {
-            is Outcome.Failure -> {
-                discard(prepared)
-                return DeliveryResult.Error(key, claim.error.code)
+        return if (tx.compareAndSet(DecisionState.DECIDED, claimed)) Claim.Claimed(claimed) else Claim.Lost(current.state)
+    }
+
+    private suspend fun post(
+        original: DecisionRecord,
+        claimed: DecisionRecord,
+        prepared: PreparedDelivery,
+        env: DeliveryEnvironment,
+    ): DeliveryResult {
+        var posting = false
+        try {
+            currentCoroutineContext().ensureActive()
+            posting = true
+            val posted = outcomeOf(mapError = { AppError.Unexpected("post:${it::class.simpleName}") }) { ports.delivery.post(prepared) }
+            return withContext(NonCancellable) { afterPost(claimed, prepared, posted, env) }
+        } catch (e: CancellationException) {
+            // Cancelled before the post: undo the claim so the next run delivers (jitai-correctness-12). Cancelled during
+            // the post: the notification may exist, so the row stays DELIVERING and recovery decides by tag.
+            if (!posting) withContext(NonCancellable) { revert(original) }
+            throw e
+        }
+    }
+
+    private suspend fun afterPost(
+        claimed: DecisionRecord,
+        prepared: PreparedDelivery,
+        posted: Outcome<PostResult>,
+        env: DeliveryEnvironment,
+    ): DeliveryResult = when (posted) {
+        // The row stays DELIVERING; recovery after the lease decides by tag lookup (R10 §8.5).
+        is Outcome.Failure -> DeliveryResult.Error(claimed.decisionKey, posted.error.detail ?: posted.error.code)
+
+        is Outcome.Success -> when (val result = posted.value) {
+            PostResult.Posted -> delivered(claimed, prepared.intervention)
+
+            PostResult.Blocked -> {
+                val target = if (env.settings.inAppCards) DecisionState.CARD_PENDING else DecisionState.SUPPRESSED
+                finish(claimed, target, ReasonCode.NOTIFICATIONS_BLOCKED, null)
             }
 
-            is Outcome.Success -> if (!claim.value) {
-                discard(prepared)
-                return DeliveryResult.Skipped(key, ports.store.decision(key).getOrNull()?.state)
-            }
+            is PostResult.Failed -> finish(claimed, DecisionState.FAILED, ReasonCode.POST_FAILED, result.code)
         }
-        val notifications = ports.settings.notificationState().getOrNull() ?: DeliveryProtocol.UNKNOWN_NOTIFICATION_STATE
-        if (notifications.blocks(definition.category)) {
-            discard(prepared)
-            return finish(claimed, DecisionState.FAILED, ReasonCode.NOTIFICATIONS_BLOCKED, null)
-        }
-        val posted = outcomeOf(mapError = { AppError.Unexpected("post:${it::class.simpleName}") }) { ports.delivery.post(prepared) }
-        return when (posted) {
-            // The row stays DELIVERING; recovery after the lease decides by tag lookup (R10 §8.5).
-            is Outcome.Failure -> DeliveryResult.Error(key, posted.error.detail ?: posted.error.code)
+    }
 
-            is Outcome.Success -> when (val result = posted.value) {
-                PostResult.Posted -> delivered(claimed, prepared.intervention)
-                PostResult.Blocked -> finish(claimed, DecisionState.FAILED, ReasonCode.NOTIFICATIONS_BLOCKED, null)
-                is PostResult.Failed -> finish(claimed, DecisionState.FAILED, ReasonCode.POST_FAILED, result.code)
-            }
-        }
+    private suspend fun revert(original: DecisionRecord) {
+        ports.store.compareAndSet(DecisionState.DELIVERING, original.copy(state = DecisionState.DECIDED))
+            .onFailureLog("revert_claim")
     }
 
     private suspend fun delivered(claimed: DecisionRecord, intervention: RenderedIntervention): DeliveryResult {
@@ -169,19 +345,21 @@ public class DeliveryCoordinator(
     }
 
     /**
-     * Crash recovery (R10 §8.5): continues or expires DECIDED rows and resolves DELIVERING rows whose lease expired by
-     * looking up the notification tag. Rows still inside their lease are left to their worker.
+     * Crash recovery (R10 §8.5): continues or expires DECIDED rows, resolves DELIVERING rows whose lease expired by
+     * looking up the notification tag, and expires or cancels in-app cards. Rows still inside their lease are left to
+     * their worker.
      */
-    public suspend fun recover(definitions: Map<String, JitaiDefinition>, settings: EngineSettings): RecoveryReport {
+    public suspend fun recover(env: DeliveryEnvironment): RecoveryReport {
         val start = clock.now()
-        val rows = when (val found = ports.store.decisionsInStates(setOf(DecisionState.DECIDED, DecisionState.DELIVERING))) {
+        val rows = when (val found = ports.store.decisionsInStates(RECOVERED_STATES)) {
             is Outcome.Failure -> return RecoveryReport(start.wall, emptyList(), error = found.error.code)
             is Outcome.Success -> found.value.sortedBy { it.sequence }
         }
         val results = rows.map { row ->
             when (row.state) {
-                DecisionState.DECIDED -> deliver(row, definitions, settings)
-                else -> recoverClaimed(row)
+                DecisionState.DECIDED -> deliver(row, env)
+                DecisionState.DELIVERING -> recoverClaimed(row)
+                else -> recoverCard(row, env)
             }
         }
         return RecoveryReport(start.wall, results)
@@ -191,173 +369,183 @@ public class DeliveryCoordinator(
         val now = clock.now()
         val lease = row.leaseUntil
         if (lease != null && isBefore(now, lease)) return DeliveryResult.Skipped(row.decisionKey, row.state)
-        val active = outcomeOf(mapError = { AppError.Unexpected("is_active:${it::class.simpleName}") }) {
-            ports.delivery.isActive(row.notificationTag)
-        }
-        val isActive = when (active) {
+        val isActive = when (val active = isActive(row)) {
             is Outcome.Failure -> return DeliveryResult.Error(row.decisionKey, active.error.detail ?: active.error.code)
-
-            is Outcome.Success -> when (val inner = active.value) {
-                is Outcome.Failure -> return DeliveryResult.Error(row.decisionKey, inner.error.code)
-                is Outcome.Success -> inner.value
-            }
+            is Outcome.Success -> active.value
         }
         if (!isActive) return finish(row, DecisionState.DELIVERY_UNCERTAIN, ReasonCode.NOT_FOUND_AFTER_LEASE, null)
         val recovered = row.copy(state = DecisionState.DELIVERED, delivered = row.claimed ?: now, recovered = true)
         return when (val update = ports.store.compareAndSet(DecisionState.DELIVERING, recovered)) {
             is Outcome.Failure -> DeliveryResult.Error(row.decisionKey, update.error.code)
-
-            is Outcome.Success ->
-                if (update.value) {
-                    DeliveryResult.Delivered(
-                        row.decisionKey,
-                        recovered = true,
-                    )
-                } else {
-                    DeliveryResult.Skipped(row.decisionKey, null)
-                }
+            is Outcome.Success -> if (update.value) DeliveryResult.Delivered(row.decisionKey, recovered = true) else skipped(row)
         }
     }
 
-    /** Cancels the unclaimed DECIDED rows of [jitaiId] (disable, R10 §9.5 and §12.N6). */
-    public suspend fun cancelUnclaimed(jitaiId: String): List<DeliveryResult> {
-        val now = clock.now()
-        val rows = ports.store.decisionsInStates(setOf(DecisionState.DECIDED)).getOrNull().orEmpty().filter { it.jitaiId == jitaiId }
-        return rows.map { end(it, DecisionState.CANCELLED, ReasonCode.JITAI_DISABLED, now) }
+    /** Whether the notification tagged with [row]'s key is still shown; a thrown error becomes its class name only. */
+    private suspend fun isActive(row: DecisionRecord): Outcome<Boolean> {
+        val active = outcomeOf(mapError = { AppError.Unexpected("is_active:${it::class.simpleName}") }) {
+            ports.delivery.isActive(row.notificationTag)
+        }
+        return when (active) {
+            is Outcome.Failure -> active
+            is Outcome.Success -> active.value
+        }
     }
 
-    /** DECIDED -> [state] with [reason]. */
+    /** CARD_PENDING: cancelled when the JITAI is no longer armed, expired when not displayed in time (jitai-correctness-13). */
+    private suspend fun recoverCard(row: DecisionRecord, env: DeliveryEnvironment): DeliveryResult {
+        val now = clock.now()
+        val definition = env.definitions[row.jitaiId]
+        return when {
+            definition == null || !Effectiveness.isArmed(definition) -> end(row, DecisionState.CANCELLED, ReasonCode.JITAI_DISABLED, now)
+            !isBefore(now, cardExpiry(row, definition, env)) -> end(row, DecisionState.EXPIRED, ReasonCode.CARD_NOT_DISPLAYED, now)
+            else -> DeliveryResult.Skipped(row.decisionKey, row.state)
+        }
+    }
+
+    /**
+     * The in-app card [key] was displayed: CARD_PENDING -> DELIVERED (it now counts like a delivery, including the
+     * engagement backoff). A card past its expiry becomes EXPIRED instead.
+     */
+    public suspend fun displayCard(key: String, env: DeliveryEnvironment): DeliveryResult {
+        val row = ports.store.decision(key).getOrNull() ?: return DeliveryResult.Skipped(key, null)
+        if (row.state != DecisionState.CARD_PENDING) return DeliveryResult.Skipped(key, row.state)
+        val now = clock.now()
+        val definition = env.definitions[row.jitaiId]
+        if (definition != null && !isBefore(now, cardExpiry(row, definition, env))) {
+            return end(row, DecisionState.EXPIRED, ReasonCode.CARD_NOT_DISPLAYED, now)
+        }
+        val shown = row.copy(state = DecisionState.DELIVERED, delivered = now)
+        return when (val update = ports.store.compareAndSet(DecisionState.CARD_PENDING, shown)) {
+            is Outcome.Failure -> DeliveryResult.Error(key, update.error.code)
+            is Outcome.Success -> if (update.value) DeliveryResult.Delivered(key, recovered = false) else skipped(row)
+        }
+    }
+
+    /**
+     * Cancels the unclaimed rows (DECIDED and CARD_PENDING) of [jitaiId] (R10 §9.5, §12.N6; jitai-correctness-16): all of
+     * them with JITAI_DISABLED when [currentVersion] is null (disabled or deleted), else those of another version with
+     * DEFINITION_CHANGED.
+     */
+    public suspend fun cancelUnclaimed(jitaiId: String, currentVersion: Int?): List<DeliveryResult> {
+        val now = clock.now()
+        val rows = ports.store.decisionsInStates(setOf(DecisionState.DECIDED, DecisionState.CARD_PENDING)).getOrNull().orEmpty()
+            .filter { it.jitaiId == jitaiId && (currentVersion == null || it.jitaiVersion != currentVersion) }
+        val reason = if (currentVersion == null) ReasonCode.JITAI_DISABLED else ReasonCode.DEFINITION_CHANGED
+        return rows.map { end(it, DecisionState.CANCELLED, reason, now) }
+    }
+
+    /** DECIDED or CARD_PENDING -> [state] with [reason]. */
     private suspend fun end(record: DecisionRecord, state: DecisionState, reason: ReasonCode, now: MonotonicStamp): DeliveryResult {
         val updated = record.copy(state = state, reason = reason, finishedAt = now.wall)
-        return when (val update = ports.store.compareAndSet(DecisionState.DECIDED, updated)) {
+        return when (val update = ports.store.compareAndSet(record.state, updated)) {
             is Outcome.Failure -> DeliveryResult.Error(record.decisionKey, update.error.code)
-
-            is Outcome.Success ->
-                if (update.value) {
-                    DeliveryResult.Ended(
-                        record.decisionKey,
-                        state,
-                        reason,
-                    )
-                } else {
-                    DeliveryResult.Skipped(record.decisionKey, null)
-                }
+            is Outcome.Success -> if (update.value) DeliveryResult.Ended(record.decisionKey, state, reason) else skipped(record)
         }
     }
 
     /** DELIVERING -> [state] with [reason]. */
     private suspend fun finish(claimed: DecisionRecord, state: DecisionState, reason: ReasonCode, detail: String?): DeliveryResult {
-        val updated = claimed.copy(state = state, reason = reason, reasonDetail = detail, finishedAt = clock.now().wall)
+        val now = clock.now()
+        val updated = claimed.copy(
+            state = state,
+            reason = reason,
+            reasonDetail = detail,
+            claimed = if (state == DecisionState.CARD_PENDING) now else claimed.claimed,
+            finishedAt = if (state.isFinal) now.wall else null,
+        )
         return when (val update = ports.store.compareAndSet(DecisionState.DELIVERING, updated)) {
             is Outcome.Failure -> DeliveryResult.Error(claimed.decisionKey, update.error.code)
-
-            is Outcome.Success ->
-                if (update.value) {
-                    DeliveryResult.Ended(
-                        claimed.decisionKey,
-                        state,
-                        reason,
-                    )
-                } else {
-                    DeliveryResult.Skipped(claimed.decisionKey, null)
-                }
+            is Outcome.Success -> if (update.value) DeliveryResult.Ended(claimed.decisionKey, state, reason) else skipped(claimed)
         }
     }
 
-    /**
-     * Whether the live value of [implied] still equals what the event implied (red team lifecycle-battery-05): only a
-     * Known equal value holds; a changed, stale or missing value does not. Null when the resolver failed unexpectedly.
-     */
-    private suspend fun impliedHolds(implied: ImpliedState, now: MonotonicStamp): Boolean? {
-        val snapshot = outcomeOf(mapError = { AppError.Unexpected("implied:${it::class.simpleName}") }) {
-            ports.features.resolve(setOf(implied.ref), now.wall)
-        }.getOrNull() ?: return null
-        val value = snapshot[implied.ref]
-        return value is FeatureValue.Known && value.value == implied.expected
-    }
+    private suspend fun skipped(row: DecisionRecord): DeliveryResult =
+        DeliveryResult.Skipped(row.decisionKey, ports.store.decision(row.decisionKey).getOrNull()?.state)
 
     private suspend fun render(
         record: DecisionRecord,
         definition: JitaiDefinition,
-        settings: EngineSettings,
+        env: DeliveryEnvironment,
         now: MonotonicStamp,
     ): RenderedIntervention {
+        val settings = env.settings
         val renderer = ContentRenderer(DefaultPlaceholderFormatter(settings.display))
         val pool = if (definition.content is ContentStrategy.AiText) {
-            ports.aiTexts.pooled(
-                definition.id,
-            ).getOrNull().orEmpty()
+            ports.aiTexts.pooled(RuleCodec.contentHash(definition)).getOrNull().orEmpty()
         } else {
             emptyList()
         }
         val previous = (ports.store.readSnapshot { it.countedCount(definition.id) }.getOrNull() ?: 1L) - 1L
         val ref = renderer.choose(definition, previous.coerceAtLeast(0), pool, record.content.snapshotHash, now.wall, settings.aiConsent)
-        val pooled: PooledText? = (ref as? ContentRef.AiPooled)?.let { chosen -> pool.firstOrNull { it.id == chosen.itemId } }
         return renderer.render(
             ContentRenderer.RenderInput(
                 definition = definition,
                 decisionKey = record.decisionKey,
                 channel = record.channel,
-                snapshot = record.content.snapshotJson?.let(::decodeSnapshot),
+                snapshot = record.content.snapshotJson?.let(StoredSnapshots::decode)?.toFeatureSnapshot(),
                 snapshotHash = record.content.snapshotHash,
                 ref = ref,
-                pooled = pooled,
+                pooled = (ref as? ContentRef.AiPooled)?.let { chosen -> pool.firstOrNull { it.id == chosen.itemId } },
                 nonce = record.nonce.orEmpty(),
                 now = now.wall,
                 consent = settings.aiConsent,
+                display = settings.display,
+                privacy = settings.notificationPrivacy,
             ),
         )
     }
 
-    /** Prepares media before the lease; downgrades VOICE, IMAGE and VIDEO to a plain notification when unavailable. */
+    /** Prepares media while DECIDED; downgrades VOICE, IMAGE and VIDEO to a plain notification when unavailable. */
     private suspend fun prepare(rendered: RenderedIntervention): PreparedDelivery? {
-        val first = outcomeOf(mapError = { AppError.Unexpected("prepare:${it::class.simpleName}") }) { ports.delivery.prepare(rendered) }
-            .getOrNull() ?: return null
+        val first = prepareOnce(rendered) ?: return null
         return when (first) {
             is PrepareResult.Ready -> first.prepared
 
             is PrepareResult.Unavailable -> {
                 if (rendered.channel == DeliveryChannel.NOTIFICATION) return PreparedDelivery(rendered)
-                val reason = if (rendered.channel ==
-                    DeliveryChannel.VOICE
-                ) {
-                    DeliveryProtocol.TTS_UNAVAILABLE
-                } else {
-                    DeliveryProtocol.MEDIA_UNAVAILABLE
-                }
+                val voice = rendered.channel == DeliveryChannel.VOICE
+                val reason = if (voice) DeliveryProtocol.TTS_UNAVAILABLE else DeliveryProtocol.MEDIA_UNAVAILABLE
                 val downgraded = rendered.downgraded(reason)
                 logger.w(COMPONENT, "delivery downgraded", fields = mapOf("reason" to reason, "code" to first.code))
-                val second = outcomeOf(mapError = {
-                    AppError.Unexpected("prepare:${it::class.simpleName}")
-                }) { ports.delivery.prepare(downgraded) }
-                    .getOrNull()
-                (second as? PrepareResult.Ready)?.prepared ?: PreparedDelivery(downgraded)
+                (prepareOnce(downgraded) as? PrepareResult.Ready)?.prepared ?: PreparedDelivery(downgraded)
             }
         }
     }
+
+    private suspend fun prepareOnce(rendered: RenderedIntervention): PrepareResult? =
+        outcomeOf(mapError = { AppError.Unexpected("prepare:${it::class.simpleName}") }) { ports.delivery.prepare(rendered) }.getOrNull()
 
     private suspend fun discard(prepared: PreparedDelivery) {
         outcomeOf(mapError = { AppError.Unexpected("discard:${it::class.simpleName}") }) { ports.delivery.discard(prepared) }
             .onFailureLog("discard")
     }
 
-    private fun decodeSnapshot(text: String): FeatureSnapshot? = try {
-        json.decodeFromString(FeatureSnapshot.serializer(), text)
-    } catch (expected: SerializationException) {
-        null
-    } catch (expected: IllegalArgumentException) {
-        null
-    }
-
     private fun <T> Outcome<T>.onFailureLog(step: String) {
         if (this is Outcome.Failure) logger.w(COMPONENT, "delivery side step failed", error, mapOf("step" to step))
+    }
+
+    /** The row's deadline (jitai-correctness-15), or for rows written without one `decided + deliveryDeadlineMinutes`. */
+    private fun deadlinePassed(record: DecisionRecord, definition: JitaiDefinition?, now: MonotonicStamp): Boolean {
+        val deadline = record.deadline ?: (record.decided + deadlineOf(definition))
+        return !isBefore(now, deadline)
     }
 
     private fun deadlineOf(definition: JitaiDefinition?): Duration =
         (definition?.delivery?.deliveryDeadlineMinutes ?: dev.agentle.jitai.dsl.model.Delivery.DEFAULT_DELIVERY_DEADLINE_MINUTES)
             .coerceAtLeast(0).minutes
 
+    /** When an in-app card expires: `notificationTimeoutMinutes` after it became pending, else at the next engine-day rollover. */
+    private fun cardExpiry(row: DecisionRecord, definition: JitaiDefinition, env: DeliveryEnvironment): MonotonicStamp {
+        val from = row.claimed ?: row.decided
+        val timeout = definition.delivery.notificationTimeoutMinutes
+        if (timeout != null) return from + timeout.coerceAtLeast(0).minutes
+        val rollover = EngineDays.nextRollover(from.wall, env.zone, env.settings.rolloverMinute)
+        return from + (rollover - from.wall)
+    }
+
     private companion object {
         const val COMPONENT = "jitai-delivery"
+        val RECOVERED_STATES = setOf(DecisionState.DECIDED, DecisionState.DELIVERING, DecisionState.CARD_PENDING)
     }
 }

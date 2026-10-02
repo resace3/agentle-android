@@ -1,6 +1,7 @@
 package dev.agentle.jitai.engine.time
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import dev.agentle.analytics.features.FeatureScalar
 import dev.agentle.jitai.dsl.model.ActiveWindow
 import dev.agentle.jitai.dsl.model.WeekDay
@@ -22,7 +23,7 @@ import kotlin.time.Instant
 class TimeModelTest {
     private val friSat = LocalWindow.of(ActiveWindow("22:00", "02:00", listOf(WeekDay.FRI, WeekDay.SAT)))!!
 
-    @ParameterizedTest(name = "{0} at {1}")
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 {0}: activeWindow 22:00-02:00 [FRI, SAT] at {1} -> open {2} (instance {3})")
     @CsvSource(
         "E3, 2026-10-01T23:00, false, 2026-10-01",
         "E4, 2026-10-02T01:30, false, 2026-10-01",
@@ -31,27 +32,38 @@ class TimeModelTest {
         "E7, 2026-10-04T01:30, true, 2026-10-03",
         "E8, 2026-10-05T01:30, false, 2026-10-04",
     )
-    fun `E3-E8 days filter by the start date of the instance`(id: String, local: String, open: Boolean, instanceDate: String) {
+    fun `days filter by the start date of the instance`(id: String, local: String, open: Boolean, instanceDate: String) {
         val at = F0.local(local)
 
         val instance = friSat.instanceAt(at, F0.BERLIN)
 
-        assertThat(instance != null).isEqualTo(open)
-        if (instance != null) assertThat(instance.startDate).isEqualTo(LocalDate.parse(instanceDate))
+        assertWithMessage(id).that(instance != null).isEqualTo(open)
+        if (instance != null) assertWithMessage(id).that(instance.startDate).isEqualTo(LocalDate.parse(instanceDate))
         // Without the day filter the same instant belongs to an instance starting on [instanceDate].
         assertThat(friSat.copy(days = null).instanceAt(at, F0.BERLIN)!!.startDate).isEqualTo(LocalDate.parse(instanceDate))
     }
 
-    @ParameterizedTest(name = "E10 quiet hours at {0}")
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 E10: quiet hours 22:00-07:00 at {0} -> inside {1}")
     @CsvSource("06:59, true", "07:00, false", "22:00, true", "21:59, false")
-    fun `E10 quiet hours 22_00-07_00 are half-open`(time: String, inside: Boolean) {
+    fun `quiet hours are half-open`(time: String, inside: Boolean) {
         val quiet = LocalWindow.of("22:00", "07:00")!!
 
         assertThat(quiet.containsMinute(dev.agentle.jitai.dsl.rule.ClockTime.minuteOfDay(time)!!)).isEqualTo(inside)
     }
 
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 E9: activeWindow {0}-{0} never opens (fails closed; E025 at save time)")
+    @CsvSource("07:00", "22:00")
+    fun `a window with start equal to end never opens`(time: String) {
+        val window = LocalWindow.of(ActiveWindow(time, time))!!
+
+        assertThat(window.isValid).isFalse()
+        assertThat(window.containsMinute(dev.agentle.jitai.dsl.rule.ClockTime.minuteOfDay(time)!!)).isFalse()
+        assertThat(window.instanceAt(F0.local("2026-10-01T$time"), F0.BERLIN)).isNull()
+        assertThat(window.instanceStartingOn(LocalDate.parse("2026-10-01"), F0.BERLIN)).isNull()
+    }
+
     @Test
-    fun `E9 a window with start equal to end never opens (fails closed)`() {
+    fun `a window with start equal to end never opens (fails closed)`() {
         val window = LocalWindow.of(ActiveWindow("07:00", "07:00"))!!
 
         assertThat(window.isValid).isFalse()
@@ -62,7 +74,7 @@ class TimeModelTest {
         assertThat(LocalWindow.of("07:00", "8:00")).isNull()
     }
 
-    @ParameterizedTest(name = "{0}")
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 {0}: {1} -> {2} {3} engine day {4} (weekend {5})")
     @CsvSource(
         "F1, 2026-10-01T12:00, THURSDAY, WEEKDAY, THURSDAY, SATURDAY;SUNDAY",
         "F2, 2026-10-02T23:30, FRIDAY, WEEKDAY, FRIDAY, SATURDAY;SUNDAY",
@@ -71,7 +83,7 @@ class TimeModelTest {
         "F5, 2026-10-02T12:00, FRIDAY, WEEKEND, FRIDAY, FRIDAY;SATURDAY",
         "F6, 2026-10-04T12:00, SUNDAY, WEEKDAY, SUNDAY, FRIDAY;SATURDAY",
     )
-    fun `R10 12_F day_of_week, day_type and engine_day_of_week`(
+    fun `day_of_week, day_type and engine_day_of_week`(
         id: String,
         local: String,
         dayOfWeek: DayOfWeek,
@@ -83,9 +95,9 @@ class TimeModelTest {
         val days = weekend.split(';').map(DayOfWeek::valueOf).toSet()
         fun value(feature: String) = CalendarFeatures.value(feature, at, F0.BERLIN, weekend = days)!!.value
 
-        assertThat(value(CalendarFeatures.DAY_OF_WEEK)).isEqualTo(FeatureScalar.DayOfWeekValue(dayOfWeek))
-        assertThat(value(CalendarFeatures.DAY_TYPE)).isEqualTo(FeatureScalar.EnumValue(dayType))
-        assertThat(value(CalendarFeatures.ENGINE_DAY_OF_WEEK)).isEqualTo(FeatureScalar.DayOfWeekValue(engineDay))
+        assertWithMessage(id).that(value(CalendarFeatures.DAY_OF_WEEK)).isEqualTo(FeatureScalar.DayOfWeekValue(dayOfWeek))
+        assertWithMessage(id).that(value(CalendarFeatures.DAY_TYPE)).isEqualTo(FeatureScalar.EnumValue(dayType))
+        assertWithMessage(id).that(value(CalendarFeatures.ENGINE_DAY_OF_WEEK)).isEqualTo(FeatureScalar.DayOfWeekValue(engineDay))
     }
 
     @Test
@@ -98,9 +110,9 @@ class TimeModelTest {
         assertThat(CalendarFeatures.IDS).hasSize(4)
     }
 
-    @ParameterizedTest(name = "O11 engine day at {0}")
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 O11: engine day at {0} is {1}")
     @CsvSource("2026-10-02T01:30, 2026-10-01", "2026-10-02T03:59, 2026-10-01", "2026-10-02T04:00, 2026-10-02")
-    fun `O11 the engine day rolls over at 04_00`(local: String, engineDay: String) {
+    fun `the engine day rolls over at 04_00`(local: String, engineDay: String) {
         assertThat(EngineDays.of(F0.local(local), F0.BERLIN)).isEqualTo(LocalDate.parse(engineDay))
     }
 
@@ -116,65 +128,93 @@ class TimeModelTest {
         ).isEqualTo(LocalDate.parse("2026-10-01")..LocalDate.parse("2026-10-07"))
     }
 
-    @Test
-    fun `O3 an interval-30 window 22_00-04_00 over the October DST night lasts 7 hours with slots 0-13`() {
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 {0}")
+    @CsvSource("O3: an interval-30 window 22:00-04:00 over the October DST night lasts 7 hours with slots 0-13")
+    fun `the autumn DST night has two more slots`(title: String) {
         val window = LocalWindow.of("22:00", "04:00")!!
         val instance = window.instanceStartingOn(LocalDate.parse("2026-10-24"), F0.BERLIN)!!
 
         val slots = IntervalSlots.slots(instance, 30)
 
-        assertThat(instance.end - instance.start).isEqualTo(7.hours)
+        assertWithMessage(title).that(instance.end - instance.start).isEqualTo(7.hours)
         assertThat(slots.map { it.index }).isEqualTo((0..13).toList())
         assertThat(IntervalSlots.slotAt(instance, 30, Instant.parse("2026-10-25T00:10:00Z"))!!.index).isEqualTo(8)
         assertThat(IntervalSlots.slotAt(instance, 30, Instant.parse("2026-10-25T01:10:00Z"))!!.index).isEqualTo(10)
         assertThat(window.instanceAt(Instant.parse("2026-10-25T01:10:00Z"), F0.BERLIN)).isEqualTo(instance)
     }
 
-    @Test
-    fun `O4 R3 instance 2026-10-01 has 4 hours, slots 0-7, and 23_10 is slot 2`() {
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 {0}")
+    @CsvSource("O4: R3 instance 2026-10-01 has 4 hours, slots 0-7, and 23:10 is slot 2")
+    fun `a normal night has its nominal slots`(title: String) {
         val instance = LocalWindow.of("22:00", "02:00")!!.instanceStartingOn(LocalDate.parse("2026-10-01"), F0.BERLIN)!!
 
-        assertThat(IntervalSlots.slots(instance, 30).map { it.index }).isEqualTo((0..7).toList())
+        assertWithMessage(title).that(IntervalSlots.slots(instance, 30).map { it.index }).isEqualTo((0..7).toList())
         assertThat(IntervalSlots.slotAt(instance, 30, F0.local("2026-10-01T23:10"))!!.index).isEqualTo(2)
         assertThat(IntervalSlots.slotAt(instance, 30, F0.local("2026-10-02T02:00"))).isNull()
         assertThat(IntervalSlots.slotAt(instance, 0, F0.local("2026-10-01T23:10"))).isNull()
         assertThat(IntervalSlots.slots(instance, 0)).isEmpty()
     }
 
-    @ParameterizedTest(name = "O5 {0} in {1}")
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 O5: event at {0} in {1} is bucket {2}")
     @CsvSource(
         "2026-10-01T22:07:30, Europe/Berlin, 1989872",
         "2026-10-01T22:14:59, Europe/Berlin, 1989872",
         "2026-10-01T22:15:00, Europe/Berlin, 1989873",
         "2026-10-02T01:37:30, Asia/Kolkata, 1989872",
     )
-    fun `O5 event buckets are UTC 15-minute buckets, immune to the zone`(local: String, zone: String, bucket: Long) {
+    fun `event buckets are UTC 15-minute buckets, immune to the zone`(local: String, zone: String, bucket: Long) {
         assertThat(DecisionKeys.eventBucket(F0.local(local, TimeZone.of(zone)))).isEqualTo(bucket)
     }
 
-    @Test
-    fun `O13 day bounds - Berlin 2026-10-25 lasts 25 h, Santiago 2026-09-06 starts at 01_00 and lasts 23 h`() {
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 {0}")
+    @CsvSource("O13: day bounds - Berlin 2026-10-25 lasts 25 h; Santiago 2026-09-06 starts at 01:00 and lasts 23 h")
+    fun `day bounds follow DST`(title: String) {
         val berlin = LocalWindow.wholeDay(LocalDate.parse("2026-10-25"), F0.BERLIN)
         val santiagoZone = TimeZone.of("America/Santiago")
         val santiago = LocalWindow.wholeDay(LocalDate.parse("2026-09-06"), santiagoZone)
 
-        assertThat(berlin.end - berlin.start).isEqualTo(25.hours)
+        assertWithMessage(title).that(berlin.end - berlin.start).isEqualTo(25.hours)
         assertThat(santiago.end - santiago.start).isEqualTo(23.hours)
         assertThat(santiago.start).isEqualTo(F0.local("2026-09-06T01:00", santiagoZone))
     }
 
-    @Test
-    fun `O1 a local time in the spring gap is shifted later by the gap length`() {
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 {0}")
+    @CsvSource("O1: a local time in the spring gap is shifted later by the gap length (02:30 -> 03:30+02:00)")
+    fun `a gap time is shifted later`(title: String) {
         val slot = LocalWindow.atMinute(LocalDate.parse("2026-03-29"), 2 * 60 + 30, F0.BERLIN)
 
-        assertThat(slot).isEqualTo(Instant.parse("2026-03-29T01:30:00Z"))
+        assertWithMessage(title).that(slot).isEqualTo(Instant.parse("2026-03-29T01:30:00Z"))
     }
 
-    @Test
-    fun `O2 an ambiguous local time in the autumn overlap takes the earlier offset`() {
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 {0}")
+    @CsvSource("O2: an ambiguous local time in the autumn overlap takes the earlier offset (02:30+02:00)")
+    fun `an overlap time takes the earlier offset`(title: String) {
         val slot = LocalWindow.atMinute(LocalDate.parse("2026-10-25"), 2 * 60 + 30, F0.BERLIN)
 
-        assertThat(slot).isEqualTo(Instant.parse("2026-10-25T00:30:00Z"))
+        assertWithMessage(title).that(slot).isEqualTo(Instant.parse("2026-10-25T00:30:00Z"))
+    }
+
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 O12: since {0} at {1} in {2} starts at {3}Z, window {4} min")
+    @CsvSource(
+        "22:00, 2026-10-02T01:30, Europe/Berlin, 2026-10-01T20:00:00, 210",
+        "22:00, 2026-10-01T23:00, Europe/Berlin, 2026-10-01T20:00:00, 60",
+        "22:00, 2026-10-01T22:00, Europe/Berlin, 2026-10-01T20:00:00, 0",
+        "02:30, 2026-03-29T05:00, Europe/Berlin, 2026-03-29T01:30:00, 90",
+    )
+    fun `since starts on the local date, or the previous one when that is still ahead`(
+        time: String,
+        local: String,
+        zone: String,
+        startUtc: String,
+        minutes: Long,
+    ) {
+        val at = F0.local(local, TimeZone.of(zone))
+
+        val start = CalendarFeatures.sinceStart(time, at, TimeZone.of(zone))!!
+
+        assertThat(start).isEqualTo(Instant.parse("${startUtc}Z"))
+        assertThat((at - start).inWholeMinutes).isEqualTo(minutes)
+        assertThat(CalendarFeatures.sinceStart("7:00", at, TimeZone.of(zone))).isNull()
     }
 
     @Test

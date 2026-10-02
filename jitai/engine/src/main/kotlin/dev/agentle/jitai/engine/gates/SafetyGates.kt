@@ -9,8 +9,8 @@ import dev.agentle.jitai.engine.decision.ReasonCode
 import dev.agentle.jitai.engine.eval.Tri
 import dev.agentle.jitai.engine.ports.DefinitionState
 import dev.agentle.jitai.engine.ports.EngineSettings
+import dev.agentle.jitai.engine.ports.InterruptionFilter
 import dev.agentle.jitai.engine.ports.JitaiRuntimeState
-import dev.agentle.jitai.engine.ports.NotificationSystemState
 import dev.agentle.jitai.engine.time.EngineDays
 import dev.agentle.jitai.engine.time.LocalWindow
 import dev.agentle.jitai.engine.time.MonotonicStamp
@@ -80,14 +80,17 @@ public object Backoff {
 }
 
 /**
- * Inputs of the gates for one candidate, read inside the commit transaction (R10 §8.4).
+ * Inputs of the gates for one candidate, read inside the commit (or claim) transaction (R10 §8.4).
  *
  * @property definitionState the definition as stored now (null: deleted).
+ * @property interruptionFilter the live interruption filter (G07).
+ * @property deliveryReady the live delivery prerequisite of the definition's category (G05, jitai-correctness-13).
  * @property interactive `device_interactive` from the pass snapshot (G06 needs a definite TRUE).
  * @property suppressedBy ids of effective SUPPRESSION rules blocking this candidate (G08).
  * @property recent counted rows of recent engine days ([GateEvaluator.RECENT_ENGINE_DAYS]).
  * @property latestOwn the latest counted row of this JITAI, however old (cooldowns longer than the recent window).
- * @property snoozeFollowUp a `RE_EVALUATE_AFTER` follow-up: skips G09-G11 (R10 §9.5).
+ * @property snoozeFollowUp a `RE_EVALUATE_AFTER` follow-up: skips G09-G11 (R10 §9.5), and its own snooze may still have
+ *   up to [GateEvaluator.FOLLOW_UP_TOLERANCE] to run when its timer fires (G03).
  */
 public data class GateInput(
     val definition: JitaiDefinition,
@@ -97,47 +100,73 @@ public data class GateInput(
     val zone: TimeZone,
     val runtime: JitaiRuntimeState,
     val settings: EngineSettings,
-    val notifications: NotificationSystemState,
+    val interruptionFilter: InterruptionFilter,
+    val deliveryReady: Boolean,
     val interactive: Tri,
     val suppressedBy: List<String>,
-    val recent: List<DecisionRecord>,
-    val latestOwn: DecisionRecord?,
+    val recent: List<DecisionRecord> = emptyList(),
+    val latestOwn: DecisionRecord? = null,
     val snoozeFollowUp: Boolean = false,
 )
 
-/** Safety gates G01-G15 (R10 §9.1); G16 is decided by [Arbitration]. Pure. */
+/**
+ * Safety gates G01-G15 (R10 §9.1); G16 is decided by [Arbitration]. Pure. G01-G08 ([liveChecks]) depend only on the
+ * live state and are evaluated again by the claim (jitai-correctness-12); G09-G15 count rows: CARD_PENDING rows count for
+ * their own JITAI (G09-G11) but not for the global gap and caps (G12-G15, jitai-correctness-13).
+ */
 public object GateEvaluator {
     /** Engine days of counted rows the gates need: the weekly window plus a margin for 7-day cooldowns. */
     public const val RECENT_ENGINE_DAYS: Int = 9
 
-    public fun evaluate(input: GateInput): GateReport {
+    /** A snooze follow-up may fire this much before its snooze ends (the evaluator's coalescing window). */
+    public val FOLLOW_UP_TOLERANCE: Duration = 2.minutes
+
+    public fun evaluate(input: GateInput): GateReport = GateReport(liveChecks(input) + budgetChecks(input))
+
+    /** G01-G08 in order. */
+    public fun liveChecks(input: GateInput): List<GateCheck> {
+        val settings = input.settings
+        val snoozeNow = if (input.snoozeFollowUp) input.now + FOLLOW_UP_TOLERANCE else input.now
+        return listOf(
+            effective(input),
+            expired(input),
+            check(ReasonCode.SNOOZED, input.runtime.snoozedUntil?.let { isBefore(snoozeNow, it) } != true),
+            check(ReasonCode.GLOBAL_PAUSE, settings.pauseUntil?.let { input.now.wall < it } != true),
+            check(ReasonCode.NOTIFICATIONS_BLOCKED, input.deliveryReady),
+            quietHours(input),
+            check(ReasonCode.DND, !input.interruptionFilter.blocksDelivery, input.interruptionFilter.name),
+            check(ReasonCode.SUPPRESSED_BY_RULE, input.suppressedBy.isEmpty(), "rules=${input.suppressedBy.size}"),
+        )
+    }
+
+    /** G09-G15 in order. */
+    public fun budgetChecks(input: GateInput): List<GateCheck> {
         val settings = input.settings
         val today = EngineDays.of(input.now.wall, input.zone, settings.rolloverMinute)
         val week = EngineDays.window(today, WEEK_DAYS)
         val limits = EffectiveLimits.of(input.definition)
         val own = input.recent.filter { it.jitaiId == input.definition.id }
-        val checks = listOf(
-            effective(input),
-            expired(input),
-            check(ReasonCode.SNOOZED, input.runtime.snoozedUntil?.let { isBefore(input.now, it) } != true),
-            check(ReasonCode.GLOBAL_PAUSE, settings.pauseUntil?.let { input.now.wall < it } != true),
-            check(ReasonCode.NOTIFICATIONS_BLOCKED, !input.notifications.blocks(input.definition.category)),
-            quietHours(input),
-            check(ReasonCode.DND, !input.notifications.interruptionFilter.blocksDelivery, input.notifications.interruptionFilter.name),
-            check(ReasonCode.SUPPRESSED_BY_RULE, input.suppressedBy.isEmpty(), "rules=${input.suppressedBy.size}"),
+        val global = input.recent.filter { it.state.countsGlobally }
+        return listOf(
             cooldown(input, limits, own),
             count(ReasonCode.DAILY_CAP, own.count { it.engineDay == today }, limits.maxPerDay, input.snoozeFollowUp),
             count(ReasonCode.WEEKLY_CAP, own.count { it.engineDay in week }, limits.maxPerWeek, input.snoozeFollowUp),
-            minGap(input),
-            count(ReasonCode.GLOBAL_DAILY_CAP, input.recent.count { it.engineDay == today }, settings.globalMaxPerDay),
-            count(ReasonCode.GLOBAL_WEEKLY_CAP, input.recent.count { it.engineDay in week }, settings.globalMaxPerWeek),
+            minGap(input, global),
+            count(ReasonCode.GLOBAL_DAILY_CAP, global.count { it.engineDay == today }, settings.globalMaxPerDay),
+            count(ReasonCode.GLOBAL_WEEKLY_CAP, global.count { it.engineDay in week }, settings.globalMaxPerWeek),
             count(
                 ReasonCode.CHANNEL_CAP,
-                input.recent.count { it.engineDay == today && it.channel == input.channel },
+                global.count { it.engineDay == today && it.channel == input.channel },
                 settings.channelCap(input.channel),
             ),
         )
-        return GateReport(checks)
+    }
+
+    /** When the global gap of [input] ends (null: no counted row, or it already ended); for deferrals (jitai-correctness-05). */
+    public fun minGapEndsIn(input: GateInput): Duration? {
+        val gap = input.settings.minGapMinutes.minutes
+        val elapsed = sinceLatest(input.recent.filter { it.state.countsGlobally }, input.now) ?: return null
+        return (gap - elapsed).takeIf { it.isPositive() }
     }
 
     private const val WEEK_DAYS = 7
@@ -174,9 +203,9 @@ public object GateEvaluator {
         return check(ReasonCode.COOLDOWN, elapsed >= effective, "elapsed=${elapsed.inWholeSeconds}s cooldown=${effective.inWholeMinutes}m")
     }
 
-    private fun minGap(input: GateInput): GateCheck {
+    private fun minGap(input: GateInput, global: List<DecisionRecord>): GateCheck {
         val gap = input.settings.minGapMinutes.minutes
-        val elapsed = sinceLatest(input.recent, input.now) ?: return check(ReasonCode.GLOBAL_MIN_GAP, true, "never")
+        val elapsed = sinceLatest(global, input.now) ?: return check(ReasonCode.GLOBAL_MIN_GAP, true, "never")
         return check(ReasonCode.GLOBAL_MIN_GAP, elapsed >= gap, "elapsed=${elapsed.inWholeSeconds}s gap=${gap.inWholeMinutes}m")
     }
 

@@ -38,7 +38,7 @@ public object Effectiveness {
 
     /** Armed and not past `expiresAt` at [at] (R10 §2.2 "effective"). */
     public fun isEffective(definition: JitaiDefinition, at: Instant): Boolean =
-        isArmed(definition) && (definition.expiresAt == null || at < definition.expiresAt!!)
+        isArmed(definition) && definition.expiresAt.let { it == null || at < it }
 
     public fun isIntervention(definition: JitaiDefinition): Boolean = definition.kind == JitaiKind.INTERVENTION
 

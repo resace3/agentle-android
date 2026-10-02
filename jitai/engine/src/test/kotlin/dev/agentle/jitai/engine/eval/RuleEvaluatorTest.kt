@@ -1,14 +1,17 @@
 package dev.agentle.jitai.engine.eval
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import dev.agentle.analytics.features.FeatureRef
 import dev.agentle.analytics.features.FeatureScalar
 import dev.agentle.analytics.features.FeatureSnapshot
 import dev.agentle.analytics.features.FeatureValue
 import dev.agentle.analytics.features.MissingReason
 import dev.agentle.analytics.features.Quality
+import dev.agentle.core.model.DataCategory
 import dev.agentle.jitai.dsl.model.CreatedBy
 import dev.agentle.jitai.dsl.model.JitaiKind
+import dev.agentle.jitai.dsl.model.SuppressionTarget
 import dev.agentle.jitai.dsl.rule.Condition
 import dev.agentle.jitai.dsl.rule.OnUnknown
 import dev.agentle.jitai.dsl.rule.Operator
@@ -16,27 +19,26 @@ import dev.agentle.jitai.dsl.rule.RuleLiteral
 import dev.agentle.jitai.engine.F0
 import dev.agentle.jitai.engine.Leaves
 import dev.agentle.jitai.engine.Rules
+import dev.agentle.jitai.engine.Vector
+import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
-/** R10 §6 and §12.C / §12.D (evaluator side) / §12.E1-E2, E9: three-valued evaluation of rule trees. */
+/** R10 §6 and §12.C, §12.D (evaluator side), §12.E1, E2, E9: three-valued evaluation of rule trees. */
 class RuleEvaluatorTest {
     private val evaluator = RuleEvaluator()
-    private val at = F0.local("2026-10-01T17:00")
 
-    private fun snapshot(vararg values: Pair<String, FeatureValue>, at: Instant = this.at, zone: String = F0.BERLIN.id): FeatureSnapshot =
-        FeatureSnapshot.of(at, zone, values.associate { (id, value) -> FeatureRef(id) to value })
+    // -- §12.C truth table ---------------------------------------------------------------------------------------------
 
-    // -- §12.C truth tables ------------------------------------------------------------------------------------------
-
-    @ParameterizedTest(name = "{0}")
+    @ParameterizedTest(quoteTextArguments = false, name = "{0}")
     @MethodSource("truthTable")
-    fun `R10 12_C truth table - all, any and not over P and Q`(id: String, p: Tri, q: Tri, tree: String, expected: Tri) {
+    fun `R10 12_C truth table - all, any and not over P and Q`(label: String, p: Tri, q: Tri, tree: String, expected: Tri) {
         val condition = when (tree) {
             "all" -> Leaves.all(P, Q)
             "any" -> Leaves.any(P, Q)
@@ -45,8 +47,8 @@ class RuleEvaluatorTest {
 
         val trace = evaluator.evaluate(condition, snapshot(STEPS to pValue(p), LOCATION to qValue(q)))
 
-        assertThat(trace.result).isEqualTo(expected)
-        assertThat(trace.nodes.first().result).isEqualTo(expected)
+        assertWithMessage(label).that(trace.result).isEqualTo(expected)
+        assertWithMessage(label).that(trace.nodes.first().result).isEqualTo(expected)
     }
 
     @Test
@@ -54,7 +56,7 @@ class RuleEvaluatorTest {
         assertThat(truthTable().map { it.get()[0] }.toSet()).hasSize(27)
     }
 
-    @ParameterizedTest(name = "{0}")
+    @ParameterizedTest(quoteTextArguments = false, name = "{0}")
     @CsvSource("TRUE,TRUE,TRUE", "TRUE,FALSE,FALSE", "TRUE,UNKNOWN,UNKNOWN", "FALSE,UNKNOWN,FALSE", "UNKNOWN,UNKNOWN,UNKNOWN")
     fun `Kleene AND is FALSE-dominant and commutative`(a: Tri, b: Tri, expected: Tri) {
         assertThat(a and b).isEqualTo(expected)
@@ -69,94 +71,13 @@ class RuleEvaluatorTest {
         assertThat(evaluator.evaluate(Condition.AnyOf(emptyList()), snapshot()).result).isEqualTo(Tri.UNKNOWN)
     }
 
-    @Test
-    fun `C4 all(T, U, F) is F, any(F, U, T) is T, all(T, U) is U`() {
-        val values = snapshot(STEPS to int(2_500), LOCATION to missing(MissingReason.COLLECTOR_INACTIVE), SCREEN to int(10))
-        val t = P
-        val u = Q
-        val f = Leaves.gte(SCREEN, 45)
+    // -- §12.C4-C10 (C1-C3 run through the engine: scenario.LogicScenarioTest) -----------------------------------------
 
-        assertThat(evaluator.evaluate(Leaves.all(t, u, f), values).result).isEqualTo(Tri.FALSE)
-        assertThat(evaluator.evaluate(Leaves.any(f, u, t), values).result).isEqualTo(Tri.TRUE)
-        assertThat(evaluator.evaluate(Leaves.all(t, u), values).result).isEqualTo(Tri.UNKNOWN)
-    }
+    @ParameterizedTest(quoteTextArguments = false, name = "{0}")
+    @MethodSource("logicVectors")
+    fun `R10 12_C three-valued logic and overrides`(vector: Vector) = runTest { vector.body(this) }
 
-    // -- §12.C overrides (the validator's E026 is the DSL's; the evaluator ignores what it must never honour) -------------
-
-    @Test
-    fun `C5 a confirmed USER override ASSUME_TRUE at polarity + makes the missing leaf T`() {
-        val rule = Rules.rule("C5", null, Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_TRUE)).copy(userConfirmedUnknownOverrides = true)
-
-        val trace = evaluator.evaluate(rule.conditions, snapshot(STEPS to missing()), RootKind.INTERVENTION, OverridePolicy.of(rule))
-
-        assertThat(trace.result).isEqualTo(Tri.TRUE)
-        assertThat(trace.nodes.single().appliedOverride).isEqualTo(OnUnknown.ASSUME_TRUE)
-        assertThat(trace.nodes.single().value!!.state).isEqualTo(ValueState.MISSING)
-    }
-
-    @ParameterizedTest(name = "{0}")
-    @CsvSource(
-        "C6 USER rule without confirmation, USER_MANUAL, false",
-        "C7 the same override in an AI rule, AI_NATURAL_LANGUAGE, true",
-        "C7 the same override in a discovered rule, AI_DISCOVERED, true",
-    )
-    fun `C6 C7 an unconfirmed or AI delivery-increasing override is ignored at run time`(
-        id: String,
-        createdBy: CreatedBy,
-        confirmed: Boolean,
-    ) {
-        val rule = Rules.rule("C6", null, Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_TRUE), createdBy = createdBy)
-            .copy(userConfirmedUnknownOverrides = confirmed)
-
-        val trace = evaluator.evaluate(rule.conditions, snapshot(STEPS to missing()), RootKind.INTERVENTION, OverridePolicy.of(rule))
-
-        assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
-        assertThat(trace.nodes.single().overrideIgnored).isTrue()
-        assertThat(trace.nodes.single().appliedOverride).isNull()
-    }
-
-    @Test
-    fun `C8 an AI ASSUME_FALSE at polarity + is delivery-decreasing and turns U into F`() {
-        val rule = Rules.rule("C8", null, Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_FALSE), createdBy = CreatedBy.AI_NATURAL_LANGUAGE)
-
-        val trace = evaluator.evaluate(rule.conditions, snapshot(STEPS to missing()), RootKind.INTERVENTION, OverridePolicy.of(rule))
-
-        assertThat(trace.result).isEqualTo(Tri.FALSE)
-        assertThat(trace.nodes.single().appliedOverride).isEqualTo(OnUnknown.ASSUME_FALSE)
-    }
-
-    @Test
-    fun `C9 an AI ASSUME_FALSE under not (polarity -) is delivery-increasing and ignored`() {
-        val rule = Rules.rule("C9", null, Leaves.not(Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_FALSE)), createdBy = CreatedBy.AI_DISCOVERED)
-
-        val trace = evaluator.evaluate(rule.conditions, snapshot(STEPS to missing()), RootKind.INTERVENTION, OverridePolicy.of(rule))
-
-        assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
-        assertThat(trace.nodes[1].overrideIgnored).isTrue()
-    }
-
-    @Test
-    fun `C10 an AI SUPPRESSION with ASSUME_FALSE at polarity + would block less and is ignored - U still blocks`() {
-        val rule = Rules.suppression(
-            "C10",
-            null,
-            Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_FALSE),
-            dev.agentle.jitai.dsl.model.SuppressionTarget(jitaiIds = listOf("R1")),
-            createdBy = CreatedBy.AI_NATURAL_LANGUAGE,
-        )
-
-        val trace = evaluator.evaluate(
-            rule.conditions,
-            snapshot(STEPS to missing()),
-            RootKind.of(JitaiKind.SUPPRESSION),
-            OverridePolicy.of(rule),
-        )
-
-        assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
-        assertThat(trace.nodes.single().overrideIgnored).isTrue()
-    }
-
-    @ParameterizedTest(name = "{0} polarity {1} {2} -> increasing {3}")
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 6_4 {0} polarity {1} {2} -> increasing {3}")
     @CsvSource(
         "INTERVENTION, true, ASSUME_TRUE, true",
         "INTERVENTION, true, ASSUME_FALSE, false",
@@ -167,7 +88,7 @@ class RuleEvaluatorTest {
         "SUPPRESSION, false, ASSUME_TRUE, true",
         "SUPPRESSION, false, ASSUME_FALSE, false",
     )
-    fun `R10 6_4 polarity table classifies every override`(kind: RootKind, positive: Boolean, override: OnUnknown, increasing: Boolean) {
+    fun `the polarity table classifies every override`(kind: RootKind, positive: Boolean, override: OnUnknown, increasing: Boolean) {
         assertThat(OverridePolicy.isDeliveryIncreasing(override, positive, kind)).isEqualTo(increasing)
     }
 
@@ -181,44 +102,11 @@ class RuleEvaluatorTest {
 
     // -- §12.D evaluator side (R2: steps_today lt 3000 at 17:00) ---------------------------------------------------------
 
-    @ParameterizedTest(name = "{0}")
+    @ParameterizedTest(quoteTextArguments = false, name = "{0}")
     @MethodSource("freshness")
-    fun `R10 12_D leaf results for steps_today`(
-        id: String,
-        leaf: Condition,
-        value: FeatureValue,
-        at: Instant,
-        expected: Tri,
-        bound: Boolean,
-    ) {
-        val trace = evaluator.evaluate(leaf, snapshot(STEPS to value, at = at))
+    fun `R10 12_D leaf results for steps_today`(vector: Vector) = runTest { vector.body(this) }
 
-        assertThat(trace.result).isEqualTo(expected)
-        assertThat(trace.nodes.single().lowerBound == true).isEqualTo(bound)
-    }
-
-    @Test
-    fun `D8 a stale value from the previous local day is U with STALE_OTHER_DAY`() {
-        val value = FeatureValue.Stale(FeatureScalar.IntValue(500), F0.local("2026-10-01T23:40"), MissingReason.NOT_SYNCED)
-
-        val trace = evaluator.evaluate(P, snapshot(STEPS to value, at = F0.local("2026-10-02T00:20")))
-
-        assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
-        assertThat(trace.nodes.single().note).isEqualTo(TraceNote.STALE_OTHER_DAY)
-    }
-
-    @Test
-    fun `a stale value of a feature without a monotone bound is U`() {
-        val value = FeatureValue.Stale(FeatureScalar.IntValue(5_000), at, MissingReason.NOT_SYNCED)
-
-        val trace = evaluator.evaluate(Leaves.gte("steps_last_60m", 1_000), snapshot("steps_last_60m" to value))
-
-        assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
-        assertThat(trace.nodes.single().lowerBound).isNull()
-        assertThat(trace.nodes.single().value!!.state).isEqualTo(ValueState.STALE)
-    }
-
-    @ParameterizedTest(name = "{0} vs={1} k={2} -> {3}")
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 6_3 {0} vs={1} k={2} -> {3}")
     @CsvSource(
         "GTE, 3000, 3000, TRUE", "GTE, 2999, 3000, UNKNOWN",
         "GT, 3001, 3000, TRUE", "GT, 3000, 3000, UNKNOWN",
@@ -227,7 +115,7 @@ class RuleEvaluatorTest {
         "EQ, 3001, 3000, FALSE", "EQ, 3000, 3000, UNKNOWN",
         "NEQ, 3001, 3000, TRUE", "NEQ, 3000, 3000, UNKNOWN",
     )
-    fun `R10 6_3 monotone lower-bound table for single-literal operators`(operator: Operator, vs: Long, k: Long, expected: Tri) {
+    fun `monotone lower-bound table for single-literal operators`(operator: Operator, vs: Long, k: Long, expected: Tri) {
         assertThat(RuleEvaluator.lowerBound(operator, vs, listOf(k))).isEqualTo(expected)
     }
 
@@ -239,42 +127,53 @@ class RuleEvaluatorTest {
         assertThat(RuleEvaluator.lowerBound(Operator.IN, 7_000, listOf(5_000, 7_000))).isEqualTo(Tri.UNKNOWN)
 
         val between = Condition.Between(STEPS, min = RuleLiteral.of(1_000), max = RuleLiteral.of(5_000))
-        val stale = FeatureValue.Stale(FeatureScalar.IntValue(6_000), at, MissingReason.NOT_SYNCED)
+        val stale = FeatureValue.Stale(FeatureScalar.IntValue(6_000), AT, MissingReason.NOT_SYNCED)
         assertThat(evaluator.evaluate(between, snapshot(STEPS to stale)).result).isEqualTo(Tri.FALSE)
+    }
+
+    @Test
+    fun `a stale value of a feature without a monotone bound is U`() {
+        val value = FeatureValue.Stale(FeatureScalar.IntValue(5_000), AT, MissingReason.NOT_SYNCED)
+
+        val trace = evaluator.evaluate(Leaves.gte("steps_last_60m", 1_000), snapshot("steps_last_60m" to value))
+
+        assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
+        assertThat(trace.nodes.single().lowerBound).isNull()
+        assertThat(trace.nodes.single().value!!.state).isEqualTo(ValueState.STALE)
     }
 
     // -- §12.E1, E2, E9 local_time_in ------------------------------------------------------------------------------------
 
-    @ParameterizedTest(name = "{0} {1}-{2} at {3}")
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 {0}: local_time_in {1}-{2} at {3} -> {4}")
     @CsvSource(
         "E1, 22:00, 02:00, 2026-10-01T21:59, FALSE",
         "E1, 22:00, 02:00, 2026-10-01T22:00, TRUE",
         "E1, 22:00, 02:00, 2026-10-01T23:59, TRUE",
         "E1, 22:00, 02:00, 2026-10-02T00:00, TRUE",
         "E1, 22:00, 02:00, 2026-10-02T01:59, TRUE",
+        "E1, 22:00, 02:00, 2026-10-02T01:59:59, TRUE",
         "E1, 22:00, 02:00, 2026-10-02T02:00, FALSE",
         "E2, 09:00, 17:00, 2026-10-01T08:59, FALSE",
         "E2, 09:00, 17:00, 2026-10-01T09:00, TRUE",
         "E2, 09:00, 17:00, 2026-10-01T16:59, TRUE",
         "E2, 09:00, 17:00, 2026-10-01T17:00, FALSE",
     )
-    fun `E1 E2 local_time_in is half-open and crosses midnight`(id: String, start: String, end: String, local: String, expected: Tri) {
+    fun `local_time_in is half-open, crosses midnight and truncates seconds`(
+        id: String,
+        start: String,
+        end: String,
+        local: String,
+        expected: Tri,
+    ) {
         val trace = evaluator.evaluate(Condition.LocalTimeIn(start, end), snapshot(at = F0.local(local)))
 
-        assertThat(trace.result).isEqualTo(expected)
-        assertThat(trace.nodes.single().value!!.scalar).isEqualTo(local.substringAfter('T'))
+        assertWithMessage(id).that(trace.result).isEqualTo(expected)
+        assertWithMessage(id).that(trace.nodes.single().value!!.scalar).isEqualTo(local.substringAfter('T').take(5))
     }
 
-    @Test
-    fun `E1 seconds are truncated - 01_59_59 is still inside`() {
-        val trace = evaluator.evaluate(Condition.LocalTimeIn("22:00", "02:00"), snapshot(at = F0.local("2026-10-02T01:59:59")))
-
-        assertThat(trace.result).isEqualTo(Tri.TRUE)
-    }
-
-    @ParameterizedTest(name = "{0}-{1}")
-    @CsvSource("22:00, 22:00", "25:00, 02:00", "22:00, 2:00")
-    fun `E9 an empty or malformed local_time_in fails closed as UNKNOWN`(start: String, end: String) {
+    @ParameterizedTest(quoteTextArguments = false, name = "R10 E9: local_time_in {0}-{1} fails closed")
+    @CsvSource("22:00, 22:00", "07:00, 07:00", "25:00, 02:00", "22:00, 2:00")
+    fun `an empty or malformed local_time_in is UNKNOWN (the validator's E025 rejects it at save time)`(start: String, end: String) {
         val trace = evaluator.evaluate(Condition.LocalTimeIn(start, end), snapshot())
 
         assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
@@ -305,7 +204,7 @@ class RuleEvaluatorTest {
         val unresolved = evaluator.evaluate(P, snapshot())
         val staleWrongType = evaluator.evaluate(
             P,
-            snapshot(STEPS to FeatureValue.Stale(FeatureScalar.BoolValue(true), at, MissingReason.NOT_SYNCED)),
+            snapshot(STEPS to FeatureValue.Stale(FeatureScalar.BoolValue(true), AT, MissingReason.NOT_SYNCED)),
         )
 
         assertThat(mismatch.result).isEqualTo(Tri.UNKNOWN)
@@ -317,7 +216,7 @@ class RuleEvaluatorTest {
     @Test
     fun `an invalid zone id is UNKNOWN for local time and for same-day bounds, never an exception`() {
         val values =
-            snapshot(STEPS to FeatureValue.Stale(FeatureScalar.IntValue(5_000), at, MissingReason.NOT_SYNCED), zone = "Mars/Olympus")
+            snapshot(STEPS to FeatureValue.Stale(FeatureScalar.IntValue(5_000), AT, MissingReason.NOT_SYNCED), zone = "Mars/Olympus")
 
         assertThat(
             evaluator.evaluate(Condition.LocalTimeIn("22:00", "02:00"), values).nodes.single().note,
@@ -351,10 +250,10 @@ class RuleEvaluatorTest {
             Leaves.any(Condition.Gte("app_minutes_last_60m", mapOf("package" to "com.example.app"), RuleLiteral.of(10)), Leaves.not(P)),
         )
         val values = FeatureSnapshot.of(
-            at,
+            AT,
             F0.BERLIN.id,
             mapOf(
-                FeatureRef(SCREEN) to FeatureValue.Known(FeatureScalar.IntValue(50), at, Quality.PROVISIONAL),
+                FeatureRef(SCREEN) to FeatureValue.Known(FeatureScalar.IntValue(50), AT, Quality.PROVISIONAL),
                 FeatureRef("app_minutes_last_60m", mapOf("package" to "com.example.app")) to int(12),
                 FeatureRef(STEPS) to int(2_000),
             ),
@@ -368,6 +267,17 @@ class RuleEvaluatorTest {
         assertThat(trace.nodes[3].args).containsExactly("package", "com.example.app")
         assertThat(trace.nodes[1].literals).containsExactly("45")
         assertThat(trace.result).isEqualTo(Tri.TRUE)
+    }
+
+    @Test
+    fun `every leaf carries the data category of its feature, clock leaves none (correction 11)`() {
+        val condition = Leaves.all(Leaves.gte(SCREEN, 45), P, Q, Leaves.gte("local_time", "22:00"), Condition.LocalTimeIn("22:00", "02:00"))
+
+        val trace = evaluator.evaluate(condition, snapshot(SCREEN to int(50), STEPS to int(10), LOCATION to qValue(Tri.TRUE)))
+
+        assertThat(trace.nodes.drop(1).map { it.category })
+            .containsExactly(DataCategory.SCREEN, DataCategory.ACTIVITY, DataCategory.LOCATION, null, null).inOrder()
+        assertThat(trace.nodes.first().category).isNull()
     }
 
     @Test
@@ -406,8 +316,8 @@ class RuleEvaluatorTest {
 
     @Test
     fun `NEVER compares as infinity and NONE equals no package`() {
-        val never = snapshot("minutes_since_last_delivery" to FeatureValue.Known(FeatureScalar.Never, at))
-        val none = snapshot("foreground_app" to FeatureValue.Known(FeatureScalar.NoPackage, at))
+        val never = snapshot("minutes_since_last_delivery" to FeatureValue.Known(FeatureScalar.Never, AT))
+        val none = snapshot("foreground_app" to FeatureValue.Known(FeatureScalar.NoPackage, AT))
 
         assertThat(
             evaluator.evaluate(Condition.Gte("minutes_since_last_delivery", value = RuleLiteral.of(120)), never).result,
@@ -434,6 +344,10 @@ class RuleEvaluatorTest {
         val Q: Condition = Leaves.eq(LOCATION, "HOME")
 
         private val AT: Instant = F0.local("2026-10-01T17:00")
+        private val evaluator = RuleEvaluator()
+
+        fun snapshot(vararg values: Pair<String, FeatureValue>, at: Instant = AT, zone: String = F0.BERLIN.id): FeatureSnapshot =
+            FeatureSnapshot.of(at, zone, values.associate { (id, value) -> FeatureRef(id) to value })
 
         fun int(value: Long): FeatureValue = FeatureValue.Known(FeatureScalar.IntValue(value), AT)
 
@@ -453,48 +367,175 @@ class RuleEvaluatorTest {
             Tri.UNKNOWN -> missing(MissingReason.COLLECTOR_INACTIVE)
         }
 
+        /** One printed row of the §12.C table: `(P, Q) -> all[P,Q], any[P,Q], not P`. */
+        private class Row(val p: Tri, val q: Tri, val all: Tri, val any: Tri, val not: Tri)
+
         @JvmStatic
         fun truthTable(): List<Arguments> {
             val t = Tri.TRUE
             val f = Tri.FALSE
             val u = Tri.UNKNOWN
-            // (P, Q) -> all[P,Q], any[P,Q], not P, exactly as printed in R10 §12.C.
             val rows = listOf(
-                listOf(t, t, t, t, f),
-                listOf(t, f, f, t, f),
-                listOf(t, u, u, t, f),
-                listOf(f, t, f, t, t),
-                listOf(f, f, f, f, t),
-                listOf(f, u, f, u, t),
-                listOf(u, t, u, t, u),
-                listOf(u, f, f, u, u),
-                listOf(u, u, u, u, u),
+                Row(t, t, t, t, f),
+                Row(t, f, f, t, f),
+                Row(t, u, u, t, f),
+                Row(f, t, f, t, t),
+                Row(f, f, f, f, t),
+                Row(f, u, f, u, t),
+                Row(u, t, u, t, u),
+                Row(u, f, f, u, u),
+                Row(u, u, u, u, u),
             )
-            return rows.flatMap { (p, q, all, any, not) ->
+            return rows.flatMap { row ->
+                val pq = "P=${row.p.name[0]}, Q=${row.q.name[0]}"
                 listOf(
-                    Arguments.of("P=${p.name[0]} Q=${q.name[0]} all", p, q, "all", all),
-                    Arguments.of("P=${p.name[0]} Q=${q.name[0]} any", p, q, "any", any),
-                    Arguments.of("P=${p.name[0]} Q=${q.name[0]} not P", p, q, "not", not),
+                    Arguments.of("R10 C truth table $pq: all[P,Q] = ${row.all.name[0]}", row.p, row.q, "all", row.all),
+                    Arguments.of("R10 C truth table $pq: any[P,Q] = ${row.any.name[0]}", row.p, row.q, "any", row.any),
+                    Arguments.of("R10 C truth table $pq: not P = ${row.not.name[0]}", row.p, row.q, "not", row.not),
                 )
             }
         }
 
+        private fun override(id: String, condition: Condition, createdBy: CreatedBy = CreatedBy.USER_MANUAL, confirmed: Boolean = false) =
+            Rules.rule(id, null, condition, createdBy = createdBy).copy(userConfirmedUnknownOverrides = confirmed)
+
         @JvmStatic
-        fun freshness(): List<Arguments> {
-            val at = F0.local("2026-10-01T17:00")
-            val stale = { value: Long ->
-                FeatureValue.Stale(FeatureScalar.IntValue(value), F0.local("2026-10-01T16:15"), MissingReason.NOT_SYNCED)
+        fun logicVectors(): List<Vector> = listOf(
+            Vector("C4", "all[T, U, F] is F, any[F, U, T] is T, all[T, U] is U") {
+                val values = snapshot(STEPS to int(2_500), LOCATION to missing(MissingReason.COLLECTOR_INACTIVE), SCREEN to int(10))
+                val f = Leaves.gte(SCREEN, 45)
+
+                assertThat(evaluator.evaluate(Leaves.all(P, Q, f), values).result).isEqualTo(Tri.FALSE)
+                assertThat(evaluator.evaluate(Leaves.any(f, Q, P), values).result).isEqualTo(Tri.TRUE)
+                assertThat(evaluator.evaluate(Leaves.all(P, Q), values).result).isEqualTo(Tri.UNKNOWN)
+            },
+            Vector("C5", "a confirmed USER override ASSUME_TRUE at polarity + makes the missing leaf T") {
+                val rule = override("C5", Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_TRUE), confirmed = true)
+
+                val trace = evaluator.evaluate(
+                    rule.conditions,
+                    snapshot(STEPS to missing()),
+                    RootKind.INTERVENTION,
+                    OverridePolicy.of(rule),
+                )
+
+                assertThat(trace.result).isEqualTo(Tri.TRUE)
+                assertThat(trace.nodes.single().appliedOverride).isEqualTo(OnUnknown.ASSUME_TRUE)
+                assertThat(trace.nodes.single().value!!.state).isEqualTo(ValueState.MISSING)
+            },
+            Vector("C6", "an unconfirmed USER override is ignored at run time (the save-time E026 is the DSL validator's)") {
+                val rule = override("C6", Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_TRUE))
+
+                val trace = evaluator.evaluate(
+                    rule.conditions,
+                    snapshot(STEPS to missing()),
+                    RootKind.INTERVENTION,
+                    OverridePolicy.of(rule),
+                )
+
+                assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
+                assertThat(trace.nodes.single().overrideIgnored).isTrue()
+                assertThat(trace.nodes.single().appliedOverride).isNull()
+            },
+            Vector("C7", "the same override in an AI or discovered rule is ignored even when confirmed (E026 at save time)") {
+                listOf(CreatedBy.AI_NATURAL_LANGUAGE, CreatedBy.AI_DISCOVERED).forEach { origin ->
+                    val rule = override("C7", Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_TRUE), origin, confirmed = true)
+
+                    val trace = evaluator.evaluate(
+                        rule.conditions,
+                        snapshot(STEPS to missing()),
+                        RootKind.INTERVENTION,
+                        OverridePolicy.of(rule),
+                    )
+
+                    assertWithMessage(origin.name).that(trace.result).isEqualTo(Tri.UNKNOWN)
+                    assertWithMessage(origin.name).that(trace.nodes.single().overrideIgnored).isTrue()
+                }
+            },
+            Vector("C8", "an AI ASSUME_FALSE at polarity + is delivery-decreasing and turns U into F") {
+                val rule = override("C8", Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_FALSE), CreatedBy.AI_NATURAL_LANGUAGE)
+
+                val trace = evaluator.evaluate(
+                    rule.conditions,
+                    snapshot(STEPS to missing()),
+                    RootKind.INTERVENTION,
+                    OverridePolicy.of(rule),
+                )
+
+                assertThat(trace.result).isEqualTo(Tri.FALSE)
+                assertThat(trace.nodes.single().appliedOverride).isEqualTo(OnUnknown.ASSUME_FALSE)
+            },
+            Vector("C9", "an AI ASSUME_FALSE under not (polarity -) is delivery-increasing and ignored (E026 at save time)") {
+                val rule = override("C9", Leaves.not(Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_FALSE)), CreatedBy.AI_DISCOVERED)
+
+                val trace = evaluator.evaluate(
+                    rule.conditions,
+                    snapshot(STEPS to missing()),
+                    RootKind.INTERVENTION,
+                    OverridePolicy.of(rule),
+                )
+
+                assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
+                assertThat(trace.nodes[1].overrideIgnored).isTrue()
+            },
+            Vector("C10", "an AI SUPPRESSION with ASSUME_FALSE at polarity + would block less and is ignored: U still blocks") {
+                val rule = Rules.suppression(
+                    "C10",
+                    null,
+                    Leaves.lt(STEPS, 3_000, OnUnknown.ASSUME_FALSE),
+                    SuppressionTarget(jitaiIds = listOf("R1")),
+                    createdBy = CreatedBy.AI_NATURAL_LANGUAGE,
+                )
+
+                val trace = evaluator.evaluate(
+                    rule.conditions,
+                    snapshot(STEPS to missing()),
+                    RootKind.of(JitaiKind.SUPPRESSION),
+                    OverridePolicy.of(rule),
+                )
+
+                assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
+                assertThat(trace.nodes.single().overrideIgnored).isTrue()
+            },
+        )
+
+        private fun stale(value: Long) =
+            FeatureValue.Stale(FeatureScalar.IntValue(value), F0.local("2026-10-01T16:15"), MissingReason.NOT_SYNCED)
+
+        private fun leaf(id: String, title: String, leaf: Condition, value: FeatureValue, expected: Tri, bound: Boolean, at: Instant = AT) =
+            Vector(id, title) {
+                val trace = evaluator.evaluate(leaf, snapshot(STEPS to value, at = at))
+
+                assertThat(trace.result).isEqualTo(expected)
+                assertThat(trace.nodes.single().lowerBound == true).isEqualTo(bound)
             }
-            return listOf(
-                Arguments.of("D1 known 2,999", P, int(2_999), at, Tri.TRUE, false),
-                Arguments.of("D2 known 3,000", P, int(3_000), at, Tri.FALSE, false),
-                Arguments.of("D3 stale 3,200 bound", P, stale(3_200), at, Tri.FALSE, true),
-                Arguments.of("D4 stale 2,800", P, stale(2_800), at, Tri.UNKNOWN, false),
-                Arguments.of("D4 after the sync 2,950", P, int(2_950), at + kotlin.time.Duration.parse("10m"), Tri.TRUE, false),
-                Arguments.of("D6 no data", P, missing(), at, Tri.UNKNOWN, false),
-                Arguments.of("D7 true zero", P, int(0), at, Tri.TRUE, false),
-                Arguments.of("D9 gte with stale 3,200", Leaves.gte(STEPS, 3_000), stale(3_200), at, Tri.TRUE, true),
-            )
-        }
+
+        @JvmStatic
+        fun freshness(): List<Vector> = listOf(
+            leaf("D1", "known 2,999 is T", P, int(2_999), Tri.TRUE, bound = false),
+            leaf("D2", "known 3,000 is F", P, int(3_000), Tri.FALSE, bound = false),
+            leaf("D3", "stale 3,200 from today: the lower bound gives F", P, stale(3_200), Tri.FALSE, bound = true),
+            leaf("D4", "stale 2,800 from today is U", P, stale(2_800), Tri.UNKNOWN, bound = false),
+            leaf("D4", "after the sync known 2,950 at 17:10 is T", P, int(2_950), Tri.TRUE, bound = false, at = AT + 10.minutes),
+            leaf("D5", "still stale 2,800 at 17:20 is U", P, stale(2_800), Tri.UNKNOWN, bound = false, at = AT + 20.minutes),
+            leaf("D6", "no step interval today: Missing(NO_DATA) is U", P, missing(), Tri.UNKNOWN, bound = false),
+            leaf("D7", "a true zero is a value: known 0 is T", P, int(0), Tri.TRUE, bound = false),
+            Vector("D8", "a stale value from the previous local day is U with STALE_OTHER_DAY") {
+                val value = FeatureValue.Stale(FeatureScalar.IntValue(500), F0.local("2026-10-01T23:40"), MissingReason.NOT_SYNCED)
+
+                val trace = evaluator.evaluate(P, snapshot(STEPS to value, at = F0.local("2026-10-02T00:20")))
+
+                assertThat(trace.result).isEqualTo(Tri.UNKNOWN)
+                assertThat(trace.nodes.single().note).isEqualTo(TraceNote.STALE_OTHER_DAY)
+            },
+            leaf(
+                "D9",
+                "gte 3000 with stale 3,200 from today is T by the lower bound",
+                Leaves.gte(STEPS, 3_000),
+                stale(3_200),
+                Tri.TRUE,
+                true,
+            ),
+        )
     }
 }
