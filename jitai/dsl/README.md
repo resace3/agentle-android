@@ -5,7 +5,9 @@ codec, static analysis, the one validator, the deterministic renderer and the na
 
 - Pure Kotlin/JVM, no Android dependency; explicit API, bytecode 17, kotlinx.serialization, kotlinx-datetime.
 - Time comes only from `AgentleClock`; the zone and the clock format are always passed in, never read from the JVM
-  default (tests run the same documents under `America/St_Johns` + `tr-TR` and `Pacific/Kiritimati` + `ar-EG`).
+  default. Test JVMs run in `America/St_Johns` while the fixtures use Berlin clocks; `ZoneIndependenceTest` pins local
+  dates for Berlin, St_Johns, Kiritimati and UTC clocks and checks that `tr-TR` and `ar-EG` default locales change
+  nothing. Type-resolved detekt (`detektMain`, `detektTest`) enforces the one-clock rule.
 - Nothing throws on input. Decode failures are `Outcome.Failure(AppError.ValidationError(codes))`, rule problems are
   `ValidationIssue`s, and an internal fault is `E099` with the stage only (no exception text anywhere: issues, errors
   and log lines carry codes, paths and stage names).
@@ -233,5 +235,6 @@ Extra template variants for stored-definition fields a proposal cannot set: E048
 
 ```
 AGENTLE_JVM_ONLY=true ./gradlew :jitai:dsl:test :jitai:dsl:detekt :jitai:dsl:spotlessCheck --max-workers=2
+AGENTLE_JVM_ONLY=true ./gradlew :jitai:dsl:detektMain :jitai:dsl:detektTest --max-workers=2
 AGENTLE_JVM_ONLY=true ./gradlew :jitai:dsl:koverXmlReport --max-workers=2
 ```
