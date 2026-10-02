@@ -29,7 +29,11 @@ public data class Insight(
     val strength: EvidenceStrength,
     val confidence: Double? = null,
     val origin: InsightOrigin,
-    val categories: Set<DataCategory> = emptySet(),
+    /**
+     * Data categories the insight was computed from (lineage). Defaults to every category: unknown lineage is treated as
+     * using all of them, like [sourceFamilies].
+     */
+    val categories: Set<DataCategory> = DataCategory.entries.toSet(),
     val createdAt: Instant,
     val state: InsightState = InsightState.ACTIVE,
     /**

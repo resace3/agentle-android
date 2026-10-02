@@ -89,7 +89,12 @@ class SafetyGateRulesTest {
     @Test
     fun `M9 13_6_3 blocks from midnight up to but not including 9_00 once it is approved`() {
         val proposed = golden("definition-13-6-3.json")
-        val active = JitaiLifecycle.apply(proposed, LifecycleEvent.APPROVE, Fixtures.clock()).getOrThrow()
+        val active = JitaiLifecycle.apply(
+            proposed,
+            LifecycleEvent.APPROVE,
+            Fixtures.clock(),
+            verdict = RuleValidator.revalidate(proposed),
+        ).getOrThrow()
         val window = checkNotNull(active.activeWindow).let { checkNotNull(MinuteMask.window(it.start, it.end)) }
         val morningWalk = walk.copy(trigger = Trigger.DailyAt(listOf("08:30")))
         val eveningWalk = walk.copy(trigger = Trigger.DailyAt(listOf("09:00")))

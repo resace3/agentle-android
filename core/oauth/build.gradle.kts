@@ -10,5 +10,4 @@ dependencies {
     testImplementation(libs.okhttp.mockwebserver3)
     testImplementation(libs.okhttp.mockwebserver3.junit5)
     testImplementation(project(":core:testing"))
-    testImplementation(project(":fakes"))
 }
