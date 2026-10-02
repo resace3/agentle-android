@@ -42,7 +42,7 @@ public class FakeGoogleHealthServer(
     /** Scenario for production-shaped paths (no `/fake-googlehealth/scenario/<name>/` prefix). */
     @Volatile public var defaultScenario: String = FakeScenarios.HAPPY
         set(value) {
-            require(FakeScenarios.byName(value) != null) { "unknown scenario: $value" }
+            requireNotNull(FakeScenarios.byName(value)) { "unknown scenario: $value" }
             field = value
         }
 
@@ -76,7 +76,7 @@ public class FakeGoogleHealthServer(
 
     /** `http://127.0.0.1:<port>/fake-googlehealth/scenario/<name>/`. */
     public fun scenarioUrl(name: String): String {
-        require(FakeScenarios.byName(name) != null) { "unknown scenario: $name" }
+        requireNotNull(FakeScenarios.byName(name)) { "unknown scenario: $name" }
         return rootUrl() + "${PREFIX.removePrefix("/")}/scenario/$name/"
     }
 

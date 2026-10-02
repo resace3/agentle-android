@@ -23,20 +23,11 @@ class SyntheticUserTest {
     @Test
     fun `golden count and fingerprint of the typical user are pinned`() {
         // A change here is a reviewed change: every downstream golden (features, screenshots) must be re-recorded.
+        // testing-build-04: the values were recorded in a UTC JVM and the build runs every test JVM in
+        // America/St_Johns, so a read of the JVM default zone anywhere in the generator would change them.
         assertThat(events.size).isEqualTo(GOLDEN_COUNT)
         assertThat(SyntheticUser.fingerprint(events)).isEqualTo(GOLDEN_SHA256)
         assertThat(SyntheticUser.fingerprint(SyntheticUser.sequence(TYPICAL))).isEqualTo(GOLDEN_SHA256)
-    }
-
-    @Test
-    fun `testing-build-04 the golden fingerprint does not depend on the JVM default zone`() {
-        val saved = java.util.TimeZone.getDefault()
-        try {
-            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("America/St_Johns"))
-            assertThat(SyntheticUser.fingerprint(SyntheticUser.generate(TYPICAL))).isEqualTo(GOLDEN_SHA256)
-        } finally {
-            java.util.TimeZone.setDefault(saved)
-        }
     }
 
     @Test
@@ -48,8 +39,9 @@ class SyntheticUserTest {
         assertThat(spec.days).isEqualTo(90)
         assertThat(spec.windowStart).isLessThan(now)
         assertThat(spec.windowEnd).isGreaterThan(now)
-        assertThat(spec.trip!!.departure.toLocalDateTime(SynthSpec.NEW_YORK).date).isEqualTo(LocalDate(2027, 2, 24))
-        assertThat(spec.trip!!.zone).isEqualTo(TimeZone.of("Europe/Berlin"))
+        val trip = requireNotNull(spec.trip)
+        assertThat(trip.departure.toLocalDateTime(SynthSpec.NEW_YORK).date).isEqualTo(LocalDate(2027, 2, 24))
+        assertThat(trip.zone).isEqualTo(TimeZone.of("Europe/Berlin"))
         assertThat(SynthSpec.endingAt(now, seed = 42, days = 30).trip).isNull()
         val anchored = SyntheticUser.generate(spec)
         assertThat(anchored).isNotEmpty()

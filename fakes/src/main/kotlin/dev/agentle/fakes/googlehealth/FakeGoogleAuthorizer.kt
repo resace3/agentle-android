@@ -74,7 +74,7 @@ public class FakeGoogleAuthorizer(initialToken: String = FakeTokens.VALID) {
     public val invalidations: Int get() = synchronized(lock) { log.count { it.startsWith("invalidate") } }
 
     @Suppress("ReturnCount")
-    public suspend fun token(interactive: Boolean): FakeAuthorization = synchronized(lock) {
+    public fun token(interactive: Boolean): FakeAuthorization = synchronized(lock) {
         log += "token(interactive=$interactive)"
         unavailable?.let { return FakeAuthorization.Failure(it) }
         script.removeFirstOrNull()?.let { return it }
@@ -87,7 +87,7 @@ public class FakeGoogleAuthorizer(initialToken: String = FakeTokens.VALID) {
         return FakeAuthorization.Token(current, grantedScopes(current))
     }
 
-    public suspend fun invalidate(token: String) {
+    public fun invalidate(token: String) {
         synchronized(lock) {
             log += "invalidate($token)"
             if (token != current) return
@@ -104,13 +104,13 @@ public class FakeGoogleAuthorizer(initialToken: String = FakeTokens.VALID) {
         }
     }
 
-    public suspend fun grantedScopes(): Set<String> = synchronized(lock) {
+    public fun grantedScopes(): Set<String> = synchronized(lock) {
         log += "grantedScopes()"
         if (revoked || unavailable != null) emptySet() else grantedScopes(current)
     }
 
     /** Revokes the grant (the app's disconnect): later silent calls need a resolution. False without Play services. */
-    public suspend fun revoke(): Boolean = synchronized(lock) {
+    public fun revoke(): Boolean = synchronized(lock) {
         log += "revoke()"
         if (unavailable != null) return false
         revoked = true

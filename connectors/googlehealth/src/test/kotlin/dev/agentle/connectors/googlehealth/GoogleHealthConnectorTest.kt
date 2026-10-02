@@ -151,7 +151,7 @@ class GoogleHealthConnectorTest {
             assertThat(result.error).isInstanceOf(AppError.AuthenticationRequired::class.java)
             assertThat(result.error?.retryable).isFalse()
             assertThat(requests().size).isEqualTo(before)
-            assertThat(auth.calls.filter { it.startsWith("token") }.last()).isEqualTo("token(interactive=false)")
+            assertThat(auth.calls.last { it.startsWith("token") }).isEqualTo("token(interactive=false)")
             assertThat(connector.metadata.value.connection).isEqualTo(ConnectionStatus.NEEDS_REAUTH)
             // The user resolves it in the UI: connect asks interactively, then background runs work again.
             assertThat(connector.connect()).isInstanceOf(GoogleHealthConnectResult.Connected::class.java)

@@ -125,25 +125,26 @@ class SyntheticGoogleHealthTest {
         assertThat(end).isGreaterThan(clock.now() - 6.hours)
     }
 
+    /**
+     * The build runs every test JVM in America/St_Johns (testing-build-04), so the day grouping checked above already
+     * proves the server never reads the JVM default zone. The device zone (the clock's) must not matter either: the
+     * days are the user's civil days from the data.
+     */
     @Test
-    fun `testing-build-04 served data does not depend on the JVM default zone`() {
-        fun serve(): String {
-            val fake =
-                FakeGoogleHealthServer(TestAgentleClock(start = spec.windowEnd + 1.days), dataset = SyntheticGoogleHealth.dataset(spec))
+    fun `testing-build-04 served data depends on the data's zones, not on the device zone`() {
+        fun serve(zone: TimeZone): String {
+            val clock = TestAgentleClock(start = spec.windowEnd + 1.days, zone = zone)
+            val fake = FakeGoogleHealthServer(clock, dataset = SyntheticGoogleHealth.dataset(spec))
             val auth = mapOf("Authorization" to "Bearer ${FakeTokens.VALID}")
             val daily = """{"range":{"start":{"date":{"year":2026,"month":10,"day":28}},"end":{"date":{"year":2026,"month":11,"day":3}}}}"""
             return fake.call("POST", "/v4/users/me/dataTypes/steps/dataPoints:dailyRollUp", auth, daily).body +
                 fake.call("GET", "/v4/users/me/dataTypes/sleep/dataPoints?pageSize=25", auth).body +
                 fake.call("GET", "/v4/users/me/dataTypes/daily-resting-heart-rate/dataPoints?pageSize=10", auth).body
         }
-        val utc = serve()
-        val saved = java.util.TimeZone.getDefault()
-        try {
-            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("America/St_Johns"))
-            assertThat(serve()).isEqualTo(utc)
-        } finally {
-            java.util.TimeZone.setDefault(saved)
-        }
+        val utc = serve(TimeZone.UTC)
+        assertThat(utc).contains("countSum")
+        assertThat(serve(TimeZone.of("America/St_Johns"))).isEqualTo(utc)
+        assertThat(serve(TimeZone.of("Australia/Adelaide"))).isEqualTo(utc)
     }
 
     companion object {

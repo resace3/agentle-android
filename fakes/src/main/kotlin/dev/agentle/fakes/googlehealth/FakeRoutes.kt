@@ -31,7 +31,7 @@ public data class FakeRoute(val kind: RouteKind, val typeId: String? = null, val
         RouteKind.SETTINGS, RouteKind.PAIRED_DEVICES, RouteKind.PAIRED_DEVICE -> setOf(GhScopes.SETTINGS)
         RouteKind.PROFILE -> setOf(GhScopes.PROFILE)
         RouteKind.EXPORT_TCX -> setOf(GhScopes.ACTIVITY, GhScopes.LOCATION)
-        else -> type?.let { setOf(it.scope) } ?: emptySet()
+        else -> type?.let { setOf(it.scope) }.orEmpty()
     }
 
     /** Whether the route reads health data (everything except identity, settings and profile). */

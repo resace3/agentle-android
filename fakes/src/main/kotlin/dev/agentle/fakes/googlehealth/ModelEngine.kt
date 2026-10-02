@@ -425,6 +425,6 @@ internal class ModelEngine(
         }
 
         fun hash8(key: String): String = MessageDigest.getInstance("SHA-256").digest(key.toByteArray(Charsets.UTF_8))
-            .take(4).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            .take(4).joinToString("") { "%02x".format(java.util.Locale.ROOT, it.toInt() and 0xff) }
     }
 }

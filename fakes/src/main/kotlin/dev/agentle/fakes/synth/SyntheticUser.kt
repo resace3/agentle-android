@@ -349,7 +349,7 @@ public object SyntheticUser {
             val line = "${e.type}|${e.start.toEpochMilliseconds()}|${e.end.toEpochMilliseconds()}|${e.value}|${e.zone.id}|${e.source}\n"
             md.update(line.toByteArray(Charsets.UTF_8))
         }
-        return md.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return md.digest().joinToString("") { "%02x".format(java.util.Locale.ROOT, it.toInt() and 0xff) }
     }
 
     public fun fingerprint(events: List<SynthEvent>): String = fingerprint(events.asSequence())
