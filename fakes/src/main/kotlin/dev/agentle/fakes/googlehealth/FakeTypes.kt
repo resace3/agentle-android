@@ -29,6 +29,9 @@ public data class FakeRequest(
     }
 }
 
+/** One journaled request and the response the fake gave it. */
+public data class FakeExchange(val request: FakeRequest, val response: FakeResponse)
+
 /** Socket-level misbehavior applied to a response (docs/research/08 §5.5). */
 public enum class TransportFault {
     NONE,
@@ -46,13 +49,17 @@ public enum class TransportFault {
     NO_CONTENT_TYPE,
 }
 
-/** A response before it is turned into a MockWebServer response. A null [contentType] sends no `Content-Type`. */
+/**
+ * A response before it is turned into a MockWebServer response. A null [contentType] sends no `Content-Type`;
+ * [delay] holds the headers back (a slow server, docs/research/05 §8.1 `inject(..., delay)`).
+ */
 public data class FakeResponse(
     val code: Int,
     val body: String,
     val contentType: String? = JSON,
     val headers: Map<String, String> = emptyMap(),
     val transport: TransportFault = TransportFault.NONE,
+    val delay: Duration = Duration.ZERO,
 ) {
     public companion object {
         public const val JSON: String = "application/json; charset=UTF-8"
