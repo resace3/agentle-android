@@ -218,12 +218,19 @@ internal class SchemaWalker(private val sink: IssueSink, private val stage: Stag
             IntSpec -> if (primitive.content.toIntOrNull() == null) {
                 sink.add(IssueCode.E008, stage, path, mapOf("expected" to spec.expected, "actual" to "an integer out of range"))
             }
+
             InstantSpec -> if (UtcInstantSerializer.parse(primitive.content) == null) {
                 sink.add(IssueCode.E008, stage, path, mapOf("expected" to spec.expected, "actual" to "another string"))
             }
+
             TrueSpec -> if (primitive.content != "true") {
                 sink.add(IssueCode.E008, stage, path, mapOf("expected" to spec.expected, "actual" to "false"))
             }
+
+            NumberSpec -> if (primitive.content.toDoubleOrNull()?.isFinite() != true) {
+                sink.add(IssueCode.E008, stage, path, mapOf("expected" to spec.expected, "actual" to "a number out of range"))
+            }
+
             else -> Unit
         }
     }
@@ -236,8 +243,11 @@ internal class SchemaWalker(private val sink: IssueSink, private val stage: Stag
         /** The JSON type name of [element] for E008 ("non-integer number" for `1.5` where an integer is required). */
         fun actualType(element: JsonElement): String = when (element) {
             is JsonNull -> "null"
+
             is JsonObject -> "object"
+
             is JsonArray -> "array"
+
             is JsonPrimitive -> when {
                 element.isString -> "string"
                 element.content == "true" || element.content == "false" -> "boolean"

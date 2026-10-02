@@ -113,7 +113,8 @@ public object RuleCodec {
             Outcome.success(value)
         } else {
             val errors = sink.sorted(IssueSeverity.ERROR)
-            Outcome.failure(AppError.ValidationError(errors.map { it.code.name }, errors.joinToString("; ") { "${it.code.name} ${it.path}" }))
+            val detail = errors.joinToString("; ") { "${it.code.name} ${it.path}" }
+            Outcome.failure(AppError.ValidationError(errors.map { it.code.name }, detail))
         }
     }
 
@@ -132,19 +133,23 @@ public object RuleCodec {
         }
         return when (val result = StrictJsonReader.read(text)) {
             is StrictJsonReader.Result.Ok -> result.value
+
             is StrictJsonReader.Result.TooDeep -> {
                 sink.add(IssueCode.E003, Stage.S2, "", mapOf("offset" to result.offset.toString()))
                 null
             }
+
             is StrictJsonReader.Result.DuplicateKey -> {
                 val detail = "duplicate key \"${result.key}\" at ${result.path.ifEmpty { "/" }}"
                 sink.add(IssueCode.E001, Stage.S2, result.path, mapOf("detail" to detail))
                 null
             }
+
             is StrictJsonReader.Result.SyntaxError -> {
                 sink.add(IssueCode.E001, Stage.S3, "", mapOf("detail" to "syntax error at offset ${result.offset}"))
                 null
             }
+
             StrictJsonReader.Result.TrailingText -> {
                 sink.add(IssueCode.E001, Stage.S0, "", mapOf("detail" to "text before or after the object"))
                 null
@@ -162,7 +167,7 @@ public object RuleCodec {
             json.decodeFromJsonElement(serializer, element)
         } catch (e: CancellationException) {
             throw e
-        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+        } catch (@Suppress("TooGenericExceptionCaught") ignored: Exception) {
             // The exception text may quote the input, so only the stage is reported (red team privacy-ai-11).
             sink.add(IssueCode.E099, Stage.S5, "", mapOf("stage" to "S5"))
             null
@@ -177,11 +182,14 @@ public object RuleCodec {
             val c = text[i]
             bytes += when {
                 c.code < 0x80 -> 1
+
                 c.code < 0x800 -> 2
+
                 Character.isHighSurrogate(c) && i + 1 < text.length && Character.isLowSurrogate(text[i + 1]) -> {
                     i++
                     4
                 }
+
                 else -> 3
             }
             i++

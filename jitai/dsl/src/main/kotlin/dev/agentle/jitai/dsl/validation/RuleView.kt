@@ -53,6 +53,7 @@ internal data class RuleView(
     val suppressionJitaiIds: List<String>,
     val experiment: ExperimentSpec?,
     val userConfirmedUnknownOverrides: Boolean,
+    val provenanceAppLabels: Collection<String>,
 ) {
     fun path(vararg segments: Any): String = segments.fold(base) { acc, segment ->
         if (segment is Int) JsonPointer.child(acc, segment) else JsonPointer.child(acc, segment.toString())
@@ -91,6 +92,7 @@ internal data class RuleView(
             suppressionJitaiIds = emptyList(),
             experiment = null,
             userConfirmedUnknownOverrides = false,
+            provenanceAppLabels = emptyList(),
         )
 
         fun of(definition: JitaiDefinition): RuleView = RuleView(
@@ -125,6 +127,7 @@ internal data class RuleView(
             suppressionJitaiIds = definition.suppression?.jitaiIds.orEmpty(),
             experiment = definition.experiment,
             userConfirmedUnknownOverrides = definition.userConfirmedUnknownOverrides,
+            provenanceAppLabels = definition.provenance?.appLabels?.values.orEmpty(),
         )
     }
 }
