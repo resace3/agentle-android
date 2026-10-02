@@ -27,7 +27,9 @@ class SignInJourneyTest : SiwcFakeTest() {
         val url = browser.launched.single()
         assertThat(url.queryParameter("client_id")).isEqualTo("dynamic_agent_client")
         assertThat(url.queryParameter("agent_name_hint")).isEqualTo("Agentle")
-        assertThat(url.queryParameter("ext_agent_host_id")).matches("urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
+        assertThat(
+            url.queryParameter("ext_agent_host_id"),
+        ).matches("urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
         assertThat(url.queryParameter("resource")).isEqualTo("https://api.openai.com/v1")
         assertThat(url.queryParameter("scope")).isEqualTo("openid profile email offline_access resource.invoke chatgpt.tokens.use.direct")
         assertThat(url.queryParameterNames).containsNoneOf("login_hint", "prompt", "id_token_hint", "force_reconsent")

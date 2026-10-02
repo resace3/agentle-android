@@ -110,7 +110,9 @@ class InferenceScenarioTest : SiwcFakeTest() {
         val result = siwc.session.withAccessToken { token -> siwc.responses.create(token, request) { body -> null.also { sent = body } } }
 
         assertThat(result).isInstanceOf(Outcome.Success::class.java)
-        val body = kotlinx.serialization.json.Json.parseToJsonElement(String(sent!!, Charsets.UTF_8)) as kotlinx.serialization.json.JsonObject
+        val body = kotlinx.serialization.json.Json.parseToJsonElement(
+            String(sent!!, Charsets.UTF_8),
+        ) as kotlinx.serialization.json.JsonObject
         assertThat(body.keys).containsExactly("model", "instructions", "input", "store", "stream")
         assertThat(body["store"].toString()).isEqualTo("false")
         assertThat(body["stream"].toString()).isEqualTo("true")
@@ -145,10 +147,18 @@ class InferenceScenarioTest : SiwcFakeTest() {
             Row(USAGE_LIMIT, status(SiwcState.RATE_LIMITED, SiwcReason.PLAN_LIMIT), AppError.NotEligible("usage_limit_reached")),
             Row(
                 RATE_LIMITED_GENERIC,
-                SiwcStatus(SiwcState.RATE_LIMITED, SiwcReason.TOO_MANY_REQUESTS, retryAtEpochMs = (START + 3120.seconds).toEpochMilliseconds()),
+                SiwcStatus(
+                    SiwcState.RATE_LIMITED,
+                    SiwcReason.TOO_MANY_REQUESTS,
+                    retryAtEpochMs = (START + 3120.seconds).toEpochMilliseconds(),
+                ),
                 AppError.RateLimited(20.seconds, "too_many_requests"),
             ),
-            Row(NOT_ELIGIBLE, status(SiwcState.NOT_ELIGIBLE, SiwcReason.ACCOUNT_NOT_ELIGIBLE), AppError.NotEligible("account_not_eligible")),
+            Row(
+                NOT_ELIGIBLE,
+                status(SiwcState.NOT_ELIGIBLE, SiwcReason.ACCOUNT_NOT_ELIGIBLE),
+                AppError.NotEligible("account_not_eligible"),
+            ),
             Row(
                 UNAVAILABLE,
                 status(SiwcState.PLAN_USAGE_UNAVAILABLE, SiwcReason.USAGE_UNAVAILABLE),
@@ -164,13 +174,21 @@ class InferenceScenarioTest : SiwcFakeTest() {
                 status(SiwcState.REAUTH_REQUIRED, SiwcReason.REFRESH_REJECTED),
                 AppError.AuthenticationRequired("chatgpt", "refresh_rejected"),
             ),
-            Row(GRANT_NOT_AUTHORIZED, status(SiwcState.NOT_ELIGIBLE, SiwcReason.GRANT_NOT_AUTHORIZED), AppError.NotEligible("grant_not_authorized")),
+            Row(
+                GRANT_NOT_AUTHORIZED,
+                status(SiwcState.NOT_ELIGIBLE, SiwcReason.GRANT_NOT_AUTHORIZED),
+                AppError.NotEligible("grant_not_authorized"),
+            ),
             Row(
                 INVALID_AUTHORIZATION_CONTEXT,
                 status(SiwcState.NOT_ELIGIBLE, SiwcReason.GRANT_NOT_AUTHORIZED),
                 AppError.NotEligible("grant_not_authorized"),
             ),
-            Row(CLIENT_NOT_ENABLED, status(SiwcState.NOT_ELIGIBLE, SiwcReason.CLIENT_NOT_ENABLED), AppError.NotEligible("client_not_enabled")),
+            Row(
+                CLIENT_NOT_ENABLED,
+                status(SiwcState.NOT_ELIGIBLE, SiwcReason.CLIENT_NOT_ENABLED),
+                AppError.NotEligible("client_not_enabled"),
+            ),
             Row(
                 UNSUPPORTED_CAPABILITY,
                 status(SiwcState.SERVER_ERROR, SiwcReason.UNSUPPORTED_CAPABILITY, param = "temperature"),

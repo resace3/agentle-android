@@ -138,7 +138,8 @@ abstract class SiwcFakeTest(tokenPrefix: String = "", clockOffset: Duration = Du
 
     protected fun envelope(
         userText: String? = "How did I sleep?",
-        blocks: List<ContextBlock> = listOf(ContextBlock(DataCategory.SLEEP, "Sleep last week", "avg 7h 10m", untrusted = false, rawEvents = false)),
+        blocks: List<ContextBlock> =
+            listOf(ContextBlock(DataCategory.SLEEP, "Sleep last week", "avg 7h 10m", untrusted = false, rawEvents = false)),
         instructions: String = "Explain the user's sleep pattern in two sentences.",
     ): AiRequestEnvelope = AiRequestEnvelope(
         requestId = "req-1",

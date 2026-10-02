@@ -167,7 +167,17 @@ class RefreshRobustnessTest : SiwcFakeTest() {
         val siwc = graph()
         siwc.connect()
         clock.advanceBy(1.hours)
-        server.failNext(FakeRoute.TOKEN_REFRESH, 400, if (shape == "oauth") ChatGptFixtures.oauthError(code) else ChatGptFixtures.objectError(code))
+        server.failNext(
+            FakeRoute.TOKEN_REFRESH,
+            400,
+            if (shape ==
+                "oauth"
+            ) {
+                ChatGptFixtures.oauthError(code)
+            } else {
+                ChatGptFixtures.objectError(code)
+            },
+        )
 
         assertThat(siwc.token().error()).isEqualTo(AppError.AuthenticationRequired("chatgpt", "refresh_rejected"))
 
@@ -231,7 +241,11 @@ class RefreshRobustnessTest : SiwcFakeTest() {
         assertThat(notReady).isEqualTo(AppError.RateLimited(3590.seconds, "refresh_not_ready"))
         assertThat(notReady.retryable).isTrue()
         assertThat(vault().status).isEqualTo(
-            SiwcStatus(SiwcState.SERVER_ERROR, SiwcReason.REFRESH_NOT_READY, retryAtEpochMs = (signedInAt + 7200.seconds).toEpochMilliseconds()),
+            SiwcStatus(
+                SiwcState.SERVER_ERROR,
+                SiwcReason.REFRESH_NOT_READY,
+                retryAtEpochMs = (signedInAt + 7200.seconds).toEpochMilliseconds(),
+            ),
         )
         assertThat(server.refreshCount()).isEqualTo(0)
 
@@ -244,7 +258,9 @@ class RefreshRobustnessTest : SiwcFakeTest() {
         val siwc = graph()
         siwc.connect()
 
-        val result = siwc.session.withAccessToken<Unit> { SiwcResult.Failed(SiwcFailure(null, AppError.TokenExpired("chatgpt"), unauthorized = true)) }
+        val result = siwc.session.withAccessToken<Unit> {
+            SiwcResult.Failed(SiwcFailure(null, AppError.TokenExpired("chatgpt"), unauthorized = true))
+        }
 
         assertThat(result.error()).isInstanceOf(AppError.RateLimited::class.java)
         assertThat(vault().status.reason).isEqualTo(SiwcReason.REFRESH_NOT_READY)
