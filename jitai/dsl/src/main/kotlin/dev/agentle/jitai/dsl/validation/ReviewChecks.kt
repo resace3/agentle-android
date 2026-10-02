@@ -16,6 +16,7 @@ import dev.agentle.jitai.dsl.render.FeatureLabels
 import dev.agentle.jitai.dsl.render.Phrases
 import dev.agentle.jitai.dsl.rule.ClockTime
 import dev.agentle.jitai.dsl.rule.Condition
+import kotlin.time.Instant
 
 /** Warnings of R10 §11.3 (W02-W08 from the rule and the context; W01 from the normalized definition). */
 internal class ReviewChecks(private val sink: IssueSink, private val view: RuleView, private val context: ValidationContext) {
@@ -69,8 +70,7 @@ internal class ReviewChecks(private val sink: IssueSink, private val view: RuleV
         val firstLeafByFeature = LinkedHashMap<String, String>()
         leaves.forEach { (path, info) -> firstLeafByFeature.putIfAbsent(info.featureId, path) }
         for ((featureId, path) in firstLeafByFeature) {
-            val definition = RealtimeFeatureCatalog[featureId] ?: continue
-            if (!definition.isAvailable) continue
+            val definition = RealtimeFeatureCatalog[featureId]?.takeIf { it.isAvailable } ?: continue
             when (val status = context.featureAccess.statusOf(definition)) {
                 is FeatureStatus.Unsupported -> {
                     add(IssueCode.W02, path, "feature" to FeatureLabels.capitalized(FeatureLabels.labelOrId(featureId)))
@@ -140,14 +140,19 @@ internal class ReviewChecks(private val sink: IssueSink, private val view: RuleV
     private fun blockedByExisting() {
         val now = context.clock.now()
         val mine = activeMinutes()
-        for (other in context.existingJitais) {
-            if (other.kind != JitaiKind.SUPPRESSION || other.id == view.id) continue
-            val effective = other.enabled && other.status == JitaiStatus.ACTIVE && (other.expiresAt?.let { it > now } ?: true)
-            val targets = other.suppression?.let { view.category in it.categories || (view.id != null && view.id in it.jitaiIds) } ?: false
-            if (!effective || !targets) continue
+        for (other in context.existingJitais.filter { blocksThis(it, now) }) {
             val theirs = other.activeWindow?.takeIf { it.start != it.end }?.let { MinuteMask.window(it.start, it.end) } ?: MinuteMask.ALL
             if (!(mine and theirs).isEmpty) add(IssueCode.W06, view.path("category"), "name" to other.name)
         }
+    }
+
+    /** [other] is an effective SUPPRESSION (enabled, ACTIVE, not expired) that targets this rule's category or id. */
+    private fun blocksThis(other: JitaiDefinition, now: Instant): Boolean {
+        val suppression = other.suppression
+        val effective = other.enabled && other.status == JitaiStatus.ACTIVE && (other.expiresAt?.let { it > now } ?: true)
+        val targets = suppression != null &&
+            (view.category in suppression.categories || (view.id != null && view.id in suppression.jitaiIds))
+        return other.kind == JitaiKind.SUPPRESSION && other.id != view.id && effective && targets
     }
 
     private fun activeMinutes(): MinuteMask {

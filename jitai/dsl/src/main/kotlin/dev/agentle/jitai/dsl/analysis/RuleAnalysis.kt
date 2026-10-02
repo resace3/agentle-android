@@ -170,13 +170,19 @@ public object RuleAnalysis {
     public fun unsatisfiable(tree: Condition, activeWindow: ActiveWindow? = null): Unsatisfiability? {
         if (depth(tree) > MAX_ANALYZED_DEPTH) return null
         val root = analyze(tree, "")
-        if (root.neverTrue) return root.conflict
-        val window = activeWindow?.takeIf { it.start != it.end }?.let { MinuteMask.window(it.start, it.end) } ?: return null
-        if ((root.mask and window).isEmpty) {
-            val subject = root.timeText ?: return null
-            return Unsatisfiability("", "$subject is outside the active window ${activeWindow.start}-${activeWindow.end}")
+        return if (root.neverTrue) root.conflict else windowConflict(root, activeWindow)
+    }
+
+    /** The time conditions of [root] never overlap [activeWindow] (an empty or invalid window is not analyzed). */
+    private fun windowConflict(root: NodeResult, activeWindow: ActiveWindow?): Unsatisfiability? {
+        val window = activeWindow?.takeIf { it.start != it.end } ?: return null
+        val mask = MinuteMask.window(window.start, window.end)
+        val subject = root.timeText
+        return if (mask != null && subject != null && (root.mask and mask).isEmpty) {
+            Unsatisfiability("", "$subject is outside the active window ${window.start}-${window.end}")
+        } else {
+            null
         }
-        return null
     }
 
     // ------------------------------------------------------------------------------------------ implementation
@@ -268,30 +274,41 @@ public object RuleAnalysis {
     }
 
     private fun typedLeaf(node: Condition): TypedLeaf? {
-        val leaf = node as? Condition.FeatureLeaf ?: return null
-        if (leaf.onUnknown == OnUnknown.ASSUME_TRUE) return null
-        val definition = RealtimeFeatureCatalog[leaf.feature] ?: return null
-        if (!TypedLiterals.isAllowed(definition.type, leaf.operator)) return null
-        val literals = TypedLiterals.typedLiterals(leaf) ?: return null
-        if (literals.isEmpty()) return null
-        if (leaf is Condition.Between) {
-            val min = literals[0].orderKey
-            val max = literals[1].orderKey
-            if (min != null && max != null && min > max) return null
-        }
+        val leaf = (node as? Condition.FeatureLeaf)?.takeIf { it.onUnknown != OnUnknown.ASSUME_TRUE } ?: return null
+        val definition = RealtimeFeatureCatalog[leaf.feature]?.takeIf { TypedLiterals.isAllowed(it.type, leaf.operator) } ?: return null
+        val literals = TypedLiterals.typedLiterals(leaf)?.takeIf { it.isNotEmpty() && !invertedBetween(leaf, it) } ?: return null
         return TypedLeaf(leaf, definition, literals)
+    }
+
+    /** `between` with min > max is E017; it is left out of the interval reasoning. */
+    private fun invertedBetween(leaf: Condition.FeatureLeaf, literals: List<TypedLiteral>): Boolean {
+        if (leaf !is Condition.Between) return false
+        val min = literals[0].orderKey
+        val max = literals.getOrNull(1)?.orderKey
+        return min != null && max != null && min > max
     }
 
     /** Interval reasoning on the type's total order; `NEVER` is +infinity (only `gt`, `gte` and `neq` admit it). */
     private fun intervalEmpty(group: List<TypedLeaf>): Boolean {
-        var lo = Long.MIN_VALUE
-        var hi = Long.MAX_VALUE
-        var members: Set<Long>? = null
-        val excluded = HashSet<Long>()
+        val bounds = Bounds()
         for (typed in group) {
-            val keys = typed.literals.map { it.orderKey ?: return false }
+            val keys = typed.literals.mapNotNull { it.orderKey }
+            if (keys.size != typed.literals.size) return false
+            bounds.add(typed.leaf.operator, keys)
+        }
+        return bounds.isEmpty()
+    }
+
+    /** The integer interval `[lo, hi]` with optional allowed members and excluded values of one `(feature, args)`. */
+    private class Bounds {
+        private var lo = Long.MIN_VALUE
+        private var hi = Long.MAX_VALUE
+        private var members: Set<Long>? = null
+        private val excluded = HashSet<Long>()
+
+        fun add(operator: Operator, keys: List<Long>) {
             val k = keys.first()
-            when (typed.leaf.operator) {
+            when (operator) {
                 Operator.GT -> lo = maxOf(lo, k + 1)
 
                 Operator.GTE -> lo = maxOf(lo, k)
@@ -312,12 +329,16 @@ public object RuleAnalysis {
                 Operator.NEQ -> excluded += k
             }
         }
-        if (lo > hi) return true
-        val known = members
-        if (known != null) return known.none { it in lo..hi && it !in excluded }
-        if (lo == Long.MIN_VALUE || hi == Long.MAX_VALUE) return false
-        val size = hi - lo + 1
-        return size <= excluded.size && (lo..hi).all { it in excluded }
+
+        fun isEmpty(): Boolean {
+            val known = members
+            return when {
+                lo > hi -> true
+                known != null -> known.none { it in lo..hi && it !in excluded }
+                lo == Long.MIN_VALUE || hi == Long.MAX_VALUE -> false
+                else -> hi - lo + 1 <= excluded.size && (lo..hi).all { it in excluded }
+            }
+        }
     }
 
     /** Set reasoning for unordered types; [domain] is the finite set of possible values, or null when unbounded. */

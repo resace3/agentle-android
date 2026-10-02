@@ -3,6 +3,7 @@ package dev.agentle.jitai.dsl.validation
 import dev.agentle.jitai.dsl.analysis.MinuteMask
 import dev.agentle.jitai.dsl.analysis.Polarity
 import dev.agentle.jitai.dsl.analysis.RuleAnalysis
+import dev.agentle.jitai.dsl.model.JitaiKind
 import dev.agentle.jitai.dsl.model.Trigger
 import dev.agentle.jitai.dsl.rule.ClockTime
 import dev.agentle.jitai.dsl.rule.Condition
@@ -52,16 +53,15 @@ internal class TimingChecks(private val sink: IssueSink, private val view: RuleV
 
     private fun window(since: String, sinceMinute: Int, path: String) {
         // A rule without a trigger is only checked here when it is a SUPPRESSION (an INTERVENTION has E050).
-        if (view.trigger == null && view.kind != dev.agentle.jitai.dsl.model.JitaiKind.SUPPRESSION) return
+        if (view.trigger == null && view.kind != JitaiKind.SUPPRESSION) return
         val window = view.activeWindow
         if (window == null) {
             sink.add(IssueCode.E029, Stage.S6, path, mapOf("since" to since), variant = 2)
             return
         }
-        val start = ClockTime.minuteOfDay(window.start) ?: return
-        val mask = MinuteMask.window(window.start, window.end) ?: return
-        if (window.start == window.end) return
-        if (sinceMinute != start && sinceMinute in mask) {
+        // An invalid or empty window is reported elsewhere (E024, E025).
+        val mask = window.takeIf { it.start != it.end }?.let { MinuteMask.window(it.start, it.end) }
+        if (mask != null && sinceMinute != ClockTime.minuteOfDay(window.start) && sinceMinute in mask) {
             sink.add(IssueCode.E029, Stage.S6, path, mapOf("since" to since, "start" to window.start), variant = 0)
         }
     }
