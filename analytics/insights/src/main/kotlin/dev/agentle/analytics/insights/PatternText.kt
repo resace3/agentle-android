@@ -81,14 +81,16 @@ public object PatternText {
     /** The supporting rows of an insight card. */
     public fun supportItems(result: HypothesisResult): List<SupportItem> {
         val t = result.table
+        val rateExposed = requireNotNull(t.rateExposed) { "a finding needs exposed nights" }
+        val rateUnexposed = requireNotNull(t.rateUnexposed) { "a finding needs unexposed nights" }
         val items = mutableListOf(
             SupportItem("Nights compared", t.n.toString()),
             SupportItem("Outcome", outcomeLabel(result.hypothesis.outcome)),
             SupportItem(
                 exposureLabel(result.hypothesis.exposure),
-                "${t.a} of ${t.exposed} nights (${PatternStatistics.percent(t.rateExposed!!)}%)",
+                "${t.a} of ${t.exposed} nights (${PatternStatistics.percent(rateExposed)}%)",
             ),
-            SupportItem("Other nights", "${t.c} of ${t.unexposed} nights (${PatternStatistics.percent(t.rateUnexposed!!)}%)"),
+            SupportItem("Other nights", "${t.c} of ${t.unexposed} nights (${PatternStatistics.percent(rateUnexposed)}%)"),
         )
         result.interval?.let { ci ->
             items += SupportItem("Likely range of the difference", "${points(ci.lower)} to ${points(ci.upper)} percentage points")

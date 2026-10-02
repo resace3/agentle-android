@@ -123,13 +123,16 @@ class ZoneMatrixTest {
             return inputs
         }
 
+        /**
+         * Runs [block] with the JVM default zone [id]; afterwards the default goes back to the test JVM's configured
+         * zone (`user.timezone`, read again after `setDefault(null)`), so the current default is never read.
+         */
         private inline fun <T> withJvmDefaultZone(id: String, block: () -> T): T {
-            val saved = java.util.TimeZone.getDefault()
             java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(id))
             try {
                 return block()
             } finally {
-                java.util.TimeZone.setDefault(saved)
+                java.util.TimeZone.setDefault(null)
             }
         }
 

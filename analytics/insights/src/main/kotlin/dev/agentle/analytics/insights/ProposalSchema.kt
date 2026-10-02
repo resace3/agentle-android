@@ -262,8 +262,8 @@ public object ProposalSchema {
         }
 
         private fun template(json: JsonElement?, path: String) {
-            if (typeOf(json) != "template") return fail("$path/type", "must be template")
-            textPair(json!!, path, withType = true)
+            if (json == null || typeOf(json) != "template") return fail("$path/type", "must be template")
+            textPair(json, path, withType = true)
         }
 
         private fun textPair(json: JsonElement, path: String, withType: Boolean) {

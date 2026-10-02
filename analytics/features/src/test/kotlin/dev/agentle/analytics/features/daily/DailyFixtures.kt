@@ -21,7 +21,6 @@ import dev.agentle.core.model.PlaceClass
 import dev.agentle.core.model.RestingHeartRatePayload
 import dev.agentle.core.model.ScreenPayload
 import dev.agentle.core.model.SleepSessionPayload
-import dev.agentle.core.model.SleepStage
 import dev.agentle.core.model.StepsPayload
 import dev.agentle.core.model.TransitionKind
 import dev.agentle.core.time.ClosedOpenRange
@@ -191,31 +190,26 @@ internal object Ev {
         start: Instant,
         end: Instant,
         zone: TimeZone = UTC,
-        stages: List<SleepStage> = emptyList(),
         minutesAsleep: Long? = null,
         isNap: Boolean = false,
         isMainSleep: Boolean = true,
         processed: Boolean? = true,
-        startOffsetSeconds: Int? = null,
-        endOffsetSeconds: Int? = null,
-        outOfBed: List<SleepStage> = emptyList(),
-    ): PersonalEvent = of(
-        EventType.SLEEP_SESSION,
+    ): PersonalEvent = sleepSession(
         source,
         start,
         end,
-        SleepSessionPayload(
-            stages = stages,
-            minutesAsleep = minutesAsleep,
-            isMainSleep = isMainSleep,
-            isNap = isNap,
-            processed = processed,
-            startUtcOffsetSeconds = startOffsetSeconds,
-            endUtcOffsetSeconds = endOffsetSeconds,
-            outOfBedSegments = outOfBed,
-        ),
+        SleepSessionPayload(minutesAsleep = minutesAsleep, isMainSleep = isMainSleep, isNap = isNap, processed = processed),
         zone,
     )
+
+    /** A sleep session with an explicit payload (stages, the record's own offsets, out-of-bed segments). */
+    fun sleepSession(
+        source: DataSourceId,
+        start: Instant,
+        end: Instant,
+        payload: SleepSessionPayload,
+        zone: TimeZone = UTC,
+    ): PersonalEvent = of(EventType.SLEEP_SESSION, source, start, end, payload, zone)
 
     fun exercise(source: DataSourceId, start: Instant, end: Instant): PersonalEvent =
         of(EventType.EXERCISE_SESSION, source, start, end, ExercisePayload("RUNNING", (end - start).inWholeMilliseconds))

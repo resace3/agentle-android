@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import dev.agentle.analytics.features.MissingReason
 import dev.agentle.core.model.DataCategory
 import dev.agentle.core.model.PersonalEvent
+import dev.agentle.core.model.SleepSessionPayload
 import dev.agentle.core.model.SleepStage
 import dev.agentle.core.model.SleepStageKind
 import dev.agentle.core.model.SourceFamily
@@ -182,16 +183,19 @@ class HealthFeaturesTest {
 
     @Test
     fun `sleep uses asleep stages, the first asleep stage as bedtime and own offsets`() = runTest {
-        val night = Ev.sleep(
+        val night = Ev.sleepSession(
             Src.GH_SLEEP,
             at(D, 23, 10),
             at(D.plusDays(1), 7),
-            stages = listOf(
-                stage(SleepStageKind.AWAKE, at(D, 23, 10), at(D, 23, 30)),
-                stage(SleepStageKind.LIGHT, at(D, 23, 30), at(D.plusDays(1), 3)),
-                stage(SleepStageKind.DEEP, at(D.plusDays(1), 3), at(D.plusDays(1), 5)),
-                stage(SleepStageKind.REM, at(D.plusDays(1), 5), at(D.plusDays(1), 6, 30)),
-                stage(SleepStageKind.AWAKE, at(D.plusDays(1), 6, 30), at(D.plusDays(1), 7)),
+            SleepSessionPayload(
+                stages = listOf(
+                    stage(SleepStageKind.AWAKE, at(D, 23, 10), at(D, 23, 30)),
+                    stage(SleepStageKind.LIGHT, at(D, 23, 30), at(D.plusDays(1), 3)),
+                    stage(SleepStageKind.DEEP, at(D.plusDays(1), 3), at(D.plusDays(1), 5)),
+                    stage(SleepStageKind.REM, at(D.plusDays(1), 5), at(D.plusDays(1), 6, 30)),
+                    stage(SleepStageKind.AWAKE, at(D.plusDays(1), 6, 30), at(D.plusDays(1), 7)),
+                ),
+                processed = true,
             ),
         )
 
@@ -207,13 +211,12 @@ class HealthFeaturesTest {
     @Test
     fun `sleep across the fall-back night reads each end in its own offset`() = runTest {
         val day = date("2026-10-31")
-        val night = Ev.sleep(
+        val night = Ev.sleepSession(
             Src.GH_SLEEP,
             Instant.parse("2026-11-01T03:00:00Z"),
             Instant.parse("2026-11-01T12:00:00Z"),
+            SleepSessionPayload(processed = true, startUtcOffsetSeconds = -14_400, endUtcOffsetSeconds = -18_000),
             NEW_YORK,
-            startOffsetSeconds = -14_400,
-            endOffsetSeconds = -18_000,
         )
 
         val rows = compute(listOf(night), day = day, now = at(day.plusDays(5), 0), timeline = ZoneTimeline.fixed(NEW_YORK))
@@ -277,15 +280,18 @@ class HealthFeaturesTest {
                 Arguments.of(
                     "S2 without stages, out-of-bed time is removed",
                     listOf(
-                        Ev.sleep(
+                        Ev.sleepSession(
                             Src.GH_SLEEP,
                             at(D, 23),
                             at(wake, 7),
-                            outOfBed = listOf(
-                                SleepStage(
-                                    SleepStageKind.OUT_OF_BED,
-                                    at(wake, 2).toEpochMilliseconds(),
-                                    at(wake, 2, 30).toEpochMilliseconds(),
+                            SleepSessionPayload(
+                                processed = true,
+                                outOfBedSegments = listOf(
+                                    SleepStage(
+                                        SleepStageKind.OUT_OF_BED,
+                                        at(wake, 2).toEpochMilliseconds(),
+                                        at(wake, 2, 30).toEpochMilliseconds(),
+                                    ),
                                 ),
                             ),
                         ),
@@ -318,19 +324,17 @@ class HealthFeaturesTest {
                 Arguments.of(
                     "S7 the wake date is read in the session's own offset",
                     listOf(
-                        Ev.sleep(
+                        Ev.sleepSession(
                             Src.GH_SLEEP,
                             Instant.parse("2026-09-14T15:00:00Z"),
                             Instant.parse("2026-09-14T22:00:00Z"),
-                            endOffsetSeconds =
-                            9 * 3_600,
+                            SleepSessionPayload(processed = true, endUtcOffsetSeconds = 9 * 3_600),
                         ),
-                        Ev.sleep(
+                        Ev.sleepSession(
                             Src.GH_SLEEP,
                             Instant.parse("2026-09-15T15:00:00Z"),
                             Instant.parse("2026-09-15T23:00:00Z"),
-                            endOffsetSeconds =
-                            9 * 3_600,
+                            SleepSessionPayload(processed = true, endUtcOffsetSeconds = 9 * 3_600),
                         ),
                     ),
                     420.0,

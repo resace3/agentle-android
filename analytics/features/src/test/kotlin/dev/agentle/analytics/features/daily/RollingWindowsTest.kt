@@ -90,29 +90,20 @@ class RollingWindowsTest {
 
         private fun dailyRow(day: LocalDate, feature: String, value: Double?, status: DailyRowStatus, lineage: Lineage = SCREEN) =
             DailySummaryRow(
-                date = day, metric = feature, featureId = feature, value = value,
-                coverage = if (value ==
-                    null
-                ) {
-                    0.0
-                } else {
-                    1.0
-                },
+                date = day,
+                metric = feature,
+                featureId = feature,
+                value = value,
+                coverage = if (value == null) 0.0 else 1.0,
                 status = status,
-                missingReason = if (status == DailyRowStatus.MISSING) MissingReason.NO_DATA else null, lineage = lineage, computedAt = T,
+                missingReason = if (status == DailyRowStatus.MISSING) MissingReason.NO_DATA else null,
+                lineage = lineage,
+                computedAt = T,
             )
 
-        private fun final(vararg values: Double?) = values.map { v ->
-            v to (
-                if (v ==
-                    null
-                ) {
-                    DailyRowStatus.MISSING
-                } else {
-                    DailyRowStatus.FINAL
-                }
-                )
-        }
+        /** Days from the anchor backwards: a value is a FINAL day, null a MISSING one. */
+        private fun final(values: List<Double?>): List<Pair<Double?, DailyRowStatus>> =
+            values.map { v -> v to if (v == null) DailyRowStatus.MISSING else DailyRowStatus.FINAL }
 
         @JvmStatic
         fun cases(): List<Arguments> = listOf(
@@ -120,7 +111,7 @@ class RollingWindowsTest {
                 "G1 mean over 5 of 7 final days",
                 "screen_minutes",
                 7,
-                final(10.0, null, 20.0, 30.0, null, 40.0, 50.0),
+                final(listOf(10.0, null, 20.0, 30.0, null, 40.0, 50.0)),
                 DerivedStatus.OK,
                 30.0,
                 5,
@@ -129,7 +120,7 @@ class RollingWindowsTest {
                 "G2 4 of 7 final days is UNKNOWN",
                 "screen_minutes",
                 7,
-                final(10.0, null, 20.0, null, null, 40.0, 50.0),
+                final(listOf(10.0, null, 20.0, null, null, 40.0, 50.0)),
                 DerivedStatus.UNKNOWN,
                 null,
                 4,
@@ -138,12 +129,12 @@ class RollingWindowsTest {
                 "G3 a provisional day makes the window STALE",
                 "screen_minutes",
                 7,
-                listOf(5.0 to DailyRowStatus.PROVISIONAL) + final(10.0, 20.0, 30.0, 40.0, 50.0),
+                listOf(5.0 to DailyRowStatus.PROVISIONAL) + final(listOf(10.0, 20.0, 30.0, 40.0, 50.0)),
                 DerivedStatus.STALE,
                 30.0,
                 5,
             ),
-            Arguments.of("G4 a 1-day window of a final day", "screen_minutes", 1, final(42.0), DerivedStatus.OK, 42.0, 1),
+            Arguments.of("G4 a 1-day window of a final day", "screen_minutes", 1, final(listOf(42.0)), DerivedStatus.OK, 42.0, 1),
             Arguments.of(
                 "G5 a 1-day window of a provisional day is UNKNOWN",
                 "screen_minutes",
@@ -157,17 +148,17 @@ class RollingWindowsTest {
                 "G6 partial days are not observations of the whole day",
                 "screen_minutes",
                 3,
-                listOf(5.0 to DailyRowStatus.PARTIAL) + final(10.0),
+                listOf(5.0 to DailyRowStatus.PARTIAL) + final(listOf(10.0)),
                 DerivedStatus.UNKNOWN,
                 null,
                 1,
             ),
-            Arguments.of("G7 a sum needs every day", "interventions_delivered", 3, final(1.0, 2.0, 3.0), DerivedStatus.OK, 6.0, 3),
+            Arguments.of("G7 a sum needs every day", "interventions_delivered", 3, final(listOf(1.0, 2.0, 3.0)), DerivedStatus.OK, 6.0, 3),
             Arguments.of(
                 "G8 a sum with a missing day is UNKNOWN",
                 "interventions_delivered",
                 3,
-                final(1.0, null, 3.0),
+                final(listOf(1.0, null, 3.0)),
                 DerivedStatus.UNKNOWN,
                 null,
                 2,
@@ -176,7 +167,7 @@ class RollingWindowsTest {
                 "G9 a sum with a provisional day is STALE",
                 "interventions_delivered",
                 3,
-                listOf(1.0 to DailyRowStatus.PROVISIONAL) + final(2.0, 3.0),
+                listOf(1.0 to DailyRowStatus.PROVISIONAL) + final(listOf(2.0, 3.0)),
                 DerivedStatus.STALE,
                 6.0,
                 3,
@@ -185,22 +176,30 @@ class RollingWindowsTest {
                 "G10 sleep regularity is the sample standard deviation",
                 "sleep_regularity",
                 3,
-                final(900.0, 930.0, 960.0),
+                final(listOf(900.0, 930.0, 960.0)),
                 DerivedStatus.OK,
                 30.0,
                 3,
             ),
-            Arguments.of("G11 one night has no spread", "sleep_regularity", 3, final(900.0, null, null), DerivedStatus.UNKNOWN, null, 1),
+            Arguments.of(
+                "G11 one night has no spread",
+                "sleep_regularity",
+                3,
+                final(listOf(900.0, null, null)),
+                DerivedStatus.UNKNOWN,
+                null,
+                1,
+            ),
             Arguments.of(
                 "G12 a 90-day mean needs 60 final days",
                 "steps",
                 90,
-                final(*Array(59) { 1_000.0 }) + final(*Array<Double?>(31) { null }),
+                final(List(59) { 1_000.0 }) + final(List(31) { null }),
                 DerivedStatus.UNKNOWN,
                 null,
                 59,
             ),
-            Arguments.of("G13 a 90-day mean with 60 final days", "steps", 90, final(*Array(60) { 1_000.0 }), DerivedStatus.OK, 1_000.0, 60),
+            Arguments.of("G13 a 90-day mean with 60 final days", "steps", 90, final(List(60) { 1_000.0 }), DerivedStatus.OK, 1_000.0, 60),
         )
     }
 }

@@ -354,7 +354,7 @@ class OutcomeMetricsTest {
 
     private fun inputs(events: List<PersonalEvent>, coverage: ClosedOpenRange? = null): InMemoryDailyInputs = InMemoryDailyInputs(
         events = events,
-        collectorCoverage = coverage?.let { mapOf(OutcomeCalculator.USAGE_COLLECTOR to listOf(it)) } ?: emptyMap(),
+        collectorCoverage = coverage?.let { mapOf(OutcomeCalculator.USAGE_COLLECTOR to listOf(it)) }.orEmpty(),
     )
 
     /** `gh:05T23:10-06T07:00:420[:nap|:unprocessed|:other]`: days of October 2026, UTC. */

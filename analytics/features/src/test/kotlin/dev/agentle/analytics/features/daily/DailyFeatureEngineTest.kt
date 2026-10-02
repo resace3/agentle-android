@@ -18,7 +18,7 @@ import kotlin.time.Instant
 
 class DailyFeatureEngineTest {
     private val day = date("2026-09-14")
-    private val clock = TestAgentleClock(at(day.plusDays(3), 12))
+    private val clock = TestAgentleClock(at(day.plusDays(3), 12), UTC)
 
     private fun inputs(events: List<dev.agentle.core.model.PersonalEvent> = emptyList()) =
         InMemoryDailyInputs(events, collectorCoverage = Col.ALL.associateWith { listOf(around(day.plusDays(-10), day.plusDays(5))) })
@@ -143,7 +143,7 @@ class DailyFeatureEngineTest {
         val records = mutableListOf<LogRecord>()
         val failing = object : DailyInputs by InMemoryDailyInputs() {
             override suspend fun events(query: EventQuery): List<dev.agentle.core.model.PersonalEvent> =
-                throw IllegalStateException("payload {\"text\":\"secret message\"}")
+                error("payload {\"text\":\"secret message\"}")
         }
         val engine =
             DailyFeatureEngine(failing, InMemoryDailyFeatureStore(), clock, logger = Logger(listOf(LogSink { records += it }), { 0L }))

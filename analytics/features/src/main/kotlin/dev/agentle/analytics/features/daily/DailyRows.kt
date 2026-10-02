@@ -56,7 +56,7 @@ public data class DailySummaryRow(
         require(coverage in 0.0..1.0) { "coverage out of range: $coverage" }
         when (status) {
             DailyRowStatus.MISSING -> require(value == null && missingReason != null) { "MISSING needs a reason and no value: $metric" }
-            DailyRowStatus.FINAL, DailyRowStatus.PARTIAL -> require(value != null) { "$status needs a value: $metric" }
+            DailyRowStatus.FINAL, DailyRowStatus.PARTIAL -> requireNotNull(value) { "$status needs a value: $metric" }
             DailyRowStatus.PROVISIONAL -> Unit
         }
     }

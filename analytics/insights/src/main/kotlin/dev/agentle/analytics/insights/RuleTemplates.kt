@@ -73,7 +73,7 @@ public object RuleTemplates {
             NightOutcome.HIGH_RESTING_HR -> null
         }
         return PatternText.requireClean(
-            proximal + (distal ?: "") +
+            proximal + distal.orEmpty() +
                 if (distal != null) ". The trial measures both; nothing is promised." else ". The trial measures it; nothing is promised.",
         )
     }

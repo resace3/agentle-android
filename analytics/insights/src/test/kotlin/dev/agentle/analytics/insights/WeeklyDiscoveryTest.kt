@@ -15,6 +15,7 @@ import dev.agentle.core.time.engineDay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
@@ -23,7 +24,7 @@ import kotlin.time.Duration.Companion.days
 /** The weekly run end to end (docs/research/10 §14.5, §14.8) over an in-memory daily store. */
 class WeeklyDiscoveryTest {
     private val config = InsightConfig(windowNights = 60)
-    private val clock = TestAgentleClock(T0)
+    private val clock = TestAgentleClock(T0, TimeZone.UTC)
     private val daily = InMemoryDailyFeatureStore()
     private val store = InMemoryDiscoveryStore()
     private val logs = mutableListOf<LogRecord>()
@@ -143,7 +144,7 @@ class WeeklyDiscoveryTest {
     fun `failures become Outcome failures with the error class only, and logs carry counts only`() = runTest {
         val failing = object : DailyFeatureStore by daily {
             override suspend fun dailyRows(from: LocalDate, to: LocalDate): List<DailySummaryRow> =
-                throw IllegalStateException("bedtime 23:41 of com.example.secret")
+                error("bedtime 23:41 of com.example.secret")
         }
         layP1(date("2026-10-04"))
         value(discovery.run())

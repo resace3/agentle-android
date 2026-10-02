@@ -207,13 +207,16 @@ internal const val P1_TEXT: String =
         "up on work nights and on weekend nights. This is a pattern in your own data, not proof: something else, such as a busy " +
         "day, may explain both."
 
-/** Runs [block] with the JVM default zone set to [id] (restored afterwards); results must never depend on it. */
+/**
+ * Runs [block] with the JVM default zone set to [id]; results must never depend on it. Afterwards the default goes back
+ * to the test JVM's configured zone (`user.timezone`, read again after `setDefault(null)`), so the helper never reads
+ * the current default (the one-clock rule forbids it).
+ */
 internal inline fun <T> withJvmDefaultZone(id: String, block: () -> T): T {
-    val saved = java.util.TimeZone.getDefault()
     java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(id))
     try {
         return block()
     } finally {
-        java.util.TimeZone.setDefault(saved)
+        java.util.TimeZone.setDefault(null)
     }
 }

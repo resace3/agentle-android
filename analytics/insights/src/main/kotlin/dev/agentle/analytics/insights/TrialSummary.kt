@@ -161,11 +161,11 @@ public object TrialSummaries {
             randomized ->
                 "Sent ${times(s.delivered)} and skipped ${times(s.skippedAtRandom)} at random. Agentle compares them once it has " +
                     "$MIN_PER_ARM outcomes of each." +
-                    (s.meanAfterReminder?.let { " $window ${phrase(metric, it, label)} on average." } ?: "")
+                    s.meanAfterReminder?.let { " $window ${phrase(metric, it, label)} on average." }.orEmpty()
 
             else ->
                 "Sent ${times(s.delivered)}, opened ${times(s.opened)}." +
-                    (s.meanAfterReminder?.let { " $window ${phrase(metric, it, label)} on average." } ?: "") +
+                    s.meanAfterReminder?.let { " $window ${phrase(metric, it, label)} on average." }.orEmpty() +
                     " Without the experiment option Agentle cannot tell whether the reminder made a difference."
         }
     }

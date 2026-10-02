@@ -65,7 +65,7 @@ public data class RefreshReport(val dates: Set<LocalDate>, val dailyRows: Int, v
  * [recomputeAfterZoneChange] after a time-zone change; both cover at most [DailyFeatureConfig.recomputeDays] dates.
  */
 public class DailyFeatureEngine(
-    private val inputs: DailyInputs,
+    inputs: DailyInputs,
     private val store: DailyFeatureStore,
     private val clock: AgentleClock,
     private val config: DailyFeatureConfig = DailyFeatureConfig(),
