@@ -23,7 +23,7 @@ class ScreenshotProbeTest {
     @Test
     fun lightSurfaceText() {
         captureRoboImage {
-            MaterialTheme(colorScheme = lightColorScheme()) { Surface { Text("Agentle probe") } }
+            MaterialTheme(colorScheme = lightColorScheme()) { Surface { Text("Agentle") } }
         }
     }
 
