@@ -1,0 +1,21 @@
+{
+  "dataPoints": [
+    {
+      "name": "users/1234567890/dataTypes/sleep/dataPoints/7821966286120953001",
+      "dataSource": {"recordingMethod": "DERIVED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+      "sleep": {
+        "interval": {
+          "startTime": "2026-09-30T02:40:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T10:52:00Z",
+          "endUtcOffset": "-14400s"
+        },
+        "metadata": {"mainSleep": true},
+        "createTime": "2026-09-30T11:02:10.123456Z",
+        "updateTime": "2026-09-30T11:02:10.123456Z"
+      }
+    },
+    "<F-SLEEP main record, updateTime 2026-09-30T11:35:44.654321Z>"
+  ],
+  "nextPageToken": ""
+}

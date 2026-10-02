@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid JSON payload received. Octal/hex numbers are not valid JSON values",
+    "status": "INVALID_ARGUMENT"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "error": {
+    "code": 403,
+    "message": "The caller does not have permission.",
+    "status": "PERMISSION_DENIED",
+    "details": [
+      {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "MISSING_OAUTH_SCOPE", "domain": "health.googleapis.com"}
+    ]
+  }
+}
