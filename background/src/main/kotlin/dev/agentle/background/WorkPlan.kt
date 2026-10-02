@@ -128,6 +128,7 @@ internal object Requests {
             )
             .setInputData(Data.Builder().putString(KEY_WORK, spec.name).build())
             .addTag(WorkNames.TAG)
+            .addTag(spec.name)
             .build()
 
     /**
@@ -147,6 +148,7 @@ internal object Requests {
             .setConstraints(Constraints.Builder().setRequiredNetworkType(network).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Cadences.BACKOFF.inWholeSeconds, TimeUnit.SECONDS)
             .addTag(WorkNames.TAG)
+            .addTag(name)
         if (id != null) builder.setId(id)
         if (delay.isPositive()) {
             builder.setInitialDelay(delay.inWholeMilliseconds, TimeUnit.MILLISECONDS)
