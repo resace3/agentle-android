@@ -15,7 +15,7 @@ import org.junit.runner.Description
 
 /** Sets `Dispatchers.Main` to a [StandardTestDispatcher]; `runTest` then shares its scheduler with `viewModelScope`. */
 @OptIn(ExperimentalCoroutinesApi::class)
-internal class MainDispatcherRule(val dispatcher: TestDispatcher = StandardTestDispatcher()) : TestWatcher() {
+class MainDispatcherRule(val dispatcher: TestDispatcher = StandardTestDispatcher()) : TestWatcher() {
     override fun starting(description: Description) {
         Dispatchers.setMain(dispatcher)
     }
