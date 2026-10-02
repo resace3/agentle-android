@@ -10,6 +10,7 @@ import dev.agentle.jitai.dsl.validation.IssueCode
 import dev.agentle.jitai.dsl.validation.IssueSeverity
 import dev.agentle.jitai.dsl.validation.IssueSink
 import dev.agentle.jitai.dsl.validation.Stage
+import dev.agentle.jitai.dsl.validation.ValidationIssue
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
@@ -53,7 +54,7 @@ public object RuleCodec {
     /** Properties left out of [contentHash] (see the KDoc there). */
     public val CONTENT_HASH_EXCLUDED: List<String> = listOf(
         "id", "version", "status", "enabled", "createdBy", "createdAt", "modifiedAt", "expiresAt",
-        "userConfirmedUnknownOverrides", "provenance",
+        "userConfirmedUnknownOverrides", "provenance", "name", "description",
     )
 
     public fun encodeDefinition(definition: JitaiDefinition): String = json.encodeToString(DslSerializers.definition, definition)
@@ -85,13 +86,16 @@ public object RuleCodec {
      * Deviation from R10 §3.1, which removes only `version`, `modifiedAt`, `enabled` and `status`: with `id` and
      * `createdAt` inside the hash, two rules could never share a hash, so W01 (duplicate) could never fire. The hash
      * therefore covers what the rule does (trigger, window, conditions, delivery, content, limits, outcome, targets,
-     * experiment) and not who made it or when.
+     * experiment) and not who made it, when, or what it is called (`name`, `description`; review R1-5).
      */
     public fun contentHash(definition: JitaiDefinition): String {
         val element = json.encodeToJsonElement(DslSerializers.definition, definition).jsonObject
         val semantic = JsonObject(element.filterKeys { it !in CONTENT_HASH_EXCLUDED })
         return sha256Hex(json.encodeToString(JsonObject.serializer(), semantic))
     }
+
+    private fun safePath(issue: ValidationIssue): String =
+        if (issue.code == IssueCode.E006) issue.path.substringBeforeLast('/') + "/<unknown>" else issue.path
 
     /** Lowercase hex SHA-256 of the UTF-8 bytes of [text] (no `HexFormat`: it is missing on older Android). */
     internal fun sha256Hex(text: String): String {
@@ -121,7 +125,8 @@ public object RuleCodec {
             Outcome.success(value)
         } else {
             val errors = sink.sorted(IssueSeverity.ERROR)
-            val detail = errors.joinToString("; ") { "${it.code.name} ${it.path}" }
+            // Review R2-6: only codes and schema-known paths; an unknown key is written as "/<unknown>".
+            val detail = errors.joinToString("; ") { "${it.code.name} ${safePath(it)}" }
             Outcome.failure(AppError.ValidationError(errors.map { it.code.name }, detail))
         }
     }

@@ -125,7 +125,7 @@ class RuleCodecTest {
         assertThat(hash).matches("[0-9a-f]{64}")
         assertThat(RuleCodec.contentHash(sameRule)).isEqualTo(hash)
         assertThat(RuleCodec.contentHash(otherRule)).isNotEqualTo(hash)
-        assertThat(RuleCodec.contentHash(definition.copy(name = "Other name"))).isNotEqualTo(hash)
+        assertThat(RuleCodec.contentHash(definition.copy(name = "Other name", description = "Other words"))).isEqualTo(hash)
     }
 
     @Test
@@ -192,7 +192,7 @@ class RuleCodecTest {
                 "unknown key",
                 """{"type":"local_time_in","start":"22:00","end":"02:00","note":"$SECRET"}""",
                 "E006",
-                "E006 /note",
+                "E006 /<unknown>",
             ),
             row("missing key", """{"type":"lt","feature":"steps_today","args":{},"value":45}""", "E007", "E007 /onUnknown"),
             row("unknown node type", """{"type":"regex","pattern":"$SECRET"}""", "E009", "E009 /type"),

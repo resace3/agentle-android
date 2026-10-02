@@ -46,7 +46,7 @@ public data class RenderedText(val path: String, val parts: List<ContentPart>) {
  * the definition and [RenderOptions], so the sentence the user approves can be stored (`provenance.approvedRendering`)
  * and compared later.
  *
- * Sentence = `{schedule}: {body}. {limits}.` plus `Ends after {date}.` when `expiresAt` is set.
+ * Sentence = `{schedule}: {body}. {limits}.` plus the trial end ([expiry]).
  */
 public object RuleRenderer {
     /** The plain-language sentence of [definition]. */
@@ -57,12 +57,31 @@ public object RuleRenderer {
         if (definition.kind == JitaiKind.INTERVENTION) {
             limits(definition)?.let { sentence.append(' ').append(it).append('.') }
         }
-        definition.expiresAt?.let { expiresAt ->
-            val date = (expiresAt - 1.seconds).toLocalDateTime(options.zone).date
-            val month = date.month.name.lowercase(Locale.ROOT).replaceFirstChar { it.uppercaseChar() }
-            sentence.append(" Ends after ").append(month).append(' ').append(date.day).append(", ").append(date.year).append('.')
-        }
+        expiry(definition, options.zone)?.let { sentence.append(' ').append(it) }
         return sentence.toString()
+    }
+
+    /**
+     * The trial end (review item R1-6): `Ends after {date}.` once `expiresAt` is set, and before approval
+     * `Ends {n} days after you approve it.` for a proposal with `provenance.expiresInDays`.
+     */
+    public fun expiry(definition: JitaiDefinition, zone: TimeZone): String? {
+        val expiresAt = definition.expiresAt
+        if (expiresAt == null) {
+            val days = definition.provenance?.expiresInDays ?: return null
+            return pendingExpiry(days)
+        }
+        val date = (expiresAt - 1.seconds).toLocalDateTime(zone).date
+        val month = date.month.name.lowercase(Locale.ROOT).replaceFirstChar { it.uppercaseChar() }
+        return "Ends after $month ${date.day}, ${date.year}."
+    }
+
+    internal fun pendingExpiry(days: Int): String = if (days ==
+        1
+    ) {
+        "Ends 1 day after you approve it."
+    } else {
+        "Ends $days days after you approve it."
     }
 
     /** A condition tree as a phrase (`screen time in the last 60 minutes is at least 45 min and ...`). */
@@ -82,7 +101,10 @@ public object RuleRenderer {
 
     private fun schedule(definition: JitaiDefinition, options: RenderOptions): String {
         val window = definition.activeWindow
-        val days = window?.days?.takeIf { it.isNotEmpty() }?.let { " on " + Phrases.list(it.map(Phrases::day)) }.orEmpty()
+        // A window that crosses midnight belongs to the day it starts on (review R1-4): "starting on Friday".
+        val crosses = window != null && window.end < window.start
+        val days = window?.days?.takeIf { it.isNotEmpty() }
+            ?.let { (if (crosses) " starting on " else " on ") + Phrases.list(it.map(Phrases::day)) }.orEmpty()
         if (definition.kind == JitaiKind.SUPPRESSION) {
             return (window?.let { "From " + windowText(it, options) } ?: "At any time") + days
         }
@@ -160,9 +182,14 @@ public object RuleRenderer {
         while (stack.isNotEmpty()) {
             when (val node = stack.removeLast()) {
                 is Condition.AllOf -> node.of.asReversed().forEach(stack::addLast)
+
                 is Condition.AnyOf -> node.of.asReversed().forEach(stack::addLast)
+
                 is Condition.Not -> stack.addLast(node.of)
-                is Condition.FeatureLeaf -> FeatureLabels.dataLabel(node.feature)?.let(labels::add)
+
+                // A leaf with an onUnknown override says so itself (review R1-3).
+                is Condition.FeatureLeaf -> if (node.onUnknown == null) FeatureLabels.dataLabel(node.feature)?.let(labels::add)
+
                 is Condition.LocalTimeIn -> Unit
             }
         }

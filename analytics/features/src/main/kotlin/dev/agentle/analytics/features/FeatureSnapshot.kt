@@ -29,7 +29,13 @@ public data class FeatureSnapshot(
     }
 }
 
-/** Resolves feature values for one pass. Implemented by the realtime feature engine; faked in engine tests. */
+/**
+ * Resolves feature values for one pass. Implemented by the realtime feature engine; faked in engine tests.
+ *
+ * Refs whose args contain `jitai=self` (the intervention-history features, R10 §5.4 I) must be bound to the id of the
+ * rule being evaluated with [bindSelf] before [resolve], and the caller looks the value up by the bound ref. A ref with
+ * an unbound `self` resolves to `Missing(INVALID_VALUE)`.
+ */
 public interface FeatureResolver {
     /** Resolves every ref in [refs] at [at]. Never throws for data conditions: unknowns are [FeatureValue.Missing]. */
     public suspend fun resolve(refs: Set<FeatureRef>, at: Instant): FeatureSnapshot

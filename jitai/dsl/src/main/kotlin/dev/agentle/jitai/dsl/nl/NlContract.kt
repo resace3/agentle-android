@@ -47,7 +47,10 @@ public sealed interface NlDecision {
     public data class Clarify(val questions: List<Question>) : NlDecision
 
     /** `UNSUPPORTED`: a fixed local message per reason; [detail] is the linted model text (null for HEALTH_OR_SAFETY). */
-    public data class Unsupported(val reason: UnsupportedReason, val detail: String?) : NlDecision
+    public data class Unsupported(val reason: UnsupportedReason, val detail: String?) : NlDecision {
+        /** The fixed local message for [reason] (for HEALTH_OR_SAFETY the only text shown). */
+        val message: String get() = NlContract.unsupportedMessage(reason)
+    }
 
     /** No safe rule (R10 §13.1 step 6): [message], the plain-language [problems] and "Edit manually". */
     public data class Failed(val message: String, val problems: List<String>) : NlDecision
@@ -126,10 +129,46 @@ public object NlContract {
     public fun repairInput(report: ValidationReport): String =
         (listOf("VALIDATION_ERRORS") + report.repairLines + "Return the corrected proposal only.").joinToString("\n")
 
-    /** The `user` item `ANSWERS` with `q1: ...` lines. */
+    /** Longest answer sent back, in code points; longer answers are cut (an answer is one of the options or a short text). */
+    public const val MAX_ANSWER_CODE_POINTS: Int = 200
+
+    /** The `user` item `ANSWERS` with `q1: ...` lines: one line per question, each answer on one line and bounded. */
     public fun answersInput(answers: Map<QuestionId, String>): String =
-        (listOf("ANSWERS") + answers.entries.sortedBy { it.key }.map { (id, answer) -> "${id.wire}: ${answer.trim()}" })
+        (listOf("ANSWERS") + answers.entries.sortedBy { it.key }.map { (id, answer) -> "${id.wire}: ${boundedAnswer(answer)}" })
             .joinToString("\n")
+
+    private fun boundedAnswer(answer: String): String {
+        val oneLine = answer.trim().replace(LINE_BREAKS, " ")
+        val count = oneLine.codePointCount(0, oneLine.length)
+        return if (count <= MAX_ANSWER_CODE_POINTS) oneLine else oneLine.substring(0, oneLine.offsetByCodePoints(0, MAX_ANSWER_CODE_POINTS))
+    }
+
+    private val LINE_BREAKS = Regex("[\\r\\n\\u2028\\u2029\\u0085]+")
+
+    /** The fixed message for an UNSUPPORTED reply (review R2-4); never model text. */
+    public fun unsupportedMessage(reason: UnsupportedReason): String = when (reason) {
+        UnsupportedReason.HEALTH_OR_SAFETY ->
+            "Agentle cannot help with health or safety concerns. If you might be in danger, contact local emergency services."
+
+        UnsupportedReason.NEEDS_UNAVAILABLE_DATA -> "Agentle does not have the data this reminder needs."
+
+        UnsupportedReason.NEEDS_FINER_TIMING -> "Agentle cannot time reminders this precisely."
+
+        UnsupportedReason.NEEDS_UNAVAILABLE_ACTION -> "Agentle cannot take this action."
+
+        UnsupportedReason.NOT_A_REMINDER -> "This does not describe a reminder."
+
+        UnsupportedReason.OTHER -> "Agentle cannot turn this into a reminder."
+    }
+
+    /**
+     * True when [state] is a possible state of one request: counters in range and every repair and clarification
+     * paid for by a model call. [decide] treats any other state as exhausted.
+     */
+    private fun plausible(state: NlRoundState): Boolean = state.modelCalls in 1..MAX_MODEL_CALLS &&
+        state.repairs in 0..MAX_REPAIR_ROUNDS &&
+        state.clarifications in 0..MAX_CLARIFICATION_ROUNDS &&
+        state.modelCalls >= 1 + state.repairs + state.clarifications
 
     /** The `input` items of the first round. */
     public fun firstRound(settings: NlSettings, request: String): List<NlItem> =
@@ -146,16 +185,18 @@ public object NlContract {
     /** The next step after a validated reply (R10 §13.1 steps 6-9), within the call budget of [state]. */
     public fun decide(report: ValidationReport, state: NlRoundState): NlDecision {
         val proposal = report.proposal
-        val callsLeft = state.modelCalls < MAX_MODEL_CALLS
+        // The limits are enforced here, not trusted to the caller: an impossible state counts as exhausted.
+        val sane = plausible(state)
+        val callsLeft = sane && state.modelCalls < MAX_MODEL_CALLS
         return when {
-            report.errorCount > 0 || proposal == null -> if (state.repairs < MAX_REPAIR_ROUNDS && callsLeft) {
+            report.errorCount > 0 || proposal == null -> if (sane && state.repairs < MAX_REPAIR_ROUNDS && callsLeft) {
                 NlDecision.Repair(repairInput(report))
             } else {
-                NlDecision.Failed(FAILURE_MESSAGE, report.errors.map { it.message })
+                NlDecision.Failed(FAILURE_MESSAGE, report.errors.map { it.code.plainText }.distinct())
             }
 
             proposal.status == ProposalStatus.NEEDS_CLARIFICATION -> {
-                val canAsk = state.clarifications < MAX_CLARIFICATION_ROUNDS && callsLeft
+                val canAsk = sane && state.clarifications < MAX_CLARIFICATION_ROUNDS && callsLeft
                 if (canAsk) NlDecision.Clarify(proposal.questions) else NlDecision.Failed(FAILURE_MESSAGE, emptyList())
             }
 

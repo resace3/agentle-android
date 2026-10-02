@@ -129,7 +129,7 @@ internal class ReadmeExamplesTest {
         assertThat(RuleCodec.encodeDefinition(RuleCodec.decodeDefinition(canonical).getOrThrow())).isEqualTo(canonical)
         assertThat(decimal).isEqualTo(Condition.Lt(feature = "steps_today", value = RuleLiteral.NumberToken("45.0")))
         assertThat(RuleCodec.encodeCondition(decimal)).isEqualTo(decimalText)
-        assertThat(unknown.errorOrNull()).isEqualTo(AppError.ValidationError(listOf("E006"), "E006 /colour"))
+        assertThat(unknown.errorOrNull()).isEqualTo(AppError.ValidationError(listOf("E006"), "E006 /<unknown>"))
         assertThat(RuleCodec.contentHash(stored)).isEqualTo(RuleCodec.contentHash(stored.copy(id = "other", version = 2)))
     }
 

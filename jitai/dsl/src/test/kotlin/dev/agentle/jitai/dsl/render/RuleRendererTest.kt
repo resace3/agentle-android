@@ -272,7 +272,7 @@ class RuleRendererTest {
                 "definition-14-7.json",
                 "Every 30 minutes from 10:00 PM to 1:00 AM: if screen time since 10:00 PM is at least 45 min, and only while you " +
                     "are using the phone, send a notification (allowed during quiet hours while you are using the phone). " +
-                    "At most 1 per day and 7 per week, at least 2 h apart.",
+                    "At most 1 per day and 7 per week, at least 2 h apart. Ends 28 days after you approve it.",
             ),
         )
 
@@ -296,12 +296,12 @@ class RuleRendererTest {
             Arguments.of(
                 "interval with days",
                 base().copy(trigger = Trigger.Interval(30), activeWindow = window.copy(days = listOf(WeekDay.FRI))),
-                "Every 30 minutes from 10:00 PM to 2:00 AM on Friday",
+                "Every 30 minutes from 10:00 PM to 2:00 AM starting on Friday",
             ),
             Arguments.of(
                 "suppression with a window and days",
                 suppression(window.copy(days = weekend), null, SuppressionTarget(listOf(JitaiCategory.GENERAL))),
-                "From 10:00 PM to 2:00 AM on Saturday and Sunday",
+                "From 10:00 PM to 2:00 AM starting on Saturday and Sunday",
             ),
             Arguments.of(
                 "event alternatives",

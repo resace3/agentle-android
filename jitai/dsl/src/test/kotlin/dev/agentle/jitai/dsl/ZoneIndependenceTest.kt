@@ -66,7 +66,10 @@ class ZoneIndependenceTest {
     fun `APPROVE sets expiresAt at local midnight in the zone of the clock`(zone: String, expected: String) {
         val clock = Fixtures.clock(now = Instant.parse("2026-10-01T16:00:00Z"), zone = TimeZone.of(zone))
 
-        val approved = JitaiLifecycle.apply(golden("definition-14-7.json"), LifecycleEvent.APPROVE, clock).getOrThrow()
+        val proposed = golden("definition-14-7.json")
+        val verdict = RuleValidator.revalidate(proposed)
+
+        val approved = JitaiLifecycle.apply(proposed, LifecycleEvent.APPROVE, clock, verdict = verdict).getOrThrow()
 
         assertWithMessage(zone).that(approved.expiresAt).isEqualTo(Instant.parse(expected))
     }

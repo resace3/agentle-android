@@ -16,6 +16,7 @@ import dev.agentle.jitai.dsl.nl.JitaiDraft
 import dev.agentle.jitai.dsl.nl.JitaiProposal
 import dev.agentle.jitai.dsl.nl.NlContract
 import dev.agentle.jitai.dsl.nl.ProposalStatus
+import dev.agentle.jitai.dsl.nl.UnsupportedReason
 import dev.agentle.jitai.dsl.render.RenderOptions
 import dev.agentle.jitai.dsl.render.RuleRenderer
 import dev.agentle.jitai.dsl.rule.Condition
@@ -137,7 +138,14 @@ internal class ValidationRun(private val request: ValidationRequest, private val
 
     // ------------------------------------------------------------------ S4 envelope, S6-S9
 
-    private fun proposal(value: JitaiProposal, createdBy: CreatedBy) {
+    private fun proposal(decoded: JitaiProposal, createdBy: CreatedBy) {
+        // Review R2-4: a HEALTH_OR_SAFETY detail is dropped unread; the app shows its fixed safety message instead.
+        val unsupported = decoded.unsupported
+        val value = if (unsupported?.reason == UnsupportedReason.HEALTH_OR_SAFETY && unsupported.detail != null) {
+            decoded.copy(unsupported = unsupported.copy(detail = null))
+        } else {
+            decoded
+        }
         proposal = value
         stage = Stage.S4
         EnvelopeChecks(sink, origin).proposal(value)
