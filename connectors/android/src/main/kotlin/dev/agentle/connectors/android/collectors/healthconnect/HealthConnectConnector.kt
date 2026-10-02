@@ -93,6 +93,7 @@ public class HealthConnectConnector(
     override suspend fun collectStream(stream: String, trigger: SyncTrigger, statuses: Map<String, CapabilityStatus>): CollectOutcome =
         collectTypes(HcType.entries.filter { it.stream == stream }, statuses)
 
+    @Suppress("LoopWithTooManyJumpStatements")
     private suspend fun collectTypes(types: List<HcType>, statuses: Map<String, CapabilityStatus>): CollectOutcome {
         if (!foreground() && statuses[CapabilityIds.HEALTH_CONNECT_BACKGROUND_READ]?.state?.canCollect != true) {
             return CollectOutcome(

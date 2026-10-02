@@ -6,13 +6,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 /**
  * In-memory connection state of Agentle's notification listener (docs/research/02 §6.10). The listener reports
  * [onConnected] and [onDisconnected]; the Permission Center reads [connected] and asks [rebindIfDue] on each pass:
- * `requestRebind` is the only call that is safe while disconnected, and it is rate-limited to once per [REBIND_AFTER]
+ * `requestRebind` is the only call that is safe while disconnected, and it is rate-limited to once per [REBIND_INTERVAL] (hourly)
  * after more than [REBIND_AFTER] without a connection.
  */
 public class ListenerConnection(private val component: ComponentName, private val rebind: (ComponentName) -> Unit = ::defaultRebind) {
@@ -38,14 +39,14 @@ public class ListenerConnection(private val component: ComponentName, private va
 
     /**
      * Requests a rebind when access is [granted], the listener has been disconnected (or never connected since
-     * [processStart]) for more than [REBIND_AFTER], and the last request is older than that. Returns whether it asked.
+     * [processStart]) for more than [REBIND_AFTER], and the last request is older than [REBIND_INTERVAL]. Returns whether it asked.
      */
     @Synchronized
     public fun rebindIfDue(granted: Boolean, now: Instant, processStart: Instant): Boolean {
         if (!granted || state.value) return false
         val since = disconnectedSince ?: processStart
         val last = lastRebind
-        if (now - since < REBIND_AFTER || (last != null && now - last < REBIND_AFTER)) return false
+        if (now - since < REBIND_AFTER || (last != null && now - last < REBIND_INTERVAL)) return false
         lastRebind = now
         return try {
             rebind(component)
@@ -69,6 +70,9 @@ public class ListenerConnection(private val component: ComponentName, private va
 
     public companion object {
         public val REBIND_AFTER: Duration = 10.minutes
+
+        /** At most one watchdog rebind per hour (docs/research/02 §5.3 step 5, red team lifecycle-battery-10). */
+        public val REBIND_INTERVAL: Duration = 1.hours
 
         private fun defaultRebind(component: ComponentName) = NotificationListenerService.requestRebind(component)
     }

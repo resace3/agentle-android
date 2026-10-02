@@ -26,7 +26,8 @@ import dev.agentle.connectors.android.core.AndroidConnectorIds
 import dev.agentle.connectors.android.core.AndroidSources
 import dev.agentle.connectors.android.core.CollectorRuntime
 import dev.agentle.connectors.android.core.CoverageIds
-import dev.agentle.connectors.android.core.LiveEventBuffer
+import dev.agentle.connectors.android.core.LiveWriter
+import dev.agentle.connectors.android.core.RateLimit
 import dev.agentle.connectors.android.core.LiveSource
 import dev.agentle.connectors.android.core.RuntimeReceiver
 import dev.agentle.connectors.android.permissions.Permissions
@@ -44,6 +45,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executor
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
@@ -62,12 +64,12 @@ private const val HINT_CONFIDENCE = 0.5
  * `android.screen_hint` with confidence 0.5. The receipt time is the event time. Usage events stay the truth
  * (`android.screen`); these rows are best effort while the process lives.
  */
-public class ScreenLiveSource(private val runtime: CollectorRuntime, private val device: DeviceState) : LiveSource {
+public class ScreenLiveSource(private val runtime: CollectorRuntime, private val device: DeviceState, live: LiveWriter) : LiveSource {
     override val sourceId: String = SOURCE_ID
     override val connectorId: String = AndroidConnectorIds.SCREEN
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.SCREEN_INTERACTIVE_EVENTS)
 
-    private val buffer = LiveEventBuffer(sourceId, emptyList(), runtime)
+    private val buffer = live.channel(SOURCE_ID, RateLimit(burst = 30, perHour = 120))
     public val receiver: RuntimeReceiver =
         RuntimeReceiver(runtime.context, ACTIONS, exported = true, clock = runtime.clock) { action, _, at ->
             onAction(action, at)
@@ -141,13 +143,17 @@ public class ScreenLiveSource(private val runtime: CollectorRuntime, private val
  * receiver is not exported) and the thermal status listener. A plug broadcast is confirmed with the sticky battery
  * intent and recorded as a transition (`battery|charging_started|<eventMs>`); an unconfirmed one is a hint row.
  */
-public class PowerLiveSource(private val runtime: CollectorRuntime, private val device: DeviceState, private val recorder: PowerRecorder) :
-    LiveSource {
+public class PowerLiveSource(
+    private val runtime: CollectorRuntime,
+    private val device: DeviceState,
+    private val recorder: PowerRecorder,
+    live: LiveWriter,
+) : LiveSource {
     override val sourceId: String = SOURCE_ID
     override val connectorId: String = AndroidConnectorIds.BATTERY
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.BATTERY_STATE)
 
-    private val buffer = LiveEventBuffer(sourceId, emptyList(), runtime)
+    private val buffer = live.channel(SOURCE_ID)
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
     public val receiver: RuntimeReceiver =
         RuntimeReceiver(runtime.context, ACTIONS, exported = false, clock = runtime.clock) { action, _, at ->
@@ -186,11 +192,16 @@ public class PowerLiveSource(private val runtime: CollectorRuntime, private val 
                 val confirmed = snapshot != null && (snapshot.plugType != PlugType.NONE) == connected
                 runtime.scope.launch {
                     if (confirmed && snapshot != null) {
-                        recorder.recordPlugged(snapshot, at, recordFirst = true)
+                        recorder.recordPlugged(snapshot, at, recordFirst = true, via = buffer)
                     } else {
                         buffer.submit(listOf(recorder.hint(connected, snapshot, at)))
                     }
                 }
+            }
+
+            Intent.ACTION_BATTERY_LOW, Intent.ACTION_BATTERY_OKAY -> {
+                val snapshot = device.battery() ?: return
+                runtime.scope.launch { recorder.recordLevel(snapshot, device.power(), at, via = buffer) }
             }
 
             PowerManager.ACTION_POWER_SAVE_MODE_CHANGED, PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED -> recordPower(at)
@@ -201,7 +212,7 @@ public class PowerLiveSource(private val runtime: CollectorRuntime, private val 
 
     private fun recordPower(at: Instant) {
         val snapshot = device.power() ?: return
-        runtime.scope.launch { recorder.recordPower(snapshot, at) }
+        runtime.scope.launch { recorder.recordPower(snapshot, at, via = buffer) }
     }
 
     @Suppress("TooGenericExceptionCaught")
@@ -221,6 +232,8 @@ public class PowerLiveSource(private val runtime: CollectorRuntime, private val 
         public val ACTIONS: Set<String> = setOf(
             Intent.ACTION_POWER_CONNECTED,
             Intent.ACTION_POWER_DISCONNECTED,
+            Intent.ACTION_BATTERY_LOW,
+            Intent.ACTION_BATTERY_OKAY,
             PowerManager.ACTION_POWER_SAVE_MODE_CHANGED,
             PowerManager.ACTION_DEVICE_IDLE_MODE_CHANGED,
         )
@@ -235,7 +248,9 @@ public class NetworkLiveSource(
     private val runtime: CollectorRuntime,
     private val device: DeviceState,
     private val recorder: NetworkRecorder,
+    live: LiveWriter,
 ) : LiveSource {
+    private val out = live.channel(SOURCE_ID)
     override val sourceId: String = SOURCE_ID
     override val connectorId: String = AndroidConnectorIds.NETWORK
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.NETWORK_CONNECTIVITY)
@@ -294,18 +309,19 @@ public class NetworkLiveSource(
 
     public suspend fun record(at: Instant) {
         val snapshot = device.network() ?: return
-        recorder.recordNetwork(snapshot, device.airplaneMode(), at)
+        recorder.recordNetwork(snapshot, device.airplaneMode(), at, via = out)
     }
 
     private fun onAirplane(at: Instant) {
         val on = device.airplaneMode() ?: return
-        runtime.scope.launch { recorder.recordAirplane(on, device.network()?.kind ?: NetworkKind.OTHER, at) }
+        runtime.scope.launch { recorder.recordAirplane(on, device.network()?.kind ?: NetworkKind.OTHER, at, via = out) }
     }
 
     public companion object {
         public const val SOURCE_ID: String = "android.network_live"
         public val AIRPLANE_ACTIONS: Set<String> = setOf(Intent.ACTION_AIRPLANE_MODE_CHANGED)
-        private val SETTLE = 1.seconds
+        /** Connectivity transitions are recorded once the network settled for 30 s (red team lifecycle-battery-17). */
+        public val SETTLE: Duration = 30.seconds
     }
 }
 
@@ -317,7 +333,9 @@ public class BluetoothLiveSource(
     private val runtime: CollectorRuntime,
     private val device: DeviceState,
     private val recorder: BluetoothRecorder,
+    live: LiveWriter,
 ) : LiveSource {
+    private val out = live.channel(SOURCE_ID)
     override val sourceId: String = SOURCE_ID
     override val connectorId: String = AndroidConnectorIds.BLUETOOTH
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.BLUETOOTH_ADAPTER_STATE)
@@ -332,7 +350,7 @@ public class BluetoothLiveSource(
 
     public fun onStateChanged(at: Instant) {
         val on = device.bluetoothEnabled() ?: return
-        runtime.scope.launch { recorder.recordAdapter(on, at) }
+        runtime.scope.launch { recorder.recordAdapter(on, at, via = out) }
     }
 
     public companion object {
@@ -345,13 +363,17 @@ public class BluetoothLiveSource(
  * Output devices through `AudioDeviceCallback` (headset arrivals and departures; devices present at registration are the
  * baseline, not arrivals) and ringer mode changes (a protected system broadcast, so not exported).
  */
-public class AudioLiveSource(private val runtime: CollectorRuntime, private val device: DeviceState, private val recorder: AudioRecorder) :
-    LiveSource {
+public class AudioLiveSource(
+    private val runtime: CollectorRuntime,
+    private val device: DeviceState,
+    private val recorder: AudioRecorder,
+    live: LiveWriter,
+) : LiveSource {
     override val sourceId: String = SOURCE_ID
     override val connectorId: String = AndroidConnectorIds.AUDIO
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.AUDIO_VOLUME_RINGER)
 
-    private val buffer = LiveEventBuffer(sourceId, emptyList(), runtime)
+    private val buffer = live.channel(SOURCE_ID)
     private val known = HashMap<Int, Int>()
     private var callback: AudioDeviceCallback? = null
     public val ringerReceiver: RuntimeReceiver =
@@ -422,13 +444,13 @@ public class AudioLiveSource(private val runtime: CollectorRuntime, private val 
         }.map { recorder.headset(connected, DeviceState.routeName(it.second), at) }
         runtime.scope.launch {
             if (events.isNotEmpty()) buffer.submit(events)
-            device.audio()?.let { recorder.recordState(it, at) }
+            device.audio()?.let { recorder.recordState(it, at, via = buffer) }
         }
     }
 
     private fun recordState(at: Instant) {
         val snapshot = device.audio() ?: return
-        runtime.scope.launch { recorder.recordState(snapshot, at) }
+        runtime.scope.launch { recorder.recordState(snapshot, at, via = buffer) }
     }
 
     public companion object {
@@ -441,8 +463,14 @@ public class AudioLiveSource(private val runtime: CollectorRuntime, private val 
  * DND changes through `ACTION_INTERRUPTION_FILTER_CHANGED` (registered receivers only; a protected system broadcast, so
  * not exported). The notification listener reports the same changes while it is bound.
  */
-public class DndLiveSource(private val runtime: CollectorRuntime, private val device: DeviceState, private val recorder: DeviceRecorder) :
-    LiveSource {
+@Suppress("UnusedPrivateProperty") // device is read in the receiver lambda (a detekt false positive).
+public class DndLiveSource(
+    private val runtime: CollectorRuntime,
+    private val device: DeviceState,
+    private val recorder: DeviceRecorder,
+    live: LiveWriter,
+) : LiveSource {
+    private val out = live.channel(SOURCE_ID)
     override val sourceId: String = SOURCE_ID
     override val connectorId: String = AndroidConnectorIds.DEVICE
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.DND_STATE)
@@ -456,7 +484,7 @@ public class DndLiveSource(private val runtime: CollectorRuntime, private val de
     override fun stop(): Unit = receiver.unregister()
 
     public fun onFilter(filter: Int, at: Instant) {
-        runtime.scope.launch { recorder.recordDnd(filter, at) }
+        runtime.scope.launch { recorder.recordDnd(filter, at, via = out) }
     }
 
     public companion object {
@@ -471,7 +499,7 @@ public class DndLiveSource(private val runtime: CollectorRuntime, private val de
  * the phone number argument is never read). The first callback is the current state (baseline, not a row); every later
  * change is a CALL_EVENT keyed `call|<state>|<eventMs>`.
  */
-public class CallStateLiveSource(private val runtime: CollectorRuntime, private val platform: PlatformState) : LiveSource {
+public class CallStateLiveSource(private val runtime: CollectorRuntime, private val platform: PlatformState, live: LiveWriter) : LiveSource {
     override val sourceId: String = SOURCE_ID
     override val connectorId: String = AndroidConnectorIds.CALL
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.CALL_STATE)
@@ -479,7 +507,7 @@ public class CallStateLiveSource(private val runtime: CollectorRuntime, private 
     /** The only source of call state, so it owns `call_state` coverage: open while the callback is registered. */
     override val coverageIds: List<String> = CoverageIds.CALL
 
-    private val buffer = LiveEventBuffer(sourceId, coverageIds, runtime)
+    private val buffer = live.channel(SOURCE_ID, RateLimit(burst = 10, perHour = 30), coverageIds)
     private var unregister: (() -> Unit)? = null
 
     @Volatile private var last: Int? = null

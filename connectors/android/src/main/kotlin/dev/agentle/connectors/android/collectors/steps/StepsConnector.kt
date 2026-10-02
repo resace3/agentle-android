@@ -114,6 +114,7 @@ public class StepsConnector(runtime: CollectorRuntime, permissions: CapabilitySt
     /** Health Connect on-device steps, when available, replace the Recording API (never both). */
     override val observedCapabilityIds: List<String> = listOf(CapabilityIds.HEALTH_CONNECT_ON_DEVICE_STEPS)
 
+    @Suppress("ReturnCount")
     override suspend fun collect(trigger: SyncTrigger, statuses: Map<String, CapabilityStatus>): CollectOutcome {
         if (statuses[CapabilityIds.HEALTH_CONNECT_ON_DEVICE_STEPS]?.state?.canCollect == true) return CollectOutcome(covered = false)
         if (!gateway.subscribe()) return CollectOutcome(error = AppError.Unexpected("recording_api_subscribe_failed"))

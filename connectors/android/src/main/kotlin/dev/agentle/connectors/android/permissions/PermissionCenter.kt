@@ -239,8 +239,8 @@ public class PermissionCenter(
             val context = ResolverContext(
                 platform = platform,
                 settings = currentSettings,
-                requestedPermissions = read("requested") { requests.requestedPermissions() } ?: emptySet(),
-                settingsVisited = read("settings_visited") { requests.settingsVisited() } ?: emptySet(),
+                requestedPermissions = read("requested") { requests.requestedPermissions() }.orEmpty(),
+                settingsVisited = read("settings_visited") { requests.settingsVisited() }.orEmpty(),
                 listenerConnected = listener.isConnected,
                 healthConnect = MemoHealthConnect(healthConnect),
                 playServices = MemoPlayServices(playServices),
@@ -250,7 +250,7 @@ public class PermissionCenter(
             val refinement = if (activity != null) {
                 RationaleRefinement(activity, platform).also { recordVerdicts(it, signals.values, context) }
             } else {
-                LastUiVerdicts(read("verdicts") { requests.permanentlyDenied() } ?: emptySet())
+                LastUiVerdicts(read("verdicts") { requests.permanentlyDenied() }.orEmpty())
             }
             val resolved = signals.mapValues { (id, builder) -> builder.resolve(id, now, refinement) }
             state.update { it + resolved }

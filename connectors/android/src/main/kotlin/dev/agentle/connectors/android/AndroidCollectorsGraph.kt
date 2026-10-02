@@ -32,6 +32,7 @@ import dev.agentle.connectors.android.collectors.healthconnect.ClientHealthConne
 import dev.agentle.connectors.android.collectors.healthconnect.HealthConnectConnector
 import dev.agentle.connectors.android.collectors.healthconnect.HealthConnectGateway
 import dev.agentle.connectors.android.collectors.live.AudioLiveSource
+import dev.agentle.connectors.android.core.LiveWriter
 import dev.agentle.connectors.android.collectors.live.BluetoothLiveSource
 import dev.agentle.connectors.android.collectors.live.CallStateLiveSource
 import dev.agentle.connectors.android.collectors.live.DndLiveSource
@@ -265,13 +266,14 @@ public class AndroidCollectorsGraph(
         foreground,
     )
 
-    public val screenLive: ScreenLiveSource = ScreenLiveSource(runtime, seams.device)
-    public val powerLive: PowerLiveSource = PowerLiveSource(runtime, seams.device, battery.recorder)
-    public val networkLive: NetworkLiveSource = NetworkLiveSource(runtime, seams.device, network.recorder)
-    public val bluetoothLive: BluetoothLiveSource = BluetoothLiveSource(runtime, seams.device, bluetooth.recorder)
-    public val audioLive: AudioLiveSource = AudioLiveSource(runtime, seams.device, audio.recorder)
-    public val dndLive: DndLiveSource = DndLiveSource(runtime, seams.device, deviceState.recorder)
-    public val callLive: CallStateLiveSource = CallStateLiveSource(runtime, seams.platform)
+    public val liveWriter: LiveWriter = LiveWriter(runtime)
+    public val screenLive: ScreenLiveSource = ScreenLiveSource(runtime, seams.device, liveWriter)
+    public val powerLive: PowerLiveSource = PowerLiveSource(runtime, seams.device, battery.recorder, liveWriter)
+    public val networkLive: NetworkLiveSource = NetworkLiveSource(runtime, seams.device, network.recorder, liveWriter)
+    public val bluetoothLive: BluetoothLiveSource = BluetoothLiveSource(runtime, seams.device, bluetooth.recorder, liveWriter)
+    public val audioLive: AudioLiveSource = AudioLiveSource(runtime, seams.device, audio.recorder, liveWriter)
+    public val dndLive: DndLiveSource = DndLiveSource(runtime, seams.device, deviceState.recorder, liveWriter)
+    public val callLive: CallStateLiveSource = CallStateLiveSource(runtime, seams.platform, liveWriter)
 
     public val screen: ScreenConnector = ScreenConnector(runtime, permissionCenter) { screenLive.flush() }
     public val call: CallConnector = CallConnector(runtime, permissionCenter) { callLive.flush() }

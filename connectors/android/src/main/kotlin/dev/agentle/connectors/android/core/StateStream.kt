@@ -71,6 +71,24 @@ public class StateStream(private val runtime: CollectorRuntime, private val stre
             result
         }
 
+    /**
+     * Records now ([via] null: a sweep) or hands the observation to a live source's [LiveWriter.Channel] (batched and
+     * rate limited, red team lifecycle-battery-17); the latter returns null.
+     */
+    public suspend fun record(
+        state: String,
+        recordFirst: Boolean = true,
+        via: LiveWriter.Channel?,
+        event: (previous: String?) -> PersonalEvent?,
+    ): WriteResult? {
+        if (via == null) return record(state, recordFirst, event)
+        via.observe(StateObservation(this, state, recordFirst, event))
+        return null
+    }
+
+    /** Whether [state] is the state this process last wrote (observing it again changes nothing). */
+    public fun isLast(state: String): Boolean = state == lastKnown
+
     /** Forgets the in-process state (after a deletion: the next observation is compared with the store again). */
     public fun forget() {
         lastKnown = null

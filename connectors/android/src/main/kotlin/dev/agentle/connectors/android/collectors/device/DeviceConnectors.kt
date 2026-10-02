@@ -82,7 +82,7 @@ public class BatteryConnector(
             tally.fail("battery_unreadable")
         } else {
             tally.fetched += 1
-            runtime.writeInto(tally, listOf(CapabilityIds.BATTERY_STATE), listOf(recorder.sample(battery, power, now)))
+            tally.add(recorder.recordLevel(battery, power, now))
             tally.add(recorder.recordPlugged(battery, now, recordFirst = false))
         }
         if (power != null && statuses.collectable(CapabilityIds.POWER_SAVE_IDLE_STATE)) tally.add(recorder.recordPower(power, now))
@@ -158,7 +158,7 @@ public class BluetoothConnector(
      * while the connector is enabled and `bluetooth_connected_devices` can collect (re-evaluated now: the process may
      * have been started for this broadcast); a "connected" is dropped when the adapter is off.
      */
-    @Suppress("TooGenericExceptionCaught")
+    @Suppress("TooGenericExceptionCaught", "ReturnCount")
     public suspend fun onAcl(connected: Boolean, bluetoothDevice: BluetoothDevice?, at: Instant): Int {
         if (!isEnabled(runtime.settings.current())) return 0
         val statuses = try {

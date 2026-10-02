@@ -405,6 +405,7 @@ public val UnusedAppRestrictions.restrictsApp: Boolean
 
 /** The resolver of every registry capability (docs/research/01 §5.5). */
 public object CapabilityResolvers {
+    @Suppress("CyclomaticComplexMethod") // One flat lookup per registry id.
     public fun forCapability(capability: DataCapability, listener: ComponentName, debuggable: Boolean): CapabilityStateResolver {
         when (capability.plannedStatus) {
             PlannedStatus.DEFER, PlannedStatus.DOCUMENT_UNAVAILABLE -> return NotInBuildResolver

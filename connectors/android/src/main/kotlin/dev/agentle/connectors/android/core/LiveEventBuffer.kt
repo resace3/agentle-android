@@ -92,6 +92,7 @@ public class LiveEventBuffer(
     }
 
     /** Writes everything pending now, in batches of at most [WriteBatch.MAX_ROWS] rows. Returns the last result. */
+    @Suppress("LoopWithTooManyJumpStatements")
     public suspend fun flush(): WriteResult? = writeLock.withLock {
         var last: WriteResult? = null
         while (true) {

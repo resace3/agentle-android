@@ -33,6 +33,7 @@ public object EventIds {
 
 /** Builds [PersonalEvent]s with the capture-time zone, an ingestion time from [AgentleClock] and deterministic ids. */
 public class EventFactory(private val clock: AgentleClock) {
+    @Suppress("LongParameterList") // Mirrors the PersonalEvent fields a collector may set.
     public fun create(
         type: EventType,
         source: DataSourceId,

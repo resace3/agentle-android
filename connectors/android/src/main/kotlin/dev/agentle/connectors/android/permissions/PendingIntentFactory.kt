@@ -34,7 +34,7 @@ public class PendingIntentFactory(private val context: Context) {
     }
 
     private fun requireExplicit(intent: Intent) {
-        require(intent.component != null) { "PendingIntents must be explicit" }
+        requireNotNull(intent.component) { "PendingIntents must be explicit" }
     }
 
     public companion object {

@@ -126,6 +126,7 @@ public object ActivityTransitions {
  * `SystemClock.elapsedRealtimeNanos()` on Android); a transition reported "in the future" is clamped to now.
  */
 public class ActivityTransitionCollector(private val runtime: CollectorRuntime) {
+    @Suppress("ReturnCount")
     public suspend fun onTransitions(transitions: List<RawTransition>, at: Instant): Int {
         if (transitions.isEmpty()) return 0
         if (AndroidConnectorIds.ACTIVITY in runtime.settings.current().disabledConnectors) return 0
