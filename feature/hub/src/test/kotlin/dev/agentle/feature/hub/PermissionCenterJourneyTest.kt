@@ -83,12 +83,12 @@ class PermissionCenterJourneyTest {
         }
         compose.onNodeWithText("Denied").assertExists()
         compose.onNodeWithText("Allow").performClick()
-        compose.waitForIdle()
-        assertThat(registry.launches).isEqualTo(1)
+        compose.waitUntil(timeoutMillis = 5_000) { registry.launches == 1 }
         assertThat(port.calls).hasSize(1)
         compose.onNodeWithText("Denied").assertExists()
         permanently = true
         compose.onNodeWithText("Allow").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { registry.launches == 2 }
         compose.onNodeWithText("Denied permanently").assertExists()
         assertThat(registry.launches).isEqualTo(2)
 
