@@ -167,17 +167,8 @@ class RefreshRobustnessTest : SiwcFakeTest() {
         val siwc = graph()
         siwc.connect()
         clock.advanceBy(1.hours)
-        server.failNext(
-            FakeRoute.TOKEN_REFRESH,
-            400,
-            if (shape ==
-                "oauth"
-            ) {
-                ChatGptFixtures.oauthError(code)
-            } else {
-                ChatGptFixtures.objectError(code)
-            },
-        )
+        val body = if (shape == "oauth") ChatGptFixtures.oauthError(code) else ChatGptFixtures.objectError(code)
+        server.failNext(FakeRoute.TOKEN_REFRESH, 400, body)
 
         assertThat(siwc.token().error()).isEqualTo(AppError.AuthenticationRequired("chatgpt", "refresh_rejected"))
 
@@ -337,6 +328,51 @@ class RefreshRobustnessTest : SiwcFakeTest() {
         assertThat(siwc.models.models().value().map { it.slug }).containsExactly(ChatGptFixtures.MODEL)
 
         assertThat(server.requests().filter { it.route == FakeRoute.MODELS }.map { it.status }).containsExactly(200)
+        assertThat(server.refreshCount()).isEqualTo(1)
+    }
+
+    @Test
+    fun `R06 9_4 refresh failure (terminal) row invalid_grant asks for a new sign-in and keeps the registration`() = runTest {
+        val siwc = graph()
+        siwc.connect()
+        scenario(ChatGptScenario.REFRESH_INVALID_GRANT)
+        clock.advanceBy(1.hours)
+
+        assertThat(siwc.token().error()).isEqualTo(AppError.AuthenticationRequired("chatgpt", "refresh_rejected"))
+        assertThat(vault().registration!!.tokens).isNull()
+        assertThat(vault().registration!!.clientId).isEqualTo(ChatGptFixtures.CLIENT_ID)
+        assertThat(vault().status).isEqualTo(SiwcStatus(SiwcState.REAUTH_REQUIRED, SiwcReason.REFRESH_REJECTED))
+    }
+
+    @Test
+    fun `R06 9_3 earliest_refresh_at given as an ISO-8601 instant is stored like epoch seconds`() = runTest {
+        scenario(ChatGptScenario.EXCHANGE_EARLIEST_ISO)
+        val signedInAt = clock.now()
+
+        graph().connect()
+
+        assertThat(vault().registration!!.tokens!!.earliestRefreshAtEpochMs).isEqualTo((signedInAt + 3000.seconds).toEpochMilliseconds())
+    }
+
+    @Test
+    fun `R06 9_3 without earliest_refresh_at a 401 forces one refresh and one retry at once`() = runTest {
+        scenario(ChatGptScenario.EXCHANGE_NO_EARLIEST)
+        val siwc = graph()
+        siwc.connect()
+        assertThat(vault().registration!!.tokens!!.earliestRefreshAtEpochMs).isNull()
+        val seen = mutableListOf<String>()
+
+        val result = siwc.session.withAccessToken { token ->
+            seen += token
+            if (seen.size == 1) {
+                SiwcResult.Failed(SiwcFailure(null, AppError.TokenExpired("chatgpt"), unauthorized = true))
+            } else {
+                SiwcResult.Ok(token)
+            }
+        }
+
+        assertThat(result.value()).isEqualTo("at_2")
+        assertThat(seen).containsExactly("at_1", "at_2").inOrder()
         assertThat(server.refreshCount()).isEqualTo(1)
     }
 
