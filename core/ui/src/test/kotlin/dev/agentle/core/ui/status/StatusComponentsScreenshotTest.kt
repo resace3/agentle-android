@@ -30,52 +30,84 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [37], qualifiers = RobolectricDeviceQualifiers.MediumPhone)
 class StatusComponentsScreenshotTest {
     @Test
-    fun permissionChips_light() = capture(dark = false, fontScale = 1f) { PermissionChips() }
+    fun permissionChips_light() {
+        capture(dark = false, fontScale = 1f) { PermissionChips() }
+    }
 
     @Test
-    fun permissionChips_dark() = capture(dark = true, fontScale = 1f) { PermissionChips() }
+    fun permissionChips_dark() {
+        capture(dark = true, fontScale = 1f) { PermissionChips() }
+    }
 
     @Test
-    fun permissionChips_light_fontScale2() = capture(dark = false, fontScale = 2f) { PermissionChips() }
+    fun permissionChips_light_fontScale2() {
+        capture(dark = false, fontScale = 2f) { PermissionChips() }
+    }
 
     @Test
-    fun permissionChips_dark_fontScale2() = capture(dark = true, fontScale = 2f) { PermissionChips() }
+    fun permissionChips_dark_fontScale2() {
+        capture(dark = true, fontScale = 2f) { PermissionChips() }
+    }
 
     @Test
-    fun permissionBadges_light() = capture(dark = false, fontScale = 1f) { PermissionBadges() }
+    fun permissionBadges_light() {
+        capture(dark = false, fontScale = 1f) { PermissionBadges() }
+    }
 
     @Test
-    fun permissionBadges_dark() = capture(dark = true, fontScale = 1f) { PermissionBadges() }
+    fun permissionBadges_dark() {
+        capture(dark = true, fontScale = 1f) { PermissionBadges() }
+    }
 
     @Test
-    fun permissionBadges_light_fontScale2() = capture(dark = false, fontScale = 2f) { PermissionBadges() }
+    fun permissionBadges_light_fontScale2() {
+        capture(dark = false, fontScale = 2f) { PermissionBadges() }
+    }
 
     @Test
-    fun permissionBadges_dark_fontScale2() = capture(dark = true, fontScale = 2f) { PermissionBadges() }
+    fun permissionBadges_dark_fontScale2() {
+        capture(dark = true, fontScale = 2f) { PermissionBadges() }
+    }
 
     @Test
-    fun connectionStates_light() = capture(dark = false, fontScale = 1f) { ConnectionStates() }
+    fun connectionStates_light() {
+        capture(dark = false, fontScale = 1f) { ConnectionStates() }
+    }
 
     @Test
-    fun connectionStates_dark() = capture(dark = true, fontScale = 1f) { ConnectionStates() }
+    fun connectionStates_dark() {
+        capture(dark = true, fontScale = 1f) { ConnectionStates() }
+    }
 
     @Test
-    fun connectionStates_light_fontScale2() = capture(dark = false, fontScale = 2f) { ConnectionStates() }
+    fun connectionStates_light_fontScale2() {
+        capture(dark = false, fontScale = 2f) { ConnectionStates() }
+    }
 
     @Test
-    fun connectionStates_dark_fontScale2() = capture(dark = true, fontScale = 2f) { ConnectionStates() }
+    fun connectionStates_dark_fontScale2() {
+        capture(dark = true, fontScale = 2f) { ConnectionStates() }
+    }
 
     @Test
-    fun syncStates_light() = capture(dark = false, fontScale = 1f) { SyncStates() }
+    fun syncStates_light() {
+        capture(dark = false, fontScale = 1f) { SyncStates() }
+    }
 
     @Test
-    fun syncStates_dark() = capture(dark = true, fontScale = 1f) { SyncStates() }
+    fun syncStates_dark() {
+        capture(dark = true, fontScale = 1f) { SyncStates() }
+    }
 
     @Test
-    fun syncStates_light_fontScale2() = capture(dark = false, fontScale = 2f) { SyncStates() }
+    fun syncStates_light_fontScale2() {
+        capture(dark = false, fontScale = 2f) { SyncStates() }
+    }
 
     @Test
-    fun syncStates_dark_fontScale2() = capture(dark = true, fontScale = 2f) { SyncStates() }
+    fun syncStates_dark_fontScale2() {
+        capture(dark = true, fontScale = 2f) { SyncStates() }
+    }
 
     /** One golden per test method, named after the test (`<package>.<class>.<method>.png` in `src/screenshots`). */
     private fun capture(dark: Boolean, fontScale: Float, content: @Composable () -> Unit) {

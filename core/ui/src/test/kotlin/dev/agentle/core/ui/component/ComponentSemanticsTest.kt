@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertTouchHeightIsEqualTo
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isHeading
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -63,9 +64,10 @@ class ComponentSemanticsTest {
             }
         }
         compose.onNode(hasText("Permission Center") and isHeading()).assertIsDisplayed()
+        // The icon button draws 40 dp but its touch target is 48 dp (minimumInteractiveComponentSize).
         compose.onNodeWithContentDescription("Navigate up")
             .assertHasClickAction()
-            .assertHeightIsAtLeast(48.dp)
+            .assertTouchHeightIsEqualTo(48.dp)
             .performClick()
         assertThat(backClicks).isEqualTo(1)
     }

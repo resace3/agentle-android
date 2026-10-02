@@ -1,5 +1,6 @@
 package dev.agentle.core.ui.format
 
+import android.icu.text.DateTimePatternGenerator
 import dev.agentle.core.time.dayBounds
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -18,9 +19,9 @@ import kotlin.time.Instant
  * Formats dates and times for display in an explicit zone and [locale]. It never reads the JVM or system default zone:
  * callers pass the user's zone (`AgentleClock.zone()`, through their port).
  *
- * Times use the platform's localized pattern for [use24HourClock] (`DateFormat.getBestDateTimePattern`). A local time
- * that occurs twice on a day when clocks go back (for example 02:30 on 2026-10-25 in Europe/Berlin) carries its UTC
- * offset, so the two moments read differently.
+ * Times use the platform's localized pattern for [use24HourClock] (ICU `DateTimePatternGenerator`, the API behind
+ * `DateFormat.getBestDateTimePattern`). A local time that occurs twice on a day when clocks go back (for example 02:30
+ * on 2026-10-25 in Europe/Berlin) carries its UTC offset, so the two moments read differently.
  */
 public class TimeFormatter(
     public val locale: Locale,
@@ -29,7 +30,12 @@ public class TimeFormatter(
 ) {
     private val mediumDateFormat: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)
     private val fullDateFormat: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(locale)
-    private val timeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern(timePattern, locale)
+    private val timeFormat: DateTimeFormatter = try {
+        DateTimeFormatter.ofPattern(timePattern, locale)
+    } catch (ignored: IllegalArgumentException) {
+        // A pattern letter this platform's java.time does not know (for example a newer day-period letter).
+        DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale)
+    }
     private val offsetFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("O", locale)
 
     /** A medium date, for example "Oct 25, 2026" (en-US) or "25.10.2026" (de-DE). */
@@ -54,7 +60,7 @@ public class TimeFormatter(
     public companion object {
         /** The platform's best localized time pattern ("h:mm a", "HH:mm", ...) for [locale]. */
         public fun bestTimePattern(locale: Locale, use24HourClock: Boolean): String =
-            android.text.format.DateFormat.getBestDateTimePattern(locale, if (use24HourClock) "Hm" else "hm")
+            DateTimePatternGenerator.getInstance(locale).getBestPattern(if (use24HourClock) "Hm" else "hm")
     }
 }
 
