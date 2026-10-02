@@ -19,6 +19,7 @@ import dev.agentle.core.common.Outcome
 import dev.agentle.core.common.errorOrNull
 import dev.agentle.core.common.getOrNull
 import dev.agentle.core.time.AgentleClock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.datetime.offsetAt
 
@@ -30,7 +31,8 @@ public enum class JobResult { SUCCESS, RETRY, FAILURE }
  * - success records the run; a skipped precondition (no permission, not connected, essential-only bucket) is success;
  * - a transient error ([AppError.retryable]) retries with backoff while `runAttemptCount + 1 <` [MAX_ATTEMPTS] and the
  *   circuit breaker is closed; then the run fails with its code recorded (a periodic work runs again next period);
- * - a permanent error fails at once, no retry storm;
+ * - a permanent error fails at once, no retry storm; chained works (timer, events, sync-now, reconcile) record the
+ *   code and end as success, so a FAILED parent never cascades to its appended re-arm or follow-up;
  * - Google authorization that needs the user (AuthenticationRequired, or the connector reports NEEDS_USER) returns
  *   success, skips Google Health work until the connector is connected again and posts one deduplicated notice;
  * - circuit breaker: after [BREAKER_THRESHOLD] consecutive failed runs a work stops retrying (each run still tries the
@@ -89,12 +91,13 @@ public class BackgroundJobs(
             return JobResult.SUCCESS
         }
         val breakerOpen = (store.stats.value[work]?.consecutiveFailures ?: 0) >= BREAKER_THRESHOLD
-        store.recordFailure(work, if (breakerOpen) "${error.code}|$CIRCUIT_OPEN" else error.code)
         logger.w(COMPONENT, "work failed", error, mapOf("work" to work, "attempt" to runAttemptCount))
-        return when {
-            error.retryable && !breakerOpen && runAttemptCount + 1 < MAX_ATTEMPTS -> JobResult.RETRY
-            else -> JobResult.FAILURE
-        }
+        // A retried attempt is not a failed run: only the final attempt counts toward the breaker.
+        if (error.retryable && !breakerOpen && runAttemptCount + 1 < MAX_ATTEMPTS) return JobResult.RETRY
+        store.recordFailure(work, if (breakerOpen) "${error.code}|$CIRCUIT_OPEN" else error.code)
+        // A chained work's FAILED state would cascade to its appended re-arm or follow-up and kill the chain; its state
+        // lives in the engine (timer rows, dirty flag) and the persisted reasons/streams, so it ends as SUCCESS.
+        return if (work in CHAINED) JobResult.SUCCESS else JobResult.FAILURE
     }
 
     private suspend fun wearableGate(work: String): Outcome<Unit>? = when (wearable.connection()) {
@@ -122,9 +125,14 @@ public class BackgroundJobs(
 
     private suspend fun syncNow(): Outcome<Unit> {
         val streams = store.drainSyncStreams()
-        wearable.clampFutureCursors(clock.now())
-        val result = wearable.syncStreams(streams)
-        if (result.errorOrNull()?.retryable == true) store.addSyncStreams(streams)
+        val result = try {
+            wearable.clampFutureCursors(clock.now())
+            wearable.syncStreams(streams)
+        } catch (e: CancellationException) {
+            store.addSyncStreams(streams)
+            throw e
+        }
+        if (result.errorOrNull() != null) store.addSyncStreams(streams)
         return result
     }
 
@@ -161,6 +169,17 @@ public class BackgroundJobs(
     /** `reconcile` (R02 §5.3, §13): idempotent; any number of runs leaves the same works and timers. */
     private suspend fun reconcile(): Outcome<*> {
         val reasons = store.drainReconcileReasons().ifEmpty { setOf(ReconcileReason.PROCESS_START) }
+        val result = try {
+            reconcileFor(reasons)
+        } catch (e: CancellationException) {
+            store.addReconcileReasons(reasons)
+            throw e
+        }
+        if (result.errorOrNull() != null) store.addReconcileReasons(reasons)
+        return result
+    }
+
+    private suspend fun reconcileFor(reasons: Set<ReconcileReason>): Outcome<*> {
         val failures = mutableListOf<AppError>()
         fun Outcome<*>.track() = errorOrNull()?.let { failures += it }
 
@@ -183,7 +202,6 @@ public class BackgroundJobs(
             scheduler.recordReconciled()
             return Outcome.success(Unit)
         }
-        if (error.retryable) store.addReconcileReasons(reasons)
         return Outcome.failure(error)
     }
 
@@ -207,6 +225,12 @@ public class BackgroundJobs(
         private const val KEY_EXITS = "record.exits"
         private const val COMPONENT = "background"
         private val SKIPPED: Outcome<Unit> = Outcome.success(Unit)
+        private val CHAINED = setOf(
+            WorkNames.JITAI_TIMER,
+            WorkNames.JITAI_EVAL_EVENTS,
+            WorkNames.SYNC_GOOGLEHEALTH_NOW,
+            WorkNames.RECONCILE,
+        )
         private val WEARABLE_WORKS = setOf(WorkNames.SYNC_GOOGLEHEALTH, WorkNames.SYNC_GOOGLEHEALTH_NOW)
         private val REREGISTER = setOf(ReconcileReason.BOOT, ReconcileReason.PACKAGE_REPLACED, ReconcileReason.PROCESS_START)
 

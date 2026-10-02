@@ -52,6 +52,11 @@ public enum class ReconcileReason(public val debounced: Boolean) {
     LOCALE(debounced = true),
 }
 
+/** Receives reconcile requests (the system-event receiver's only dependency). */
+public fun interface ReconcileRequester {
+    public suspend fun requestReconcile(reasons: Set<ReconcileReason>)
+}
+
 /** Cadence and constraints of a periodic work under a profile. */
 public data class PeriodicSpec(
     val name: String,

@@ -24,8 +24,10 @@ import dev.agentle.background.port.WearableConnection
 import dev.agentle.background.port.WearableSync
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.testing.TestAgentleClock
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.datetime.offsetAt
 import java.util.UUID
 import kotlin.time.Instant
@@ -94,8 +96,12 @@ class FakeGateway : WorkGateway {
         works.replaceAll { _, list -> list.map { it.first to WorkInfo.State.CANCELLED }.toMutableList() }
     }
 
-    override suspend fun infos(name: String): List<WorkInfo> =
+    override suspend fun infos(name: String): List<WorkInfo> = infosNow(name)
+
+    fun infosNow(name: String): List<WorkInfo> =
         works[name].orEmpty().map { (id, state) -> WorkInfo(id, state, setOf(WorkNames.TAG, name)) }
+
+    override fun observe(names: List<String>): Flow<List<WorkInfo>> = flowOf(names.flatMap { infosNow(it) })
 
     fun enqueues() = calls.filter { it.op == "periodic" || it.op == "oneTime" || it.op == "update" }
 }
@@ -156,9 +162,12 @@ class FakeRunner(private val clock: TestAgentleClock) : JitaiRunner {
     val replans = mutableListOf<ReplanCause>()
     var revalidations = 0
     var replanResult: Outcome<Instant?>? = null
+    var replanThrows: Throwable? = null
+    var eventsResult: Outcome<EventsRun>? = null
     override suspend fun runTimer() = timerResult
-    override suspend fun runEvents() = eventsResults.removeFirstOrNull() ?: Outcome.success(EventsRun(false, due))
+    override suspend fun runEvents() = eventsResults.removeFirstOrNull() ?: eventsResult ?: Outcome.success(EventsRun(false, due))
     override suspend fun replan(cause: ReplanCause): Outcome<Instant?> {
+        replanThrows?.let { throw it }
         replans += cause
         plannedOffset = clock.zone().offsetAt(clock.now()).totalSeconds
         return replanResult ?: Outcome.success(due)
@@ -176,7 +185,12 @@ class FakeWearable : WearableSync {
     var clamps = 0
     override suspend fun connection() = connection
     override suspend fun syncAll() = result.also { syncAllCount++ }
-    override suspend fun syncStreams(streams: Set<String>) = result.also { synced += streams }
+    var syncThrows: Throwable? = null
+    override suspend fun syncStreams(streams: Set<String>): Outcome<Unit> {
+        syncThrows?.let { throw it }
+        synced += streams
+        return result
+    }
     override suspend fun clampFutureCursors(now: Instant) = Outcome.success(Unit).also { clamps++ }
 }
 

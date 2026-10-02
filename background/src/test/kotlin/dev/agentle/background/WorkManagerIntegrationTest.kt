@@ -59,6 +59,20 @@ class WorkManagerIntegrationTest {
     }
 
     @Test
+    fun `follow-up path keeps one running and one pending, never a third`() = runBlocking {
+        scheduler.onTriggerEventIngested()
+        assertThat(live(WorkNames.JITAI_EVAL_EVENTS).map(WorkInfo::state)).containsExactly(WorkInfo.State.RUNNING)
+        repeat(3) {
+            scheduler.onTriggerEventIngested()
+            scheduler.appendEventsFollowUp()
+        }
+        val states = live(WorkNames.JITAI_EVAL_EVENTS).map(WorkInfo::state)
+        assertThat(states).hasSize(2)
+        assertThat(states.count { it == WorkInfo.State.RUNNING }).isEqualTo(1)
+        assertThat(states.count { it == WorkInfo.State.ENQUEUED || it == WorkInfo.State.BLOCKED }).isEqualTo(1)
+    }
+
+    @Test
     fun `ten reconciles keep one request per periodic name with the same id`() = runBlocking {
         scheduler.reconcilePeriodic(CollectionProfile.BALANCED)
         val ids = WorkNames.PERIODIC.associateWith { live(it).single().id }

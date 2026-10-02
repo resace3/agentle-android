@@ -66,6 +66,14 @@ class ManifestAndSourceTest {
         val offenders = sources.filter { (file, text) -> file.name != "WorkGateway.kt" && calls.containsMatchIn(text) }
         assertThat(offenders.keys.map { it.name }).isEmpty()
         assertThat(sources.keys.map { it.name }).contains("WorkGateway.kt")
+        val importers = sources.filter { (_, text) -> text.contains("import androidx.work.WorkManager\n") }
+        assertThat(importers.keys.map { it.name }).containsExactly("WorkGateway.kt")
+    }
+
+    @Test
+    fun `no bare REPLACE import hides a periodic REPLACE`() {
+        val bare = Regex("""import androidx\.work\.Existing\w*Policy\.(REPLACE|CANCEL_AND_REENQUEUE|\*)""")
+        sources.forEach { (file, text) -> assertThat(bare.containsMatchIn(text)).named(file.name).isFalse() }
     }
 
     @Test

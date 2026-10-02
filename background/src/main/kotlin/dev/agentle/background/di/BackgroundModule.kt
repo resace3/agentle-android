@@ -1,7 +1,6 @@
 package dev.agentle.background.di
 
 import android.content.Context
-import androidx.work.WorkManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -15,7 +14,6 @@ import dev.agentle.background.DeviceSignals
 import dev.agentle.background.PrefsSchedulerStore
 import dev.agentle.background.SchedulerStore
 import dev.agentle.background.WorkGateway
-import dev.agentle.background.WorkManagerGateway
 import dev.agentle.background.WorkScheduler
 import dev.agentle.background.port.AttentionNotifier
 import dev.agentle.background.port.Collectors
@@ -26,6 +24,7 @@ import dev.agentle.background.port.JitaiRunner
 import dev.agentle.background.port.Maintenance
 import dev.agentle.background.port.SchedulerSettings
 import dev.agentle.background.port.WearableSync
+import dev.agentle.background.workManagerGateway
 import dev.agentle.core.time.AgentleClock
 import dev.agentle.core.time.SystemAgentleClock
 import kotlinx.coroutines.flow.Flow
@@ -45,7 +44,7 @@ public object BackgroundModule {
     public fun clock(): AgentleClock = SystemAgentleClock()
 
     @Provides @Singleton
-    public fun gateway(@ApplicationContext context: Context): WorkGateway = WorkManagerGateway { WorkManager.getInstance(context) }
+    public fun gateway(@ApplicationContext context: Context): WorkGateway = workManagerGateway(context)
 
     @Provides @Singleton
     public fun store(@ApplicationContext context: Context): SchedulerStore = PrefsSchedulerStore(context)
@@ -87,6 +86,5 @@ public object BackgroundModule {
 
     /** Worker-state Flow for the diagnostics screen. */
     @Provides @Singleton
-    public fun state(@ApplicationContext context: Context, store: SchedulerStore): Flow<BackgroundState> =
-        BackgroundDiagnostics.flow(WorkManager.getInstance(context), store)
+    public fun state(gateway: WorkGateway, store: SchedulerStore): Flow<BackgroundState> = BackgroundDiagnostics.flow(gateway, store)
 }

@@ -53,16 +53,84 @@ class BackgroundJobsTest {
     }
 
     @Test
-    fun `circuit breaker opens after N consecutive failures and closes on user action`() = runTest {
+    fun `circuit breaker opens after N consecutive failed runs and closes on user action`() = runTest {
         h.wearable.result = Outcome.failure(transient)
-        repeat(BackgroundJobs.BREAKER_THRESHOLD) { h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH_NOW, 0) }
-        assertThat(h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH_NOW, 0)).isEqualTo(JobResult.FAILURE)
-        val stats = h.store.stats.value.getValue(WorkNames.SYNC_GOOGLEHEALTH_NOW)
+        val last = BackgroundJobs.MAX_ATTEMPTS - 1
+        repeat(BackgroundJobs.BREAKER_THRESHOLD) { h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH, last) }
+        assertThat(h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH, 0)).isEqualTo(JobResult.FAILURE)
+        val stats = h.store.stats.value.getValue(WorkNames.SYNC_GOOGLEHEALTH)
         assertThat(stats.lastFailureCode).endsWith(BackgroundJobs.CIRCUIT_OPEN)
         val state = BackgroundDiagnostics.merge(emptyList(), h.store.stats.value, null)
-        assertThat(state.workers.first { it.name == WorkNames.SYNC_GOOGLEHEALTH_NOW }.circuitOpen).isTrue()
+        assertThat(state.workers.first { it.name == WorkNames.SYNC_GOOGLEHEALTH }.circuitOpen).isTrue()
         h.scheduler.syncWearableNow(userInitiated = true)
-        assertThat(h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH_NOW, 0)).isEqualTo(JobResult.RETRY)
+        assertThat(h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH, 0)).isEqualTo(JobResult.RETRY)
+    }
+
+    @Test
+    fun `breaker counts failed runs, not retried attempts`() = runTest {
+        h.wearable.result = Outcome.failure(transient)
+        repeat(2) { repeat(BackgroundJobs.MAX_ATTEMPTS) { attempt -> h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH, attempt) } }
+        assertThat(h.store.stats.value.getValue(WorkNames.SYNC_GOOGLEHEALTH).consecutiveFailures).isEqualTo(2)
+        assertThat(h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH, 0)).isEqualTo(JobResult.RETRY)
+    }
+
+    @Test
+    fun `failed timer pass ends as success and keeps exactly one re-arm across retries`() = runTest {
+        h.gateway.setState(WorkNames.JITAI_TIMER, State.RUNNING)
+        h.runner.due = h.clock.now() + 30.minutes
+        h.runner.timerResult = Outcome.failure(transient)
+        assertThat(h.jobs.run(WorkNames.JITAI_TIMER, 0)).isEqualTo(JobResult.RETRY)
+        assertThat(h.jobs.run(WorkNames.JITAI_TIMER, 1)).isEqualTo(JobResult.RETRY)
+        h.runner.timerResult = Outcome.failure(permanent)
+        assertThat(h.jobs.run(WorkNames.JITAI_TIMER, 2)).isEqualTo(JobResult.SUCCESS)
+        assertThat(h.gateway.live(WorkNames.JITAI_TIMER).map { it.second }).containsExactly(State.RUNNING, State.BLOCKED)
+        assertThat(h.store.stats.value.getValue(WorkNames.JITAI_TIMER).lastFailureCode).isEqualTo(permanent.code)
+    }
+
+    @Test
+    fun `failed events and sync-now passes end as success so follow-ups survive`() = runTest {
+        h.runner.eventsResult = Outcome.failure(permanent)
+        assertThat(h.jobs.run(WorkNames.JITAI_EVAL_EVENTS, 0)).isEqualTo(JobResult.SUCCESS)
+        h.wearable.result = Outcome.failure(permanent)
+        h.store.addSyncStreams(setOf("hr"))
+        assertThat(h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH_NOW, 0)).isEqualTo(JobResult.SUCCESS)
+        assertThat(h.store.drainSyncStreams()).containsExactly("hr")
+        assertThat(h.store.stats.value.getValue(WorkNames.JITAI_EVAL_EVENTS).lastFailureCode).isEqualTo(permanent.code)
+    }
+
+    @Test
+    fun `cancellation re-adds drained streams and reasons`() = runTest {
+        h.store.addSyncStreams(setOf("hr"))
+        h.wearable.syncThrows = CancellationException()
+        assertThrows(CancellationException::class.java) {
+            kotlinx.coroutines.runBlocking { h.jobs.run(WorkNames.SYNC_GOOGLEHEALTH_NOW, 0) }
+        }
+        assertThat(h.store.drainSyncStreams()).containsExactly("hr")
+        h.store.addReconcileReasons(setOf(ReconcileReason.BOOT))
+        h.runner.replanThrows = CancellationException()
+        assertThrows(CancellationException::class.java) {
+            kotlinx.coroutines.runBlocking { h.jobs.run(WorkNames.RECONCILE, 0) }
+        }
+        assertThat(h.store.drainReconcileReasons()).containsExactly(ReconcileReason.BOOT)
+    }
+
+    @Test
+    fun `permanent reconcile failure keeps its reasons`() = runTest {
+        h.runner.replanResult = Outcome.failure(permanent)
+        h.store.addReconcileReasons(setOf(ReconcileReason.PACKAGE_REPLACED))
+        assertThat(h.jobs.run(WorkNames.RECONCILE, 0)).isEqualTo(JobResult.SUCCESS)
+        assertThat(h.store.drainReconcileReasons()).containsExactly(ReconcileReason.PACKAGE_REPLACED)
+    }
+
+    @Test
+    fun `reconnect resets both sync breakers`() = runTest {
+        repeat(6) {
+            h.store.recordFailure(WorkNames.SYNC_GOOGLEHEALTH, "x")
+            h.store.recordFailure(WorkNames.SYNC_GOOGLEHEALTH_NOW, "x")
+        }
+        h.scheduler.onWearableConnected(h.profile.value)
+        assertThat(h.store.stats.value.getValue(WorkNames.SYNC_GOOGLEHEALTH).consecutiveFailures).isEqualTo(0)
+        assertThat(h.store.stats.value.getValue(WorkNames.SYNC_GOOGLEHEALTH_NOW).consecutiveFailures).isEqualTo(0)
     }
 
     @Test

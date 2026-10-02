@@ -8,6 +8,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import dev.agentle.background.ReconcileReason
+import dev.agentle.background.ReconcileRequester
 import dev.agentle.background.WorkScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,20 +22,26 @@ import kotlin.time.Duration.Companion.seconds
  * BOOT and PACKAGE_REPLACED). Does no work itself: it only enqueues, inside a bounded goAsync window.
  */
 @Suppress("InjectDispatcher") // a receiver has no injection point; the work is a bounded enqueue
-public class SystemEventReceiver : BroadcastReceiver() {
+public open class SystemEventReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val reason = reasonFor(intent.action) ?: return
-        val scheduler = EntryPointAccessors.fromApplication(context.applicationContext, ReceiverEntryPoint::class.java)
-            .workScheduler()
-        val pending = goAsync()
+        val scheduler = requester(context)
+        val finish = goAsyncFinisher()
         scope.launch {
             try {
                 withTimeoutOrNull(ENQUEUE_BUDGET) { scheduler.requestReconcile(setOf(reason)) }
             } finally {
-                pending.finish()
+                finish()
             }
         }
     }
+
+    /** Seam for tests: where the reconcile request goes. */
+    internal open fun requester(context: Context): ReconcileRequester =
+        EntryPointAccessors.fromApplication(context.applicationContext, ReceiverEntryPoint::class.java).workScheduler()
+
+    /** Seam for tests: keeps the broadcast alive until the enqueue is done. */
+    internal open fun goAsyncFinisher(): () -> Unit = goAsync()::finish
 
     @EntryPoint
     @InstallIn(SingletonComponent::class)

@@ -1,8 +1,6 @@
 package dev.agentle.background
 
 import androidx.work.WorkInfo
-import androidx.work.WorkManager
-import androidx.work.WorkQuery
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -39,8 +37,8 @@ public object BackgroundDiagnostics {
         standbyBucket = bucket,
     )
 
-    public fun flow(workManager: WorkManager, store: SchedulerStore): Flow<BackgroundState> = combine(
-        workManager.getWorkInfosFlow(WorkQuery.fromUniqueWorkNames(WorkNames.ALL)),
+    public fun flow(gateway: WorkGateway, store: SchedulerStore): Flow<BackgroundState> = combine(
+        gateway.observe(WorkNames.ALL),
         store.stats,
     ) { infos, stats -> merge(infos, stats, store.getLong(BackgroundJobs.KEY_BUCKET)?.toInt()) }
 }

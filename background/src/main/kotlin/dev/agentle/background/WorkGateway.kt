@@ -1,12 +1,15 @@
 package dev.agentle.background
 
+import android.content.Context
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequest
 import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import androidx.work.WorkQuery
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.util.concurrent.ExecutionException
@@ -30,7 +33,13 @@ public interface WorkGateway {
     public suspend fun cancelAll()
 
     public suspend fun infos(name: String): List<WorkInfo>
+
+    /** Live states of the named unique works, for diagnostics. */
+    public fun observe(names: List<String>): Flow<List<WorkInfo>>
 }
+
+/** The production gateway over the process's WorkManager. */
+public fun workManagerGateway(context: Context): WorkGateway = WorkManagerGateway { WorkManager.getInstance(context) }
 
 public class WorkManagerGateway(private val workManager: () -> WorkManager) : WorkGateway {
     override suspend fun enqueuePeriodic(name: String, policy: ExistingPeriodicWorkPolicy, request: PeriodicWorkRequest) {
@@ -54,6 +63,8 @@ public class WorkManagerGateway(private val workManager: () -> WorkManager) : Wo
     }
 
     override suspend fun infos(name: String): List<WorkInfo> = workManager().getWorkInfosForUniqueWorkFlow(name).first()
+
+    override fun observe(names: List<String>): Flow<List<WorkInfo>> = workManager().getWorkInfosFlow(WorkQuery.fromUniqueWorkNames(names))
 }
 
 private suspend fun <T> ListenableFuture<T>.awaitResult(): T = suspendCancellableCoroutine { cont ->

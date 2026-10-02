@@ -32,7 +32,7 @@ public class WorkScheduler(
     private val runner: JitaiRunner,
     private val signals: DeviceSignals,
     private val clock: AgentleClock,
-) {
+) : ReconcileRequester {
     private val timerLock = Mutex()
     private val oneTimeLock = Mutex()
 
@@ -114,6 +114,7 @@ public class WorkScheduler(
     /** The wearable was (re)connected: periodic sync back with KEEP, breaker and reconnect notice cleared. */
     public suspend fun onWearableConnected(userProfile: CollectionProfile) {
         store.resetFailures(WorkNames.SYNC_GOOGLEHEALTH)
+        store.resetFailures(WorkNames.SYNC_GOOGLEHEALTH_NOW)
         store.putLong(KEY_REAUTH_NOTIFIED, null)
         val spec = Cadences.periodic(effectiveProfile(userProfile)).first { it.name == WorkNames.SYNC_GOOGLEHEALTH }
         enqueuePeriodic(spec, ExistingPeriodicWorkPolicy.KEEP)
@@ -128,7 +129,25 @@ public class WorkScheduler(
      */
     public suspend fun onTriggerEventIngested() {
         if (blocked()) return
-        enqueueCoalesced(WorkNames.JITAI_EVAL_EVENTS, NetworkType.NOT_REQUIRED)
+        val day = clock.now().toEpochMilliseconds() / DAY_MS
+        if (store.getLong(KEY_EVENTS_DAY) != day) {
+            store.putLong(KEY_EVENTS_DAY, day)
+            store.putLong(KEY_EVENTS_COUNT, 0)
+        }
+        val count = store.getLong(KEY_EVENTS_COUNT) ?: 0
+        // Daily cap (R02 §2.3 jitai.check 12/48/96): above it the dirty flag waits for the timer backstop.
+        if (count >= eventsCap()) return
+        if (enqueueCoalesced(WorkNames.JITAI_EVAL_EVENTS, NetworkType.NOT_REQUIRED)) store.putLong(KEY_EVENTS_COUNT, count + 1)
+    }
+
+    private fun eventsCap(): Int = when (
+        store.getString(KEY_APPLIED_PROFILE)?.let {
+            runCatching { CollectionProfile.valueOf(it) }.getOrNull()
+        }
+    ) {
+        CollectionProfile.LOW -> EVENTS_CAP_LOW
+        CollectionProfile.HIGH -> EVENTS_CAP_HIGH
+        else -> EVENTS_CAP_BALANCED
     }
 
     /** Called by the running events worker when the engine reports a follow-up (KEEP would be a no-op while RUNNING). */
@@ -145,12 +164,13 @@ public class WorkScheduler(
         }
     }
 
-    private suspend fun enqueueCoalesced(name: String, network: NetworkType) = oneTimeLock.withLock {
+    /** Returns true when a new request was enqueued (not coalesced into a pending one). */
+    private suspend fun enqueueCoalesced(name: String, network: NetworkType): Boolean = oneTimeLock.withLock {
         val infos = gateway.infos(name)
         val pending = infos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
         val running = infos.any { it.state == WorkInfo.State.RUNNING }
         when {
-            pending -> Unit
+            pending -> return@withLock false
 
             running -> gateway.enqueueOneTime(
                 name,
@@ -160,6 +180,7 @@ public class WorkScheduler(
 
             else -> gateway.enqueueOneTime(name, ExistingWorkPolicy.KEEP, Requests.oneTime(name, expedited = true, network = network))
         }
+        true
     }
 
     /**
@@ -189,7 +210,13 @@ public class WorkScheduler(
     internal suspend fun armFromRunningTimer(): Unit = timerLock.withLock {
         if (blocked()) return
         val due = runner.nextDueAt().getOrNull() ?: return
-        gateway.enqueueOneTime(WorkNames.JITAI_TIMER, ExistingWorkPolicy.APPEND_OR_REPLACE, timerRequest(due, null))
+        // A retried attempt already appended its child: update that one, never append a second.
+        val child = gateway.infos(WorkNames.JITAI_TIMER).firstOrNull { it.state == WorkInfo.State.BLOCKED }
+        if (child != null) {
+            gateway.update(timerRequest(due, child.id))
+        } else {
+            gateway.enqueueOneTime(WorkNames.JITAI_TIMER, ExistingWorkPolicy.APPEND_OR_REPLACE, timerRequest(due, null))
+        }
     }
 
     private fun timerRequest(due: kotlin.time.Instant, id: java.util.UUID?): OneTimeWorkRequest {
@@ -200,20 +227,28 @@ public class WorkScheduler(
     // ------------------------------------------------------------------ reconcile
 
     /** Records [reasons] and enqueues `reconcile`; debounced reasons coalesce, BOOT and PACKAGE_REPLACED do not. */
-    public suspend fun requestReconcile(reasons: Set<ReconcileReason>) {
+    override suspend fun requestReconcile(reasons: Set<ReconcileReason>) {
         if (blocked() || reasons.isEmpty()) return
         store.addReconcileReasons(reasons)
         oneTimeLock.withLock {
             val infos = gateway.infos(WorkNames.RECONCILE)
             val running = infos.any { it.state == WorkInfo.State.RUNNING }
-            val pending = infos.any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
+            val pendingInfo = infos.firstOrNull { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
+            val pending = pendingInfo != null
             val debounced = reasons.all { it.debounced }
             val delay = if (debounced) Cadences.RECONCILE_DEBOUNCE else Duration.ZERO
             val request = Requests.oneTime(WorkNames.RECONCILE, delay = delay, expedited = !debounced)
             when {
+                // An urgent reason must not wait behind a debounced child: same id, zero delay.
+                running && pendingInfo != null && !debounced ->
+                    gateway.update(Requests.oneTime(WorkNames.RECONCILE, expedited = false, id = pendingInfo.id))
+
                 running && pending -> Unit
+
                 running -> gateway.enqueueOneTime(WorkNames.RECONCILE, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+
                 debounced -> gateway.enqueueOneTime(WorkNames.RECONCILE, ExistingWorkPolicy.KEEP, request)
+
                 else -> gateway.enqueueOneTime(WorkNames.RECONCILE, ExistingWorkPolicy.REPLACE, request)
             }
         }
@@ -271,5 +306,11 @@ public class WorkScheduler(
         val DEGRADED = CollectionProfile.LOW.name
         val SAVER_DEBOUNCE = 30.minutes
         val SELF_HEAL = 24.hours
+        const val DAY_MS = 86_400_000L
+        const val KEY_EVENTS_DAY = "events.day"
+        const val KEY_EVENTS_COUNT = "events.count"
+        const val EVENTS_CAP_LOW = 12
+        const val EVENTS_CAP_BALANCED = 48
+        const val EVENTS_CAP_HIGH = 96
     }
 }

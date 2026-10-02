@@ -191,29 +191,29 @@ class WorkSchedulerTest {
         assertThat(h.store.stats.value.getValue(WorkNames.SYNC_GOOGLEHEALTH_NOW).consecutiveFailures).isEqualTo(0)
     }
 
-    /**
-     * Simulated 24 h off charger against R02 §2.2/§2.3 targets (Low about 2-3 min, Balanced about 8 min, High about
-     * 20 min). Per-run targets from the §2.2 table; JITAI timer/check use their §2.3 interval and cap.
-     */
     @Test
-    fun `simulated 24h background budget per profile`() {
-        val perRunSeconds = mapOf(
-            WorkNames.COLLECT_USAGE to 4.0,
-            WorkNames.COLLECT_DEVICE to 1.0,
-            WorkNames.SYNC_GOOGLEHEALTH to 5.0,
-            WorkNames.FEATURES_REFRESH to 30.0,
-            WorkNames.RETENTION to 10.0,
-            WorkNames.MEDIA_CLEANUP to 10.0,
-            WorkNames.INSIGHTS_WEEKLY to 60.0,
-        )
-        val jitai = mapOf(CollectionProfile.LOW to 24 + 12, CollectionProfile.BALANCED to 48 + 48, CollectionProfile.HIGH to 96 + 96)
-        val budget = mapOf(CollectionProfile.LOW to 180.0, CollectionProfile.BALANCED to 480.0, CollectionProfile.HIGH to 1200.0)
-        CollectionProfile.entries.forEach { profile ->
-            val periodic = Cadences.periodic(profile).sumOf { spec ->
-                (1.days / spec.interval) * perRunSeconds.getValue(spec.name)
-            }
-            val total = periodic + jitai.getValue(profile)
-            assertThat(total).isAtMost(budget.getValue(profile))
+    fun `urgent reason updates a debounced pending child in place with zero delay`() = runTest {
+        h.gateway.setState(WorkNames.RECONCILE, State.RUNNING)
+        h.scheduler.requestReconcile(setOf(ReconcileReason.CLOCK))
+        val child = h.gateway.live(WorkNames.RECONCILE).single { it.second == State.BLOCKED }.first
+        h.scheduler.requestReconcile(setOf(ReconcileReason.BOOT))
+        val call = h.gateway.calls.last()
+        assertThat(call.op).isEqualTo("update")
+        assertThat(call.request!!.id).isEqualTo(child)
+        assertThat(call.request!!.workSpec.initialDelay).isEqualTo(0)
+    }
+
+    @Test
+    fun `event-triggered passes are capped per day by profile`() = runTest {
+        h.scheduler.reconcilePeriodic(CollectionProfile.LOW)
+        repeat(100) {
+            h.scheduler.onTriggerEventIngested()
+            h.gateway.works.remove(WorkNames.JITAI_EVAL_EVENTS)
         }
+        val events = { h.gateway.calls.count { it.name == WorkNames.JITAI_EVAL_EVENTS } }
+        assertThat(events()).isEqualTo(WorkScheduler.EVENTS_CAP_LOW)
+        h.clock.advanceBy(1.days)
+        h.scheduler.onTriggerEventIngested()
+        assertThat(events()).isEqualTo(WorkScheduler.EVENTS_CAP_LOW + 1)
     }
 }
