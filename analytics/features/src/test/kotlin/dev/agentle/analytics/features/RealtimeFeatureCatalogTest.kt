@@ -11,6 +11,15 @@ class RealtimeFeatureCatalogTest {
     @Test
     fun `catalog has the 35 features of R10 section 5_4`() {
         assertThat(RealtimeFeatureCatalog.all).hasSize(35)
+    }
+
+    @Test
+    fun `location_class is the only feature unavailable in v1 because background location is deferred`() {
+        val unavailable = RealtimeFeatureCatalog.all.filterNot { it.isAvailable }
+
+        assertThat(unavailable.map { it.id }).containsExactly("location_class")
+        val availability = unavailable.single().availability as FeatureAvailability.Unavailable
+        assertThat(availability.capabilityId).isEqualTo("location_background")
         assertThat(RealtimeFeatureCatalog.ids).containsAtLeast("screen_minutes_last_60m", "local_time", "steps_today", "last_response")
     }
 

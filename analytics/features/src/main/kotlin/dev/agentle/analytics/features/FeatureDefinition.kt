@@ -34,6 +34,15 @@ public sealed interface Freshness {
     public data object DailyValue : Freshness
 }
 
+/** Whether a rule may reference a feature in this build. Unavailable features stay in the catalog so the validator
+ * can say why (R10 §11.2) and so stored rules keep decoding; the NL prompt catalog and schema enum leave them out. */
+public sealed interface FeatureAvailability {
+    public data object Available : FeatureAvailability
+
+    /** @property capabilityId the capability (docs/research/capabilities.json) whose absence makes it unavailable. */
+    public data class Unavailable(val capabilityId: String, val reason: String) : FeatureAvailability
+}
+
 /**
  * One entry of the real-time feature catalog: the closed set of inputs a JITAI rule may reference.
  *
@@ -43,6 +52,7 @@ public sealed interface Freshness {
  * @property sources capability ids (docs/research/capabilities.json) or connector ids that can supply the data;
  *   any one is enough. Drives permission checks and the "data required" list shown before a rule is saved.
  * @property category the personal-data category for consent and AI sharing; null for clock and calendar.
+ * @property availability whether rules may reference it in this build.
  */
 public data class FeatureDefinition(
     val id: String,
@@ -59,6 +69,7 @@ public data class FeatureDefinition(
     val minApi: Int? = null,
     val sources: Set<String> = emptySet(),
     val category: DataCategory? = null,
+    val availability: FeatureAvailability = FeatureAvailability.Available,
 ) {
     init {
         require(ID.matches(id)) { "feature id must be snake_case: $id" }
@@ -69,6 +80,8 @@ public data class FeatureDefinition(
     }
 
     public fun arg(name: String): FeatureArg? = args.firstOrNull { it.name == name }
+
+    public val isAvailable: Boolean get() = availability == FeatureAvailability.Available
 
     private companion object {
         val ID = Regex("^[a-z][a-z0-9]*(_[a-z0-9]+)*$")

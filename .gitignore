@@ -24,3 +24,5 @@ signing.properties
 .kotlin/
 build-logic/*/build/
 build-logic/*/.gradle/
+# Agent worktrees (local only)
+/.claude/worktrees/
