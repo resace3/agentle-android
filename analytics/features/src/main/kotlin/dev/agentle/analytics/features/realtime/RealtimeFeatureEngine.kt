@@ -35,7 +35,8 @@ import kotlin.time.Instant
  *   `Missing(API_UNAVAILABLE)`; the log line names the feature, its category and the exception class, never its
  *   message.
  *
- * `jitai=self` must be bound to the evaluated rule's id with [JitaiArgs.bindSelf] before resolving.
+ * `jitai=self` must be bound to the evaluated rule's id with [dev.agentle.analytics.features.bindSelf] before
+ * resolving (the [FeatureResolver] contract); an unbound `self` is `Missing(INVALID_VALUE)`.
  */
 public class RealtimeFeatureEngine(
     private val inputs: RealtimeFeatureInputs,

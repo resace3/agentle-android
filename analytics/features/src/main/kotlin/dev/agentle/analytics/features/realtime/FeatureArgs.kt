@@ -4,6 +4,7 @@ import dev.agentle.analytics.features.FeatureArgKind
 import dev.agentle.analytics.features.FeatureDefinition
 import dev.agentle.analytics.features.FeatureRef
 import dev.agentle.analytics.features.RealtimeFeatureCatalog
+import dev.agentle.analytics.features.bindSelf
 import kotlinx.datetime.LocalTime
 
 /** Values and helpers for the `jitai` arg of the intervention-history features (R10 §4.5, §5.4 I). */
@@ -19,12 +20,11 @@ public object JitaiArgs {
     private val UUID = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
     /**
-     * [ref] with `jitai=self` replaced by [jitaiId]. The caller binds `self` before resolving: refs are memoized per
-     * pass by their canonical key, so an unbound `self` in two rules would share one value. The resolver therefore
-     * answers an unbound `self` with `Missing(INVALID_VALUE)`.
+     * [ref] with `jitai=self` replaced by [jitaiId]: the shared contract's [FeatureRef.bindSelf], which the caller
+     * applies before resolving. Refs are memoized per pass by their canonical key, so an unbound `self` in two rules
+     * would share one value; the resolver therefore answers an unbound `self` with `Missing(INVALID_VALUE)`.
      */
-    public fun bindSelf(ref: FeatureRef, jitaiId: String): FeatureRef =
-        if (ref.args["jitai"] == SELF) ref.copy(args = ref.args + ("jitai" to jitaiId)) else ref
+    public fun bindSelf(ref: FeatureRef, jitaiId: String): FeatureRef = ref.bindSelf(jitaiId)
 
     /** The selector for a `jitai` arg value, or null when the value is not valid for the resolver. */
     public fun selectorOf(value: String): JitaiSelector? = when {

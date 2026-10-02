@@ -5,6 +5,7 @@ import dev.agentle.analytics.features.FeatureRef
 import dev.agentle.analytics.features.FeatureScalar
 import dev.agentle.analytics.features.FeatureValue
 import dev.agentle.analytics.features.MissingReason
+import dev.agentle.analytics.features.bindSelf
 import dev.agentle.analytics.features.realtime.testing.LiveRead
 import dev.agentle.core.common.AppError
 import kotlinx.coroutines.test.runTest
@@ -21,7 +22,8 @@ class HistoryFeaturesTest {
     private val r3 = "33333333-3333-4333-8333-333333333333"
     private val walk = "55555555-5555-4555-8555-555555555555"
 
-    private fun ref(id: String, jitai: String = r1) = FeatureRef(id, mapOf("jitai" to jitai))
+    /** `id{jitai: jitai}` in rule R1, bound as the engine binds it: `self` becomes R1's id, other values are kept. */
+    private fun ref(id: String, jitai: String = JitaiArgs.SELF) = FeatureRef(id, mapOf("jitai" to jitai)).bindSelf(r1)
 
     private var keys = 0
 
@@ -217,13 +219,24 @@ class HistoryFeaturesTest {
     }
 
     @Test
-    fun `self must be bound to the evaluated rule before resolving`() = runTest {
+    fun `R1-2 self is bound to the evaluated rule with the shared FeatureRef bindSelf`() = runTest {
         val f = RealtimeFixture()
         f.delivery(r1, at = f.now - 30.minutes)
-        val unbound = ref("minutes_since_last_delivery", JitaiArgs.SELF)
+        f.delivery(r3, at = f.now - 90.minutes)
+        val unbound = FeatureRef("minutes_since_last_delivery", mapOf("jitai" to JitaiArgs.SELF))
+        // One rule text in two rules: each binds self to its own id and looks its value up by the bound ref.
+        val inR1 = unbound.bindSelf(r1)
+        val inR3 = unbound.bindSelf(r3)
 
-        assertThat(f.resolve(unbound)).isEqualTo(missing(MissingReason.INVALID_VALUE))
-        assertThat(f.resolve(JitaiArgs.bindSelf(unbound, r1)).knownLong).isEqualTo(30)
-        assertThat(JitaiArgs.bindSelf(FeatureRef("local_time"), r1)).isEqualTo(FeatureRef("local_time"))
+        val snapshot = f.snapshot(unbound, inR1, inR3)
+
+        assertThat(snapshot[unbound]).isEqualTo(missing(MissingReason.INVALID_VALUE))
+        assertThat(snapshot[inR1]?.knownLong).isEqualTo(30)
+        assertThat(snapshot[inR3]?.knownLong).isEqualTo(90)
+        assertThat(inR1).isEqualTo(FeatureRef("minutes_since_last_delivery", mapOf("jitai" to r1)))
+        assertThat(JitaiArgs.bindSelf(unbound, r1)).isEqualTo(inR1)
+        val any = FeatureRef("minutes_since_last_delivery", mapOf("jitai" to JitaiArgs.ANY))
+        assertThat(any.bindSelf(r1)).isEqualTo(any)
+        assertThat(FeatureRef("local_time").bindSelf(r1)).isEqualTo(FeatureRef("local_time"))
     }
 }
