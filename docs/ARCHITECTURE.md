@@ -41,11 +41,13 @@ within a standing consent that the user previewed and approved for that purpose 
    that item or it passed `AiTextPolicy` (§9.5), and it is always labelled as AI-generated.
 7. Production builds cannot reach fake servers: `:fakes`, `:core:testing` and test-only libraries are absent from
    every `prod*` runtime classpath (flavors), and build checks enforce it (§3.1, §4).
-8. One time source (`AgentleClock`: wall time, zone, monotonic time). Outside `:core:time` and the app's clock
-   binding, no `System.currentTimeMillis()`, `Instant.now()`, `Date()`, `ZoneId.systemDefault()`,
-   `TimeZone.getDefault()`, `TimeZone.currentSystemDefault()`, `SystemClock` reads, `java.time.Clock.system*` or
-   `TimeSource.Monotonic`; detekt checks this with type resolution in CI. Code uses the clock's zone, never the JVM
-   default.
+8. One time source (`AgentleClock`: wall time, zone, monotonic time). Outside `SystemAgentleClock` (`:core:time`)
+   and the app's clock binding, no code reads a clock or the default zone: no `System.currentTimeMillis()` or
+   `nanoTime()`, `Instant.now()`, `Clock.System.now()`, the `java.time` `now()` factories, `java.time.Clock.system*`,
+   `Calendar.getInstance()`, `Date()`, `ZoneId.systemDefault()`, `TimeZone.getDefault()`,
+   `TimeZone.currentSystemDefault()`, `SystemClock` reads, `TimeSource.Monotonic` or the `measure*` timing helpers.
+   Type-resolved detekt (`detektMain`, `detektTest`) checks main and test sources in CI; a call through a
+   `TimeSource`-typed variable is not detected. Code uses the clock's zone, never the JVM default.
 9. No always-on foreground service. Collection is event-driven, periodic (WorkManager) or foreground-only.
 10. Single process: no component declares `android:process`, and `work-multiprocess` is not used. The process-wide
     mutexes for token refresh, stream sync and JITAI commits rely on it.
@@ -177,14 +179,14 @@ build-logic, so the domain core builds and tests on any JVM.
 ```kotlin
 data class PersonalEvent(
   val id: EventId,                 // UUIDv7-like, generated locally (stored, not indexed)
-  val type: EventType,             // closed enum (APP_FOREGROUND ... VIDEO_GENERATED, DAILY_TOTAL, plus device-state types)
+  val type: EventType,             // closed enum (APP_FOREGROUND ... VIDEO_GENERATED, DAILY_TOTAL, device-state types)
   val source: DataSourceId,        // connector + stream, e.g. android.usage, googlehealth.steps
   val startTime: Instant,
   val endTime: Instant?,
   val zoneId: String,              // zone at capture time
   val payload: EventPayload,       // sealed, typed, @Serializable with a "kind" discriminator
   val confidence: Double?,
-  val dedupKey: String,            // deterministic natural key (source-specific, account-bound for Google Health), see 5.3
+  val dedupKey: String,            // deterministic natural key per source (account-bound for Google Health), §5.3
   val metadata: EventMetadata,     // ingestedAt, schemaVersion, provenance (package/device/platform), upstreamId,
                                    // upstreamUpdatedAt, payloadHash, sensitivity
 )
@@ -256,9 +258,10 @@ collision check against the stored key.
 - Calendar `cal|<event_id>|<begin>`; activity recognition `ar|<activity>|<transition>|<eventMs>`; user logs
   `log|<id>`.
 - Health Connect: `hc|<metadata.id>`; a `DeletionChange` deletes by that key.
-- Google Health: `gh|<accountId>|<stream>|<dataPoint.name>` for identifiable points, otherwise the interval or
-  sample time in place of the name. Optional fields such as `dataSource.platform` or the application never enter the
-  key or the payload hash.
+- Google Health: `gh|<accountId>|<stream>|<dataPoint.name>` for identifiable `list` points, otherwise the interval or
+  sample time in place of the name. Points read through `:reconcile` (§7) carry no data source and are keyed by the
+  interval only. Optional fields such as `dataSource.platform` or the application never enter the key or the payload
+  hash.
 
 Two write paths (§5.6). `commit()` serves append-only Android sources: it inserts new keys and updates a row only when
 its payload hash changed. `replaceWindow(source, start, end, events, cursor, coverage, account)` serves windowed
@@ -445,8 +448,11 @@ scanning (DEFER), contacts (DEFER), media sessions (DEFER), Wi-Fi network identi
 Absence of records means "no data" only where a source was running or synced. Every collector records coverage
 intervals through the `CoverageRecorder` port (`collector_coverage`): it opens or closes an interval at process start,
 `onListenerConnected`/`onListenerDisconnected`, activity-transition registration, permission-state changes and every
-sweep heartbeat. At process start, an interval left open by a dead process is closed at its last heartbeat, with the
-cause from `ApplicationExitInfo` (API 30+) or `UNKNOWN`. While the database is unavailable (for example a transient
+sweep heartbeat. A collector records coverage under its capability id (`CapabilityIds`, the ids of
+`capabilities.json`, such as `app_usage_events`, `notification_events_metadata` and
+`activity_recognition_transitions`), which is the id the feature engine reads. At process start, an interval left
+open by a dead process is closed at its last heartbeat, with the cause from `ApplicationExitInfo` (API 30+) or
+`UNKNOWN`. While the database is unavailable (for example a transient
 Keystore failure), collectors skip the write and record a gap; they never crash and never retry in a tight loop.
 Connectors advance `source_coverage` in the same `EventSink` call as their data (§5.6); the wearable's last upload
 time (`deviceLastSync`) bounds it. Features intersect coverage with their window: an uncovered window gives
@@ -457,9 +463,13 @@ Missing(COVERAGE_GAP) or Stale, never zero (§10).
 Base `https://health.googleapis.com/v4/`, collection `users/me/dataTypes/{type}/dataPoints` with `list`,
 `:reconcile`, `:rollUp`, `:dailyRollUp` [R05 §3-4]. v1 types: steps, distance, floors (rollups only), total calories,
 heart rate (60-s `rollUp` windows by default; raw samples only behind an opt-in flag), resting heart rate, sleep,
-exercise, weight/body fat (if authorized), paired devices. The real API source sits behind a feature flag that is off
-by default until the live spike (R05 §7.9 step 1) passes; the fake flavor runs the same client against
-`FakeGoogleHealthServer`.
+exercise, weight/body fat (if authorized), paired devices. Interval types whose values are summed downstream (steps;
+distance and active energy when ingested per interval) are read through `:reconcile`, which "resolves conflicts and
+deduplicates overlapping records across devices and sync sessions into a single continuous stream" [R05 §5.3];
+reconciled points carry no data source, so their provenance names the connector only. `list` serves types that need
+provenance and cannot overlap, and `:dailyRollUp` gives daily totals. The real API source sits behind a feature flag
+that is off by default until the live spike (R05 §7.9 step 1) passes; the fake flavor runs the same client against
+`FakeGoogleHealthServer`, which serves `:reconcile` for these types.
 
 ### 7.1 Authorization
 
@@ -517,10 +527,12 @@ What happens to the previous account's rows (delete or keep) is not decided; unt
 ### 7.4 Sources and fusion
 
 Every source is stored whatever else is connected: Health Connect data is kept while Google Health is connected, and
-no row is dropped because another source exists. Google Health keeps `Provenance.platform`, so the fusion can ignore
-points that came from Health Connect when Health Connect is the selected source. Fusion happens at query time (§10):
-per minute, the canonical source of `metric_source_policy` where it has coverage, else the next by priority; no query
-sums a metric across sources. Daily values that the API computes (daily roll-ups, daily resting heart rate) are
+no row is dropped because another source exists. For `list` points Google Health keeps `Provenance.platform`, so the
+fusion can ignore points that came from Health Connect when Health Connect is the selected source; reconciled points
+carry no platform, so that skip does not apply to them. Fusion happens at query time (§10): per minute, the canonical
+source of `metric_source_policy` where it has coverage, else the next by priority, so no minute is counted from two
+sources and no query sums a metric across sources. Within one source, overlapping intervals are not summed either
+(§10). Daily values that the API computes (daily roll-ups, daily resting heart rate) are
 civil-date values: they keep their `LocalDate` (`upstream_daily`) and are never mapped to the 04:00 engine day.
 
 ## 8. Sign in with ChatGPT
@@ -621,9 +633,10 @@ returns `AppError.AuthenticationRequired` without network).
 
 - Consent is an allow-list: a dedicated store of `ConsentGrant(category, purpose, consentVersion, grantedAt,
   accountSub)`. Data of a category may leave only under a current grant for that category and the request's purpose.
-  Absent, unknown, unreadable or corrupted state denies; every category defaults to off; `DataCategory.sensitiveByDefault`
-  never sets a default; no corruption handler, deletion action or backup restore can create a grant, and a restore
-  clears all grants. A grant applies only to the ChatGPT account (`sub`) it was given under.
+  Absent, unknown, unreadable or corrupted state denies; every category defaults to off;
+  `DataCategory.sensitiveByDefault` never sets a default; no corruption handler, deletion action or backup restore can
+  create a grant, and a restore clears all grants. A grant applies only to the ChatGPT account (`sub`) it was given
+  under.
 - A `consentVersion` bump (categories, purposes or recipient disclosure changed) requires fresh grants. The
   disclosure names OpenAI and says that requests are linked to the user's ChatGPT account.
 - Deleting a category revokes its grants in the same flow (§5.5); consent changes cancel in-flight AI calls.
@@ -695,15 +708,27 @@ returns `AppError.AuthenticationRequired` without network).
   exercise days, local time, weekday/weekend, recent intervention history. Every feature declares its
   `DataCategory`, its coverage source and its availability. `location_class` (time at place class) is
   `Unavailable("location_background")` in v1: rules cannot reference it, the NL catalog and schema enum leave it out,
-  and resolving it returns Missing(API_UNAVAILABLE).
-- Coverage: a window that its coverage source does not fully cover gives Missing(COVERAGE_GAP) or Stale, never a count
-  of 0 (§6.5). For example `notifications_last_60m` while the listener was disconnected is UNKNOWN, and `steps_today`
-  with lagging source coverage is Stale.
+  and resolving it returns Missing(API_UNAVAILABLE). A feature's valid range rejects only impossible values (outside
+  it a value is Missing(INVALID_VALUE)), never rare but real ones: a +51 bpm resting heart-rate delta during an
+  illness is a value.
+- Coverage: unobserved time never counts as 0 (§6.5); each feature declares how much coverage it needs.
+  - A count window that its coverage source does not cover gives Missing(COVERAGE_GAP) or Stale:
+    `notifications_last_60m` while the listener was disconnected is UNKNOWN.
+  - Minute-window step features (`steps_last_60m`, `steps_last_30m`) count observed minutes, as
+    `activity_level_last_30m` does, and need at least 80% of them (48 of 60, 24 of 30); below that they are
+    Missing(COVERAGE_GAP) while the source is fresh and NOT_SYNCED when it is not.
+  - `steps_today` follows R10 §12.D: Known while source coverage lags at most 30 minutes (the uncovered rest of the
+    day is accepted), Stale beyond that, and the engine then applies the monotone lower bound.
+  - A point-in-time feature such as `foreground_app` needs coverage at the evaluation instant only.
+  - After a device start-up the screen state is unknown until the first screen event; that span is a coverage gap,
+    never "not interactive".
 - Fusion: wearable and phone metrics are read as a fused series through the `FeatureDataSource` port: per minute, the
   canonical source where it has coverage, else the next source by priority (`metric_source_policy`). No feature sums
-  a metric across sources. When the canonical API source has no coverage for recent minutes, the freshest local copy
-  (Health Connect Fitbit-origin steps or on-device steps) fills those minutes as a provisional value; daily totals stay
-  API-canonical once covered. So a step rule works for a wearable user even when the API source syncs rarely.
+  a metric across sources. Within one source, overlapping intervals (several devices' records) are not summed either:
+  per minute, the largest prorated share among them counts. When the canonical API source has no coverage for recent
+  minutes, the freshest local copy (Health Connect Fitbit-origin steps or on-device steps) fills those minutes as a
+  provisional value; daily totals stay API-canonical once covered. So a step rule can fire for a wearable user even when
+  the API source syncs rarely.
 - Civil dates: daily values the source computed (resting heart rate, the wearable's daily totals) are read by civil
   date in the user's zone, never shifted onto the 04:00 engine day. `resting_hr_today` at 01:30 reads today's civil
   date; if there is none, it is Missing, never yesterday's value.
@@ -807,6 +832,9 @@ normative; the subsections below record the decisions that refine or override R1
   The unique decision key is the final guard.
 - Elapsed time between two recorded events follows R10 §8.6: the elapsed-realtime difference within one boot,
   otherwise the wall-clock difference clamped at 0. Cooldowns and gaps use this rule.
+- History leaves with the argument `{jitai: self}` (such as `minutes_since_last_delivery` or `consecutive_ignored`)
+  are bound to the evaluating definition's id before refs are collected and before every lookup, so two rules never
+  share one memoized value; an unbound `self` resolves to Missing(INVALID_VALUE).
 - Every snapshot value and trace leaf carries its `DataCategory`. A pure scrub function replaces a deleted category's
   values with a deleted marker; the category delete calls it (§5.5).
 - Eval-log traces are written only when the result changes.
@@ -839,13 +867,15 @@ normative; the subsections below record the decisions that refine or override R1
   rollover, quiet-hours end, next window start).
 - The response enum equals the feature catalog's `last_response` enum; the first response wins (§5.2).
 - Backoff counts only IGNORED, and DISMISSED without a positive proximal outcome. Nothing backs off or auto-pauses
-  while the G05 delivery prerequisite is not met.
+  while the G05 delivery prerequisite is not met. The history features `last_response` and `consecutive_ignored`
+  follow the same rule and skip deliveries that have no settled response yet (still in their outcome window, or
+  DELIVERY_UNCERTAIN).
 
 ### 11.7 Scheduling
 
 - The planner outputs timer rows (`jitai_timer`: due time, kind SLOT | PREFETCH | OUTCOME | SNOOZE | BACKSTOP, JITAI
   id, version, slot). One unique one-time work, `jitai-timer`, targets the earliest due time and re-arms itself
-  (§13). There are no per-rule or per-time works and no exact alarms.
+  (§13). There are no per-rule or per-time work requests and no exact alarms.
 - Editing, disabling, deleting or expiring a definition deletes its timer rows in the same transaction as the change.
 - A firing timer verifies that the definition exists, is enabled and has the same version, that the time is one of
   the rule's times and that it is within lateness; otherwise it re-plans.
@@ -928,11 +958,11 @@ assume it.
   Tink's `AndroidKeystore` helper: an AES-256-GCM Keystore key under alias `agentle.kek.vault.v1`
   (`generateNewAes256GcmKey`, `getAead`), AAD `agentle/siwc-credentials/v1|<package>|<record version>`. No keyset is
   kept in `shared_prefs`, and there is no plaintext fallback (`AndroidKeysetManager` is banned, §2). The key needs no
-  user authentication, so a background refresh works while the phone is locked. The vault is built lazily, its
+  user authentication, so a background refresh can run while the phone is locked. The vault is built lazily, its
   construction never throws, and a key is never generated over existing ciphertext. A permanent failure (the classes
-  of §5.4) wipes the blob and returns Unreadable, which SIWC persists as `REAUTH_REQUIRED(LOCAL_CREDENTIALS_UNREADABLE)`
-  (`NEEDS_REAUTH` in the provider state, §8.4); a transient failure is retried later. Google tokens are never stored:
-  Play services holds them (§7.1).
+  of §5.4) wipes the blob and returns Unreadable, which SIWC persists as
+  `REAUTH_REQUIRED(LOCAL_CREDENTIALS_UNREADABLE)` (`NEEDS_REAUTH` in the provider state, §8.4); a transient failure is
+  retried later. Google tokens are never stored: Play services holds them (§7.1).
 - Backups: the manifest sets `allowBackup="false"` and `fullBackupContent="false"`, and `data_extraction_rules.xml`
   excludes every domain (root, file, database, sharedpref, external and the device-protected domains) from cloud
   backup and from device transfer, so no record, token, key file, setting or media file leaves through backup. A
@@ -1090,7 +1120,7 @@ Required tests (each named in a correction):
   example as a golden test; crash points after commit, after claim, during render and after the post; co-timed rules
   arbitrated across one pass; two concurrent passes against a real database; a real-thread stress test of the commit
   protocol (parallel passes on `Dispatchers.Default` behind a start barrier, 1,000 times).
-- SIWC: a fake clock offset of ±2 min (sign-in works) and ±2 h (`DEVICE_CLOCK_WRONG`); captive portal and TLS
+- SIWC: a fake clock offset of ±2 min (sign-in must succeed) and ±2 h (`DEVICE_CLOCK_WRONG`); captive portal and TLS
   interception on discovery, token and refresh keep the tokens; a crash between the refresh response and the vault
   write recovers from `pendingRotation`; owner cancellation after rotation; a JWKS failure; a 200 body that fails DTO
   parsing; process death during sign-in gives `INTERRUPTED`.
