@@ -61,12 +61,7 @@ internal fun AiSharingRoute(onBack: () -> Unit, onOpenChatGpt: () -> Unit, viewM
 
 /** The stateless AI Data Sharing screen. */
 @Composable
-internal fun AiSharingScreen(
-    state: AiSharingUiState,
-    onAction: (AiSharingAction) -> Unit,
-    onBack: () -> Unit,
-    onOpenChatGpt: () -> Unit,
-) {
+internal fun AiSharingScreen(state: AiSharingUiState, onAction: (AiSharingAction) -> Unit, onBack: () -> Unit, onOpenChatGpt: () -> Unit) {
     val formatter = rememberInstantFormatter(state.zone)
     ConnectionsScaffold(title = stringResource(R.string.connections_ai_title), onBack = onBack) {
         state.notice?.let { notice ->
@@ -75,13 +70,16 @@ internal fun AiSharingScreen(
         }
         when (state.phase) {
             AiSharingPhase.LOADING -> LoadingContent()
+
             AiSharingPhase.LOAD_FAILED -> LoadFailedContent(onRetry = { onAction(AiSharingAction.Retry) })
+
             AiSharingPhase.NOT_AVAILABLE -> StatusCard(
                 icon = R.drawable.connections_ic_block,
                 tone = Tone.NEUTRAL,
                 title = stringResource(R.string.connections_ai_not_available_title),
                 body = stringResource(R.string.connections_ai_not_available_body),
             )
+
             AiSharingPhase.READY -> {
                 RecipientCard(state, formatter)
                 ConsentProblems(state, onAction, onOpenChatGpt)
@@ -114,8 +112,7 @@ private fun RecipientCard(state: AiSharingUiState, formatter: InstantFormatter) 
 }
 
 @Composable
-private fun disclosureText(disclosure: String): String =
-    disclosure.ifBlank { stringResource(R.string.connections_ai_disclosure_fallback) }
+private fun disclosureText(disclosure: String): String = disclosure.ifBlank { stringResource(R.string.connections_ai_disclosure_fallback) }
 
 @Composable
 private fun ConsentProblems(state: AiSharingUiState, onAction: (AiSharingAction) -> Unit, onOpenChatGpt: () -> Unit) {
@@ -161,12 +158,7 @@ private fun CategoriesSection(state: AiSharingUiState, formatter: InstantFormatt
 }
 
 @Composable
-private fun CategoryRow(
-    row: AiCategoryRow,
-    accountConnected: Boolean,
-    formatter: InstantFormatter,
-    onAction: (AiSharingAction) -> Unit,
-) {
+private fun CategoryRow(row: AiCategoryRow, accountConnected: Boolean, formatter: InstantFormatter, onAction: (AiSharingAction) -> Unit) {
     // Turning off always works; turning on needs a connected account and a category this version can send.
     val enabled = if (row.allowed) !row.pending else row.canTurnOn(accountConnected)
     Row(
@@ -206,6 +198,7 @@ private fun CategoryRow(
                     text = stringResource(R.string.connections_ai_category_saving),
                     style = MaterialTheme.typography.bodySmall,
                 )
+
                 row.allowed && grantedAt != null -> Text(
                     text = stringResource(R.string.connections_ai_category_on_since, formatter.format(grantedAt)),
                     style = MaterialTheme.typography.bodySmall,
@@ -242,12 +235,15 @@ private fun PreviewSection(state: AiSharingUiState, formatter: InstantFormatter,
     )
     when (val preview = state.preview) {
         AiPreviewUi.Hidden -> Unit
+
         is AiPreviewUi.Building -> BusyRow(text = stringResource(R.string.connections_ai_preview_building))
+
         is AiPreviewUi.Shown -> AiPreviewCard(
             preview = preview.preview,
             formatter = formatter,
             onClose = { onAction(AiSharingAction.ClosePreview) },
         )
+
         is AiPreviewUi.Failed -> StatusCard(
             icon = R.drawable.connections_ic_error,
             tone = Tone.ERROR,
@@ -265,10 +261,12 @@ private fun HistorySection(state: AiSharingUiState, formatter: InstantFormatter)
             text = stringResource(R.string.connections_ai_history_unavailable),
             tone = Tone.WARNING,
         )
+
         state.history.isEmpty() -> Text(
             text = stringResource(R.string.connections_ai_history_none),
             style = MaterialTheme.typography.bodyMedium,
         )
+
         else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             state.history.forEachIndexed { index, record ->
                 if (index > 0) HorizontalDivider()

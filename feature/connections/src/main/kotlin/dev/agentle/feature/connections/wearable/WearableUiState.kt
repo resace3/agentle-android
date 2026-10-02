@@ -37,12 +37,7 @@ internal enum class WearablePhase {
 internal enum class WearableBusy { CONNECTING, AWAITING_CONSENT, SYNCING, DISCONNECTING }
 
 /** The last sync as the screen shows it. */
-internal data class WearableSyncUi(
-    val state: SyncStatus,
-    val lastSuccess: Instant?,
-    val lastAttempt: Instant?,
-    val errorCode: String?,
-)
+internal data class WearableSyncUi(val state: SyncStatus, val lastSuccess: Instant?, val lastAttempt: Instant?, val errorCode: String?)
 
 /** The disconnect dialog: whether the user chose to delete the synced data. */
 internal data class WearableDisconnectDialog(val deleteData: Boolean = false)
@@ -138,11 +133,10 @@ internal data class WearableUiState(
     /** A Google account is bound and nothing else runs, so "Disconnect" applies. */
     val canDisconnect: Boolean get() = bound && busy == null
 
-    override fun toString(): String =
-        "WearableUiState(phase=$phase, bound=$bound, unavailable=$unavailableReason, " +
-            "account=${if (accountLabel == null) "none" else "<redacted>"}, problem=$accountProblem, " +
-            "shared=$sharedCount/${dataAccess.size}, sync=$sync, rateLimitedUntil=$rateLimitedUntil, offline=$offline, " +
-            "busy=$busy, notice=$notice, dialog=$disconnectDialog)"
+    override fun toString(): String = "WearableUiState(phase=$phase, bound=$bound, unavailable=$unavailableReason, " +
+        "account=${if (accountLabel == null) "none" else "<redacted>"}, problem=$accountProblem, " +
+        "shared=$sharedCount/${dataAccess.size}, sync=$sync, rateLimitedUntil=$rateLimitedUntil, offline=$offline, " +
+        "busy=$busy, notice=$notice, dialog=$disconnectDialog)"
 }
 
 /** The port's state as the ViewModel last saw it. */

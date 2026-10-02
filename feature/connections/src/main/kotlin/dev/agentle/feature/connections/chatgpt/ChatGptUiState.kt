@@ -183,5 +183,4 @@ private fun phaseOf(provider: AiProviderState): ChatGptPhase = when (provider) {
 }
 
 /** Every capability in a stable order, with what the provider reported (absent means not available). */
-private fun AiCapabilities.rows(): ImmutableList<CapabilityRow> =
-    AiCapability.entries.map { CapabilityRow(it, this[it]) }.toImmutableList()
+private fun AiCapabilities.rows(): ImmutableList<CapabilityRow> = AiCapability.entries.map { CapabilityRow(it, this[it]) }.toImmutableList()

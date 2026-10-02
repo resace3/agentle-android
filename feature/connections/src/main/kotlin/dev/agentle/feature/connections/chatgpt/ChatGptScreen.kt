@@ -60,12 +60,7 @@ internal fun ChatGptRoute(onBack: () -> Unit, onOpenAiDataSharing: () -> Unit, v
 
 /** The stateless ChatGPT screen (Sign in with ChatGPT). */
 @Composable
-internal fun ChatGptScreen(
-    state: ChatGptUiState,
-    onAction: (ChatGptAction) -> Unit,
-    onBack: () -> Unit,
-    onOpenAiDataSharing: () -> Unit,
-) {
+internal fun ChatGptScreen(state: ChatGptUiState, onAction: (ChatGptAction) -> Unit, onBack: () -> Unit, onOpenAiDataSharing: () -> Unit) {
     val uriHandler = LocalUriHandler.current
     val openUsage = { openLink(uriHandler, MANAGE_USAGE_URL) }
     val formatter = rememberInstantFormatter(state.zone)
@@ -137,6 +132,7 @@ private fun ChatGptStatusCard(
             title = stringResource(R.string.connections_chatgpt_not_available_title),
             body = stringResource(R.string.connections_chatgpt_not_available_body),
         )
+
         ChatGptPhase.DISCONNECTED -> StatusCard(
             icon = R.drawable.connections_ic_info,
             tone = Tone.NEUTRAL,
@@ -154,8 +150,11 @@ private fun ChatGptStatusCard(
                 enabled = state.busy == null,
             )
         }
+
         ChatGptPhase.WAITING_FOR_BROWSER -> WaitingCard(onAction)
+
         ChatGptPhase.CONNECTED -> ConnectedCard(state, openUsage)
+
         ChatGptPhase.NEEDS_REAUTH -> StatusCard(
             icon = R.drawable.connections_ic_warning,
             tone = Tone.WARNING,
@@ -168,7 +167,9 @@ private fun ChatGptStatusCard(
                 enabled = state.busy == null,
             )
         }
+
         ChatGptPhase.NOT_ELIGIBLE -> NotEligibleCard(state, onAction, openUsage)
+
         ChatGptPhase.USAGE_LIMITED -> StatusCard(
             icon = R.drawable.connections_ic_schedule,
             tone = Tone.WARNING,
@@ -178,12 +179,14 @@ private fun ChatGptStatusCard(
         ) {
             PrimaryAction(text = stringResource(R.string.connections_chatgpt_manage_usage), onClick = openUsage)
         }
+
         ChatGptPhase.PROVIDER_UNAVAILABLE -> StatusCard(
             icon = R.drawable.connections_ic_cloud_off,
             tone = Tone.WARNING,
             title = stringResource(R.string.connections_chatgpt_unavailable_title),
             body = stringResource(R.string.connections_chatgpt_unavailable_body, state.providerReason.orEmpty()),
         )
+
         ChatGptPhase.LOADING, ChatGptPhase.LOAD_FAILED -> Unit
     }
 }
@@ -300,12 +303,17 @@ private fun planUsageLook(planUsage: PlanUsageAvailability): Pair<Int, Tone> = w
 @Composable
 private fun planUsageText(planUsage: PlanUsageAvailability, formatter: InstantFormatter): String = when (planUsage) {
     PlanUsageAvailability.Unknown -> stringResource(R.string.connections_chatgpt_plan_usage_unknown)
+
     PlanUsageAvailability.Available -> stringResource(R.string.connections_chatgpt_plan_usage_available)
+
     PlanUsageAvailability.NotGranted -> stringResource(R.string.connections_chatgpt_plan_usage_not_granted)
+
     is PlanUsageAvailability.NotEligible -> stringResource(R.string.connections_chatgpt_plan_usage_not_eligible, planUsage.reason)
+
     is PlanUsageAvailability.LimitReached -> planUsage.until?.let {
         stringResource(R.string.connections_chatgpt_plan_usage_limit_until, formatter.format(it))
     } ?: stringResource(R.string.connections_chatgpt_plan_usage_limit)
+
     PlanUsageAvailability.TemporarilyUnavailable -> stringResource(R.string.connections_chatgpt_plan_usage_temporarily_unavailable)
 }
 

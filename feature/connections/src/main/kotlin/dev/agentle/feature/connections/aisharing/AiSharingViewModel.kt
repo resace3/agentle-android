@@ -31,16 +31,14 @@ import javax.inject.Inject
  * history as metadata. Turning a category off is written at once and reports the requests it cancelled.
  */
 @HiltViewModel
-public class AiSharingViewModel @Inject constructor(
-    private val port: AiDataSharingPort,
-    private val zones: DisplayZonePort,
-) : ViewModel() {
+public class AiSharingViewModel @Inject constructor(private val port: AiDataSharingPort, zones: DisplayZonePort) :
+    ViewModel() {
     private val reload = MutableStateFlow(0)
     private val local = MutableStateFlow(AiSharingLocal())
     private var previewJob: Job? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val remote: Flow<AiSharingRemote> = reload.flatMapLatest {
+    private val remote: Flow<AiSharingRemote> = reload.flatMapLatest { _ ->
         combine(port.consent, port.history) { consent, history -> AiSharingRemote.Ready(consent, history) }
             .onStart<AiSharingRemote> { emit(AiSharingRemote.Loading) }
             .catch { emit(AiSharingRemote.Failed) }
@@ -58,22 +56,29 @@ public class AiSharingViewModel @Inject constructor(
                 } else {
                     write(action.category, allowed = false)
                 }
+
             AiSharingAction.ConfirmTurnOn -> {
                 val category = local.value.confirm ?: return
                 local.update { it.copy(confirm = null) }
                 write(category, allowed = true)
             }
+
             AiSharingAction.DismissConfirm -> local.update { it.copy(confirm = null) }
+
             is AiSharingAction.SelectPurpose -> {
                 previewJob?.cancel()
                 local.update { it.copy(purpose = action.purpose, preview = AiPreviewUi.Hidden) }
             }
+
             AiSharingAction.BuildPreview -> buildPreview()
+
             AiSharingAction.ClosePreview -> {
                 previewJob?.cancel()
                 local.update { it.copy(preview = AiPreviewUi.Hidden) }
             }
+
             AiSharingAction.DismissNotice -> local.update { it.copy(notice = null) }
+
             AiSharingAction.Retry -> reload.update { it + 1 }
         }
     }
@@ -99,6 +104,7 @@ public class AiSharingViewModel @Inject constructor(
                         } else {
                             AiSharingNotice.TurnedOff(category, outcome.value.cancelledRequests.toImmutableList())
                         }
+
                     is Outcome.Failure -> AiSharingNotice.ChangeFailed(category, turningOn = allowed, error = outcome.error)
                 }
                 state.copy(pending = (state.pending - category).toPersistentMap(), notice = notice)

@@ -139,13 +139,7 @@ internal fun StatusRow(
 
 /** A label with its value at the end (the label wraps at large font sizes), read as one item. */
 @Composable
-internal fun LabelValueRow(
-    @DrawableRes icon: Int,
-    label: String,
-    value: String,
-    tone: Tone,
-    modifier: Modifier = Modifier,
-) {
+internal fun LabelValueRow(@DrawableRes icon: Int, label: String, value: String, tone: Tone, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()

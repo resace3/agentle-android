@@ -14,6 +14,7 @@ import dev.agentle.feature.connections.ui.purposeList
 internal fun aiSharingNoticeText(notice: AiSharingNotice): Pair<String, Tone> = when (notice) {
     is AiSharingNotice.TurnedOn ->
         stringResource(R.string.connections_ai_notice_on, stringResource(categoryTitle(notice.category))) to Tone.POSITIVE
+
     is AiSharingNotice.TurnedOff -> {
         val title = stringResource(categoryTitle(notice.category))
         if (notice.cancelled.isEmpty()) {
@@ -28,6 +29,7 @@ internal fun aiSharingNoticeText(notice: AiSharingNotice): Pair<String, Tone> = 
             ) to Tone.NEUTRAL
         }
     }
+
     is AiSharingNotice.ChangeFailed -> stringResource(
         R.string.connections_ai_notice_change_failed,
         stringResource(categoryTitle(notice.category)),

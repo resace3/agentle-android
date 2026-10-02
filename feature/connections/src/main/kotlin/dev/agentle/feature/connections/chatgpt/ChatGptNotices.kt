@@ -13,7 +13,9 @@ import dev.agentle.feature.connections.ui.errorText
 @Composable
 internal fun chatGptNoticeText(notice: ChatGptNotice): Pair<String, Tone> = when (notice) {
     is ChatGptNotice.SignIn -> signInText(notice.result)
+
     is ChatGptNotice.Disconnect -> disconnectText(notice)
+
     is ChatGptNotice.ActionFailed ->
         stringResource(R.string.connections_chatgpt_notice_action_failed, errorText(notice.error)) to Tone.ERROR
 }
@@ -21,6 +23,7 @@ internal fun chatGptNoticeText(notice: ChatGptNotice): Pair<String, Tone> = when
 @Composable
 private fun signInText(result: ChatGptConnectResult): Pair<String, Tone> = when (result) {
     is ChatGptConnectResult.Failed -> stringResource(R.string.connections_chatgpt_notice_failed, errorText(result.error)) to Tone.ERROR
+
     is ChatGptConnectResult.Interrupted -> stringResource(
         if (result.firstRegistration) {
             R.string.connections_chatgpt_notice_interrupted_first
@@ -28,6 +31,7 @@ private fun signInText(result: ChatGptConnectResult): Pair<String, Tone> = when 
             R.string.connections_chatgpt_notice_interrupted
         },
     ) to Tone.WARNING
+
     else -> stringResource(signInMessage(result)) to signInTone(result)
 }
 
@@ -65,8 +69,10 @@ private fun disconnectText(notice: ChatGptNotice.Disconnect): Pair<String, Tone>
             R.string.connections_chatgpt_notice_disconnected
         },
     ) to Tone.POSITIVE
+
     ChatGptDisconnectResult.RevocationUnconfirmed ->
         stringResource(R.string.connections_chatgpt_notice_revocation_unconfirmed) to Tone.WARNING
+
     is ChatGptDisconnectResult.Failed ->
         stringResource(R.string.connections_chatgpt_notice_disconnect_failed, errorText(result.error)) to Tone.ERROR
 }

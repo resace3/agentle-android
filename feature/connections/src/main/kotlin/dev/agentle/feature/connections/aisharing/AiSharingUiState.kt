@@ -28,8 +28,7 @@ internal data class AiCategoryRow(
     val restriction: AiCategoryRestriction,
 ) {
     /** The switch can be turned on: the category can be sent in this version and a ChatGPT account is connected. */
-    fun canTurnOn(accountConnected: Boolean): Boolean =
-        !pending && accountConnected && restriction != AiCategoryRestriction.NEVER_SENT
+    fun canTurnOn(accountConnected: Boolean): Boolean = !pending && accountConnected && restriction != AiCategoryRestriction.NEVER_SENT
 }
 
 /** The request preview: hidden, being built, shown (personal content: never logged) or failed. */

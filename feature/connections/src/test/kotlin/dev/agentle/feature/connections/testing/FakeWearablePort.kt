@@ -108,7 +108,7 @@ internal class FakeWearablePort(
                         else -> SyncStatus.FAILED
                     },
                     lastSuccessfulCollection =
-                        if (result.status == SyncResult.Status.SUCCESS) now else it.metadata.lastSuccessfulCollection,
+                    if (result.status == SyncResult.Status.SUCCESS) now else it.metadata.lastSuccessfulCollection,
                     lastAttemptedCollection = now,
                 ),
             )

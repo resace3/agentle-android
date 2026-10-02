@@ -39,10 +39,8 @@ import javax.inject.Inject
  * back as [WearableAction.ConsentResult], also after the process was recreated meanwhile.
  */
 @HiltViewModel
-public class WearableViewModel @Inject constructor(
-    private val port: WearableConnectionPort,
-    private val zones: DisplayZonePort,
-) : ViewModel() {
+public class WearableViewModel @Inject constructor(private val port: WearableConnectionPort, zones: DisplayZonePort) :
+    ViewModel() {
     private val reload = MutableStateFlow(0)
     private val local = MutableStateFlow(WearableLocal())
     private val effectChannel = Channel<WearableEffect>(Channel.BUFFERED)
@@ -51,7 +49,7 @@ public class WearableViewModel @Inject constructor(
     internal val effects: Flow<WearableEffect> = effectChannel.receiveAsFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val remote: Flow<WearableRemote> = reload.flatMapLatest {
+    private val remote: Flow<WearableRemote> = reload.flatMapLatest { _ ->
         port.state
             .map<WearableConnectionState, WearableRemote> { WearableRemote.Ready(it) }
             .onStart { emit(WearableRemote.Loading) }
@@ -65,19 +63,30 @@ public class WearableViewModel @Inject constructor(
     internal fun onAction(action: WearableAction) {
         when (action) {
             WearableAction.Connect -> authorize(WearableAuthorizationPurpose.CONNECT)
+
             WearableAction.Reconnect -> authorize(WearableAuthorizationPurpose.RECONNECT)
+
             WearableAction.GrantMore -> authorize(WearableAuthorizationPurpose.GRANT_MORE)
+
             is WearableAction.ConsentResult -> completeConsent(action.resultCode, action.data)
+
             WearableAction.ConsentLaunchFailed ->
                 local.update { it.copy(busy = null, notice = WearableNotice.ConsentScreenFailed) }
+
             WearableAction.SyncNow -> syncNow()
+
             WearableAction.RequestDisconnect ->
                 local.update { if (it.busy == null) it.copy(disconnectDialog = WearableDisconnectDialog()) else it }
+
             is WearableAction.SetDeleteData ->
                 local.update { it.copy(disconnectDialog = it.disconnectDialog?.copy(deleteData = action.delete)) }
+
             WearableAction.ConfirmDisconnect -> disconnect()
+
             WearableAction.DismissDisconnect -> local.update { it.copy(disconnectDialog = null) }
+
             WearableAction.DismissNotice -> local.update { it.copy(notice = null) }
+
             WearableAction.Retry -> reload.update { it + 1 }
         }
     }
@@ -111,10 +120,13 @@ public class WearableViewModel @Inject constructor(
                 local.update { it.copy(busy = WearableBusy.AWAITING_CONSENT) }
                 effectChannel.trySend(WearableEffect.LaunchConsent(result.pendingIntent))
             }
+
             is WearableAuthorizationResult.AccountProblem ->
                 local.update { it.copy(busy = null, resultProblem = result.problem, disconnected = false) }
+
             is WearableAuthorizationResult.Connected ->
                 local.update { it.copy(busy = null, notice = noticeFor(result), disconnected = false) }
+
             else -> local.update { it.copy(busy = null, notice = noticeFor(result)) }
         }
     }
@@ -143,6 +155,7 @@ public class WearableViewModel @Inject constructor(
                         disconnected = true,
                     )
                 }
+
                 is Outcome.Failure -> local.update {
                     it.copy(busy = null, notice = WearableNotice.DisconnectFailed(outcome.error))
                 }

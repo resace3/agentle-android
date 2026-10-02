@@ -128,6 +128,7 @@ private fun WearableStatusCard(state: WearableUiState, onAction: (WearableAction
             title = stringResource(R.string.connections_wearable_unavailable_title),
             body = stringResource(unavailableBody(state.unavailableReason)),
         )
+
         WearablePhase.NOT_CONNECTED -> StatusCard(
             icon = R.drawable.connections_ic_info,
             tone = Tone.NEUTRAL,
@@ -140,6 +141,7 @@ private fun WearableStatusCard(state: WearableUiState, onAction: (WearableAction
                 enabled = state.busy == null,
             )
         }
+
         WearablePhase.CONNECTING -> StatusCard(
             icon = R.drawable.connections_ic_hourglass,
             tone = Tone.NEUTRAL,
@@ -156,11 +158,13 @@ private fun WearableStatusCard(state: WearableUiState, onAction: (WearableAction
                 ),
             )
         }
+
         WearablePhase.CONNECTED -> StatusCard(
             icon = R.drawable.connections_ic_check_circle,
             tone = Tone.POSITIVE,
             title = stringResource(R.string.connections_wearable_connected_title),
         ) { AccountLine(state.accountLabel) }
+
         WearablePhase.NEEDS_REAUTH -> ReconnectCard(
             icon = R.drawable.connections_ic_warning,
             tone = Tone.WARNING,
@@ -169,6 +173,7 @@ private fun WearableStatusCard(state: WearableUiState, onAction: (WearableAction
             state = state,
             onAction = onAction,
         )
+
         WearablePhase.CONNECTION_ERROR -> ReconnectCard(
             icon = R.drawable.connections_ic_error,
             tone = Tone.ERROR,
@@ -178,22 +183,23 @@ private fun WearableStatusCard(state: WearableUiState, onAction: (WearableAction
             state = state,
             onAction = onAction,
         )
+
         WearablePhase.PAUSED -> StatusCard(
             icon = R.drawable.connections_ic_info,
             tone = Tone.NEUTRAL,
             title = stringResource(R.string.connections_wearable_paused_title),
             body = stringResource(R.string.connections_wearable_paused_body),
         ) { AccountLine(state.accountLabel) }
+
         WearablePhase.LOADING, WearablePhase.LOAD_FAILED, WearablePhase.ACCOUNT_PROBLEM -> Unit
     }
 }
 
-private fun unavailableBody(reason: Blocker?): Int =
-    if (reason == Blocker.PLAY_SERVICES_MISSING) {
-        R.string.connections_wearable_unavailable_play_services_body
-    } else {
-        R.string.connections_wearable_unavailable_flag_body
-    }
+private fun unavailableBody(reason: Blocker?): Int = if (reason == Blocker.PLAY_SERVICES_MISSING) {
+    R.string.connections_wearable_unavailable_play_services_body
+} else {
+    R.string.connections_wearable_unavailable_flag_body
+}
 
 @Composable
 private fun AccountLine(accountLabel: String?) {
@@ -203,14 +209,7 @@ private fun AccountLine(accountLabel: String?) {
 }
 
 @Composable
-private fun ReconnectCard(
-    icon: Int,
-    tone: Tone,
-    title: String,
-    body: String,
-    state: WearableUiState,
-    onAction: (WearableAction) -> Unit,
-) {
+private fun ReconnectCard(icon: Int, tone: Tone, title: String, body: String, state: WearableUiState, onAction: (WearableAction) -> Unit) {
     StatusCard(icon = icon, tone = tone, title = title, body = body) {
         AccountLine(state.accountLabel)
         PrimaryAction(
@@ -227,10 +226,13 @@ private fun AccountProblemCard(state: WearableUiState, onAction: (WearableAction
     val (title, body) = when (problem) {
         is WearableAccountProblem.NotLinked ->
             R.string.connections_wearable_problem_not_linked_title to R.string.connections_wearable_problem_not_linked_body
+
         WearableAccountProblem.ProfileNotReady ->
             R.string.connections_wearable_problem_profile_title to R.string.connections_wearable_problem_profile_body
+
         WearableAccountProblem.LegacyFitbitAccount ->
             R.string.connections_wearable_problem_legacy_title to R.string.connections_wearable_problem_legacy_body
+
         WearableAccountProblem.AccountChanged ->
             R.string.connections_wearable_problem_account_changed_title to R.string.connections_wearable_problem_account_changed_body
     }
@@ -350,22 +352,26 @@ private fun SyncSection(state: WearableUiState, onAction: (WearableAction) -> Un
 private fun SyncStatusRow(sync: WearableSyncUi) {
     when (sync.state) {
         SyncStatus.RUNNING -> BusyRow(text = stringResource(R.string.connections_wearable_sync_running))
+
         SyncStatus.SUCCEEDED -> StatusRow(
             icon = R.drawable.connections_ic_check_circle,
             text = stringResource(R.string.connections_wearable_sync_succeeded),
             tone = Tone.POSITIVE,
         )
+
         SyncStatus.PARTIAL -> StatusRow(
             icon = R.drawable.connections_ic_warning,
             text = stringResource(R.string.connections_wearable_sync_partial),
             tone = Tone.WARNING,
         )
+
         SyncStatus.FAILED -> StatusRow(
             icon = R.drawable.connections_ic_error,
             text = sync.errorCode?.let { stringResource(R.string.connections_wearable_sync_failed, errorCodeText(it)) }
                 ?: stringResource(R.string.connections_wearable_sync_failed_no_code),
             tone = Tone.ERROR,
         )
+
         SyncStatus.IDLE -> StatusRow(
             icon = R.drawable.connections_ic_sync,
             text = stringResource(R.string.connections_wearable_sync_idle),

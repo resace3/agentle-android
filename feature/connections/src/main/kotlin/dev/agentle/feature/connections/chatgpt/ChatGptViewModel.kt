@@ -33,15 +33,13 @@ import javax.inject.Inject
  * A disconnect shows the disconnected state as soon as the port returns, whatever the port's flow says meanwhile.
  */
 @HiltViewModel
-public class ChatGptViewModel @Inject constructor(
-    private val port: ChatGptConnectionPort,
-    private val zones: DisplayZonePort,
-) : ViewModel() {
+public class ChatGptViewModel @Inject constructor(private val port: ChatGptConnectionPort, zones: DisplayZonePort) :
+    ViewModel() {
     private val reload = MutableStateFlow(0)
     private val local = MutableStateFlow(ChatGptLocal())
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val remote: Flow<ChatGptRemote> = reload.flatMapLatest {
+    private val remote: Flow<ChatGptRemote> = reload.flatMapLatest { _ ->
         port.state
             .map<ChatGptConnectionState, ChatGptRemote> { ChatGptRemote.Ready(it) }
             .onStart { emit(ChatGptRemote.Loading) }
@@ -63,18 +61,28 @@ public class ChatGptViewModel @Inject constructor(
     internal fun onAction(action: ChatGptAction) {
         when (action) {
             ChatGptAction.Connect -> connect(ChatGptConnectRequest())
+
             ChatGptAction.UsePlan -> connect(ChatGptConnectRequest(enablePlanUsage = true))
+
             ChatGptAction.UseDifferentAccount -> connect(ChatGptConnectRequest(addAccount = true))
+
             ChatGptAction.CancelSignIn -> port.cancelConnect()
+
             ChatGptAction.AcknowledgePlanNotice -> acknowledgePlanNotice()
+
             ChatGptAction.RequestDisconnect ->
                 local.update { if (it.busy == null) it.copy(disconnectDialog = ChatGptDisconnectDialog()) else it }
+
             is ChatGptAction.SetForgetRegistration -> local.update {
                 it.copy(disconnectDialog = it.disconnectDialog?.copy(forgetRegistration = action.forget))
             }
+
             ChatGptAction.ConfirmDisconnect -> disconnect()
+
             ChatGptAction.DismissDisconnect -> local.update { it.copy(disconnectDialog = null) }
+
             ChatGptAction.DismissNotice -> local.update { it.copy(notice = null) }
+
             ChatGptAction.Retry -> reload.update { it + 1 }
         }
     }

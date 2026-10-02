@@ -20,8 +20,7 @@ import kotlinx.coroutines.flow.update
  * the browser until the test answers it ([answer], [cancelConnect]) or, unless [holdSignIn] is set, returns
  * [connectResult] at once. Concurrent calls share the live attempt (single flight).
  */
-internal class FakeChatGptPort(initial: ChatGptConnectionState = ConnectionsFixtures.chatGptDisconnected()) :
-    ChatGptConnectionPort {
+internal class FakeChatGptPort(initial: ChatGptConnectionState = ConnectionsFixtures.chatGptDisconnected()) : ChatGptConnectionPort {
     val current = MutableStateFlow(initial)
 
     var failState: Boolean = false
@@ -66,10 +65,12 @@ internal class FakeChatGptPort(initial: ChatGptConnectionState = ConnectionsFixt
             current.update { it.copy(signInInProgress = false) }
             when (result) {
                 is ChatGptConnectResult.Connected -> current.value = connectedState
+
                 ChatGptConnectResult.PlanUsageNotGranted -> current.value = connectedState.copy(
                     provider = AiProviderState.NotEligible("plan_usage_not_granted"),
                     planUsage = PlanUsageAvailability.NotGranted,
                 )
+
                 else -> Unit
             }
         }

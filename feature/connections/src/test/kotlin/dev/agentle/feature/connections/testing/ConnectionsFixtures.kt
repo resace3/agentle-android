@@ -139,8 +139,7 @@ internal object ConnectionsFixtures {
         ),
     )
 
-    fun chatGptDisconnected(): ChatGptConnectionState =
-        ChatGptConnectionState(available = true, provider = AiProviderState.Disconnected)
+    fun chatGptDisconnected(): ChatGptConnectionState = ChatGptConnectionState(available = true, provider = AiProviderState.Disconnected)
 
     fun chatGptConnected(
         planUsage: PlanUsageAvailability = PlanUsageAvailability.Unknown,
@@ -207,9 +206,11 @@ internal object ConnectionsFixtures {
 
     fun restrictionOf(category: AiSharingCategory): AiCategoryRestriction = when (category) {
         AiSharingCategory.NOTIFICATION_TEXT, AiSharingCategory.CALENDAR_TEXT -> AiCategoryRestriction.NEVER_SENT
+
         AiSharingCategory.ACTIVITY, AiSharingCategory.STEPS, AiSharingCategory.SLEEP, AiSharingCategory.HEART,
         AiSharingCategory.BODY,
         -> AiCategoryRestriction.WEARABLE_API_EXCLUDED
+
         else -> AiCategoryRestriction.NONE
     }
 
