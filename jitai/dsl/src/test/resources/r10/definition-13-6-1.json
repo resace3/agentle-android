@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "id": "00000000-0000-4000-8000-000000000001",
+  "version": 1,
+  "name": "Instagram wind-down",
+  "description": "After 10 PM, if I have used Instagram for 30 minutes or more, remind me to start winding down.",
+  "kind": "INTERVENTION",
+  "category": "SLEEP_WIND_DOWN",
+  "status": "PROPOSED",
+  "enabled": false,
+  "trigger": {
+    "type": "interval",
+    "everyMinutes": 30
+  },
+  "activeWindow": {
+    "start": "22:00",
+    "end": "02:00",
+    "days": null
+  },
+  "conditions": {
+    "type": "gte",
+    "feature": "app_minutes_since",
+    "args": {
+      "package": "com.instagram.android",
+      "since": "22:00"
+    },
+    "value": 30,
+    "onUnknown": null
+  },
+  "contextRequirements": {
+    "type": "eq",
+    "feature": "device_interactive",
+    "args": {},
+    "value": true,
+    "onUnknown": null
+  },
+  "delivery": {
+    "channel": "NOTIFICATION",
+    "quietHoursPolicy": "ALLOW_WHEN_INTERACTIVE",
+    "notificationTimeoutMinutes": 60,
+    "deliveryDeadlineMinutes": 10
+  },
+  "content": {
+    "type": "template",
+    "title": "Time to wind down?",
+    "body": "{{app_minutes_since}} minutes on Instagram since 10 PM. How about putting the phone away and getting ready for bed?"
+  },
+  "cooldownMinutes": 120,
+  "maxPerDay": 1,
+  "maxPerWeek": 7,
+  "priority": 50,
+  "snooze": {
+    "mode": "SUPPRESS_ONLY",
+    "options": [
+      "MINUTES_30",
+      "UNTIL_TOMORROW"
+    ]
+  },
+  "expiresAt": null,
+  "createdBy": "AI_NATURAL_LANGUAGE",
+  "createdAt": "2026-10-01T10:00:00Z",
+  "modifiedAt": "2026-10-01T10:00:00Z",
+  "outcome": {
+    "proximal": {
+      "metric": "APP_MINUTES_AFTER",
+      "args": {
+        "package": "com.instagram.android"
+      },
+      "windowMinutes": 30
+    },
+    "distal": {
+      "metric": "BEDTIME_NEXT",
+      "args": {},
+      "windowMinutes": null
+    }
+  },
+  "suppression": null,
+  "experiment": {
+    "mode": "NONE",
+    "deliverProbability": null
+  },
+  "userConfirmedUnknownOverrides": false,
+  "provenance": {
+    "nlRequest": "Remind me to wind down if I use Instagram too much after 10 PM.",
+    "proposalId": null,
+    "patternId": null,
+    "templateId": null,
+    "evidence": null,
+    "promptVersion": "jitai-nl-v1",
+    "catalogVersion": "06bd70125394",
+    "appLabels": {
+      "com.instagram.android": "Instagram"
+    },
+    "expiresInDays": null,
+    "approvedRendering": null
+  }
+}

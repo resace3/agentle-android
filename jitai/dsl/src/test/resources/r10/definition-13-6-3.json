@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "id": "00000000-0000-4000-8000-000000000001",
+  "version": 1,
+  "name": "No exercise nudges after a short night",
+  "description": "If I slept less than 6 hours last night, block exercise reminders until 9 AM.",
+  "kind": "SUPPRESSION",
+  "category": "PHYSICAL_ACTIVITY",
+  "status": "PROPOSED",
+  "enabled": false,
+  "trigger": null,
+  "activeWindow": {
+    "start": "00:00",
+    "end": "09:00",
+    "days": null
+  },
+  "conditions": {
+    "type": "lt",
+    "feature": "sleep_minutes_last_night",
+    "args": {},
+    "value": 360,
+    "onUnknown": null
+  },
+  "contextRequirements": null,
+  "delivery": {
+    "channel": "NONE",
+    "quietHoursPolicy": "RESPECT",
+    "notificationTimeoutMinutes": null,
+    "deliveryDeadlineMinutes": 10
+  },
+  "content": null,
+  "cooldownMinutes": null,
+  "maxPerDay": null,
+  "maxPerWeek": null,
+  "priority": 50,
+  "snooze": null,
+  "expiresAt": null,
+  "createdBy": "AI_NATURAL_LANGUAGE",
+  "createdAt": "2026-10-01T10:00:00Z",
+  "modifiedAt": "2026-10-01T10:00:00Z",
+  "outcome": null,
+  "suppression": {
+    "categories": [
+      "PHYSICAL_ACTIVITY"
+    ],
+    "jitaiIds": []
+  },
+  "experiment": {
+    "mode": "NONE",
+    "deliverProbability": null
+  },
+  "userConfirmedUnknownOverrides": false,
+  "provenance": {
+    "nlRequest": "If I slept under six hours, do not bother me with an exercise reminder before 9 AM.",
+    "proposalId": null,
+    "patternId": null,
+    "templateId": null,
+    "evidence": null,
+    "promptVersion": "jitai-nl-v1",
+    "catalogVersion": "06bd70125394",
+    "appLabels": {},
+    "expiresInDays": null,
+    "approvedRendering": null
+  }
+}
