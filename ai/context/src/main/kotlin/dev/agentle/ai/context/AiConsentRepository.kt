@@ -11,6 +11,7 @@ import dev.agentle.core.time.AgentleClock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.coroutines.cancellation.CancellationException
@@ -226,7 +227,7 @@ internal object ConsentDocuments {
     }
 
     @Serializable
-    private data class Document(val format: Int, val grants: List<Grant>, val standing: List<Standing>)
+    private data class Document(@SerialName("format") val version: Int, val grants: List<Grant>, val standing: List<Standing>)
 
     @Serializable
     private data class Grant(
@@ -258,7 +259,7 @@ internal object ConsentDocuments {
         } catch (expected: Exception) {
             null
         }
-        if (document == null || document.format != FORMAT) return null
+        if (document == null || document.version != FORMAT) return null
         val plausible = document.grants.all { it.consentVersion > 0 && isSub(it.accountSub) } && document.standing.all(::isPlausible)
         return if (plausible) toSnapshot(document) else null
     }
@@ -266,7 +267,7 @@ internal object ConsentDocuments {
     fun encode(snapshot: ConsentSnapshot): String = json.encodeToString(
         Document.serializer(),
         Document(
-            format = FORMAT,
+            version = FORMAT,
             grants = snapshot.grants.map { Grant(it.category, it.purpose, it.consentVersion, it.grantedAt, it.accountSub) },
             standing = snapshot.standing.map {
                 Standing(

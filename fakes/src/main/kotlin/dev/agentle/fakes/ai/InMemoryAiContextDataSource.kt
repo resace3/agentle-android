@@ -14,6 +14,7 @@ import dev.agentle.core.model.AiDataCategory
 import dev.agentle.core.model.ConnectorIds
 import dev.agentle.core.model.DataLineage
 import dev.agentle.core.model.SourceFamily
+import dev.agentle.core.model.sourceFamilyOfConnector
 import dev.agentle.core.time.EngineDay
 import kotlinx.datetime.LocalDate
 import kotlin.math.roundToLong
@@ -125,7 +126,7 @@ public class InMemoryAiContextDataSource(activeGoogleHealthAccount: String? = nu
     private fun fromActiveAccount(row: FakeDailyRow, account: String?): Boolean =
         row.connectorId != ConnectorIds.GOOGLE_HEALTH || (account != null && row.accountId == account)
 
-    private fun familyOf(row: FakeDailyRow): SourceFamily? = SourceFamily.ofConnector(row.connectorId)
+    private fun familyOf(row: FakeDailyRow): SourceFamily? = sourceFamilyOfConnector(row.connectorId)
 
     private fun inside(query: AiDataQuery, field: String, kind: ItemKind, lineage: DataLineage): Boolean =
         usable(query, field, kind) && query.categories.containsAll(lineage.categories) && query.sourceFamilies.containsAll(lineage.sources)

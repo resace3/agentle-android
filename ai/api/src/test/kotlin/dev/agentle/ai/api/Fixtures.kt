@@ -46,8 +46,7 @@ internal object Fixtures {
         purpose: AiPurpose = AiPurpose.SLEEP_INSIGHT,
         mode: AiRequestMode = AiRequestMode.USER_INITIATED,
         requestId: String = "req-1",
-        rangeStart: Instant? = RANGE_START,
-        rangeEnd: Instant? = RANGE_END,
+        range: Pair<Instant?, Instant?> = RANGE_START to RANGE_END,
         consentVersion: Int = 1,
     ): AiRequestEnvelope = AiRequestEnvelope(
         requestId = requestId,
@@ -56,8 +55,8 @@ internal object Fixtures {
         instructions = instructions,
         userText = userText,
         blocks = blocks,
-        rangeStart = rangeStart,
-        rangeEnd = rangeEnd,
+        rangeStart = range.first,
+        rangeEnd = range.second,
         createdAt = CREATED,
         consentVersion = consentVersion,
     )

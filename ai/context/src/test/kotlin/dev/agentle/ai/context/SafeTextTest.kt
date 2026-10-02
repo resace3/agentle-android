@@ -102,7 +102,7 @@ class SafeTextTest {
             assertThat(SafeText.reduce(once, max)).isEqualTo(once)
             assertThat(once.codePointCount(0, once.length)).isAtMost(max)
             assertThat(once).isEqualTo(once.trim())
-            once.codePoints().forEach { assertThat(allowed(it)).isTrue() }
+            once.codePoints().forEach { codePoint -> assertThat(allowed(codePoint)).isTrue() }
             assertThat(once).doesNotContain("  ")
             if (once.isNotEmpty()) assertThat(SafeText.isSafe(once, max)).isTrue()
         }

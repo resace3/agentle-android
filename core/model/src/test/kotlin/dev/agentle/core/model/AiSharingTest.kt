@@ -82,12 +82,39 @@ class AiSharingTest {
 
     @Test
     fun `connectors map to source families and unknown connectors to none`() {
-        assertThat(SourceFamily.ofConnector(ConnectorIds.GOOGLE_HEALTH)).isEqualTo(SourceFamily.GH_API)
-        assertThat(SourceFamily.ofConnector(ConnectorIds.HEALTH_CONNECT)).isEqualTo(SourceFamily.HEALTH_CONNECT)
-        assertThat(SourceFamily.ofConnector(ConnectorIds.ANDROID)).isEqualTo(SourceFamily.ON_DEVICE)
-        assertThat(SourceFamily.ofConnector(ConnectorIds.USER)).isEqualTo(SourceFamily.ON_DEVICE)
-        assertThat(SourceFamily.ofConnector(ConnectorIds.AGENTLE)).isEqualTo(SourceFamily.ON_DEVICE)
-        assertThat(SourceFamily.ofConnector("someconnector")).isNull()
+        assertThat(sourceFamilyOfConnector(ConnectorIds.GOOGLE_HEALTH)).isEqualTo(SourceFamily.GH_API)
+        assertThat(sourceFamilyOfConnector(ConnectorIds.HEALTH_CONNECT)).isEqualTo(SourceFamily.HEALTH_CONNECT)
+        assertThat(sourceFamilyOfConnector(ConnectorIds.ANDROID)).isEqualTo(SourceFamily.ON_DEVICE)
+        assertThat(sourceFamilyOfConnector(ConnectorIds.USER)).isEqualTo(SourceFamily.ON_DEVICE)
+        assertThat(sourceFamilyOfConnector(ConnectorIds.AGENTLE)).isEqualTo(SourceFamily.ON_DEVICE)
+        assertThat(sourceFamilyOfConnector("someconnector")).isNull()
+        // Deletion files unknown connectors under the phone; AI gating does not (fail closed).
+        assertThat(DataSourceId("someconnector.steps").family).isEqualTo(SourceFamily.ON_DEVICE)
+    }
+
+    @Test
+    fun `a stored lineage converts to an AI lineage that is never narrower`() {
+        val night = Lineage(setOf(DataCategory.SLEEP, DataCategory.ACTIVITY), setOf(SourceFamily.HEALTH_CONNECT))
+        assertThat(DataLineage.fromStorage(night)).isEqualTo(
+            DataLineage(
+                setOf(AiDataCategory.SLEEP, AiDataCategory.ACTIVITY, AiDataCategory.STEPS),
+                setOf(SourceFamily.HEALTH_CONNECT),
+            ),
+        )
+        val calendar = DataLineage.fromStorage(Lineage(setOf(DataCategory.CALENDAR), setOf(SourceFamily.ON_DEVICE)))
+        assertThat(calendar.categories).containsExactly(AiDataCategory.CALENDAR_BUSY, AiDataCategory.CALENDAR_TEXT)
+
+        assertThat(DataLineage.fromStorage(Lineage.NONE)).isEqualTo(DataLineage.NONE)
+        assertThat(DataLineage.fromStorage(Lineage.UNKNOWN)).isEqualTo(DataLineage.UNKNOWN)
+        listOf(DataCategory.COMMUNICATION, DataCategory.MEDIA, DataCategory.INSIGHTS, DataCategory.GENERATED_MEDIA).forEach {
+            assertThat(DataLineage.fromStorage(Lineage(setOf(DataCategory.SLEEP, it), setOf(SourceFamily.ON_DEVICE))))
+                .isEqualTo(DataLineage.UNKNOWN)
+        }
+        assertThat(DataLineage.fromStorage(Lineage(setOf(DataCategory.SLEEP), emptySet()))).isEqualTo(DataLineage.UNKNOWN)
+        DataCategory.entries.forEach { category ->
+            val converted = DataLineage.fromStorage(Lineage(setOf(category), setOf(SourceFamily.GH_API)))
+            assertThat(converted.categories).containsAtLeastElementsIn(AiDataCategory.forStorageCategory(category))
+        }
     }
 
     @Test

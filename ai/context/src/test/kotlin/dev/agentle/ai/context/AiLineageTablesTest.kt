@@ -118,10 +118,10 @@ class AiLineageTablesTest {
             assertThat(field.code).matches(pattern.toPattern())
             assertThat(field.sources).isNotEmpty()
             assertThat(field.categories.none { it.thirdPartyText }).isTrue()
-            assertThat(field.unit == null || EnvelopeGate.UNIT.matches(field.unit!!)).isTrue()
+            assertThat(field.unit?.let { EnvelopeGate.UNIT.matches(it) } ?: true).isTrue()
             if (field.kind == ItemKind.CODE && field.codes != null) {
                 assertThat(field.codes).isNotEmpty()
-                field.codes!!.forEach { assertThat(EnvelopeGate.CODE.matches(it)).isTrue() }
+                field.codes.forEach { assertThat(EnvelopeGate.CODE.matches(it)).isTrue() }
             }
             if (field.categories.isNotEmpty()) assertThat(field.primary).isIn(field.categories)
         }

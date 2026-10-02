@@ -89,7 +89,7 @@ public enum class ValidationStage { S0_EXTRACT, S1_SIZE, S2_PRESCAN, S3_PARSE, S
 public data class ValidationIssue(val code: String, val path: String, val stage: ValidationStage, val check: String? = null) :
     Comparable<ValidationIssue> {
     override fun compareTo(other: ValidationIssue): Int =
-        compareValuesBy(this, other, { it.stage.ordinal }, { it.path }, { it.code }, { it.check ?: "" })
+        compareValuesBy(this, other, { it.stage.ordinal }, { it.path }, { it.code }, { it.check.orEmpty() })
 }
 
 /** The result of validating one model output. */

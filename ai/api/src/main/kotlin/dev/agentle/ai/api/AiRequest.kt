@@ -268,8 +268,20 @@ public object AiEnvelopeJson {
         json.encodeToString(CanonicalInput.serializer(), CanonicalInput(instructions, dataInputJson, userInputJson))
 
     /** Lower-case hex SHA-256 of the UTF-8 bytes of [text]. */
-    public fun sha256Hex(text: String): String =
-        MessageDigest.getInstance("SHA-256").digest(text.encodeToByteArray()).joinToString("") { "%02x".format(it) }
+    public fun sha256Hex(text: String): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(text.encodeToByteArray())
+        return buildString(digest.size * 2) {
+            digest.forEach { byte ->
+                val value = byte.toInt()
+                append(HEX[(value shr HALF_BYTE) and LOW_BITS])
+                append(HEX[value and LOW_BITS])
+            }
+        }
+    }
+
+    private const val HEX = "0123456789abcdef"
+    private const val HALF_BYTE = 4
+    private const val LOW_BITS = 0xF
 }
 
 /** Writes integral doubles as JSON integers (`412`, not `412.0`) so the canonical form is stable and readable. */

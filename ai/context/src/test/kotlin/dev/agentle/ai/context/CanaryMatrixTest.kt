@@ -30,6 +30,7 @@ import dev.agentle.core.model.EventType
 import dev.agentle.core.model.SourceFamily
 import dev.agentle.core.model.TextOrigin
 import dev.agentle.core.model.UntrustedText
+import dev.agentle.core.model.sourceFamilyOfConnector
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.LocalTime
 import org.junit.jupiter.api.Test
@@ -282,7 +283,7 @@ class CanaryMatrixTest {
         fun event(marker: String, type: EventType, connector: String): Canary {
             val fact = RawEventFact(type, EVENT_TIME, null, mapOf(marker to 1.0), connector)
             val categories = AiLineageTables.EVENT_CATEGORIES.getValue(type)
-            val source = SourceFamily.ofConnector(connector)
+            val source = sourceFamilyOfConnector(connector)
             val sources = if (source == null ||
                 categories.size == AiDataCategory.entries.size
             ) {

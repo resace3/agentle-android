@@ -22,6 +22,7 @@ import dev.agentle.core.model.ConnectorIds
 import dev.agentle.core.model.DataLineage
 import dev.agentle.core.model.EventType
 import dev.agentle.core.model.SourceFamily
+import dev.agentle.core.model.sourceFamilyOfConnector
 
 /**
  * The normative taxonomy tables of privacy-ai-04. They map every real-time feature id (`RealtimeFeatureCatalog`),
@@ -163,10 +164,10 @@ public object AiLineageTables {
 
     /**
      * The lineage of one stored event of [type] from [connectorId]. The categories come from [EVENT_CATEGORIES], the
-     * family from [SourceFamily.ofConnector]. An unknown connector gives UNKNOWN.
+     * family from [sourceFamilyOfConnector]. An unknown connector gives UNKNOWN.
      */
     public fun forEvent(type: EventType, connectorId: String): DataLineage {
-        val family = SourceFamily.ofConnector(connectorId) ?: return DataLineage.UNKNOWN
+        val family = sourceFamilyOfConnector(connectorId) ?: return DataLineage.UNKNOWN
         val categories = EVENT_CATEGORIES.getValue(type)
         return if (categories.size == AiDataCategory.entries.size) DataLineage.UNKNOWN else DataLineage(categories, setOf(family))
     }

@@ -73,25 +73,15 @@ public enum class AiDataCategory(public val storageCategory: DataCategory?, publ
 }
 
 /**
- * Where a value came from, at the granularity that matters for sending it to a model (privacy-ai-04): the Google Health
- * API ([GH_API]), Health Connect ([HEALTH_CONNECT]) or the phone and the user themselves ([ON_DEVICE]).
+ * The [SourceFamily] of a connector id ([ConnectorIds]) for AI gating; null for a connector this version does not know,
+ * so a value from it gets UNKNOWN lineage (fail closed). Unlike [DataSourceId.family], which files every connector that
+ * is not a wearable under ON_DEVICE for deletion, AI gating never assumes that an unknown connector is the phone.
  */
-@Serializable
-public enum class SourceFamily {
-    GH_API,
-    HEALTH_CONNECT,
-    ON_DEVICE,
-    ;
-
-    public companion object {
-        /** The family of a connector id ([ConnectorIds]); null for a connector this version does not know. */
-        public fun ofConnector(connectorId: String): SourceFamily? = when (connectorId) {
-            ConnectorIds.GOOGLE_HEALTH -> GH_API
-            ConnectorIds.HEALTH_CONNECT -> HEALTH_CONNECT
-            ConnectorIds.ANDROID, ConnectorIds.USER, ConnectorIds.AGENTLE -> ON_DEVICE
-            else -> null
-        }
-    }
+public fun sourceFamilyOfConnector(connectorId: String): SourceFamily? = when (connectorId) {
+    ConnectorIds.GOOGLE_HEALTH -> SourceFamily.GH_API
+    ConnectorIds.HEALTH_CONNECT -> SourceFamily.HEALTH_CONNECT
+    ConnectorIds.ANDROID, ConnectorIds.USER, ConnectorIds.AGENTLE -> SourceFamily.ON_DEVICE
+    else -> null
 }
 
 /**
@@ -100,6 +90,10 @@ public enum class SourceFamily {
  * family), so it can only leave the device if everything is allowed, which never happens in v1.
  *
  * A lineage with categories but no source family is treated as [UNKNOWN] by [normalized]: its origin is not known.
+ *
+ * It is the AI lineage the consent gate checks (docs/ARCHITECTURE.md section 9.2). [Lineage] is the storage lineage
+ * (storage [DataCategory] plus [SourceFamily]) that derived rows and insights carry for retention and deletion. A value
+ * known only by its stored [Lineage] is converted with [fromStorage], which is never narrower.
  */
 @Serializable
 public data class DataLineage(val categories: Set<AiDataCategory>, val sources: Set<SourceFamily>) {
@@ -118,6 +112,18 @@ public data class DataLineage(val categories: Set<AiDataCategory>, val sources: 
         public fun of(category: AiDataCategory, source: SourceFamily): DataLineage = DataLineage(setOf(category), setOf(source))
 
         public fun union(lineages: Iterable<DataLineage>): DataLineage = lineages.fold(NONE) { acc, lineage -> acc + lineage }
+
+        /**
+         * The AI lineage of a value whose stored lineage is [lineage]: every AI category of each storage category
+         * ([AiDataCategory.forStorageCategory]) and the same source families. It is never narrower. A storage category
+         * without any AI category (communication, media, insights, generated media), or categories without a source
+         * family, give [UNKNOWN].
+         */
+        public fun fromStorage(lineage: Lineage): DataLineage {
+            val mapped = lineage.categories.map(AiDataCategory::forStorageCategory)
+            if (mapped.any { it.isEmpty() }) return UNKNOWN
+            return DataLineage(mapped.flatMapTo(LinkedHashSet()) { it }, lineage.sourceFamilies).normalized()
+        }
     }
 }
 
