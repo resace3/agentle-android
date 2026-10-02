@@ -97,8 +97,18 @@ internal class DayContext private constructor(
 
     fun window(kind: DailyWindow): List<ClosedOpenRange> = windows.getOrPut(kind) { kind.ranges(date, timeline) }
 
-    /** The single range spanning the windows of [kinds]. */
-    fun hullOf(vararg kinds: DailyWindow): ClosedOpenRange = requireNotNull(hull(kinds.flatMap { window(it) })) { "empty window" }
+    /**
+     * The single range spanning the windows of [kinds]. A window can be empty when travel skips its local time (an
+     * eastbound flight over 22:00-24:00); an all-empty set gives the zero-length range at the nominal window start.
+     */
+    fun hullOf(vararg kinds: DailyWindow): ClosedOpenRange = hull(kinds.flatMap { window(it) }) ?: kinds.first().let { kind ->
+        val nominal = kind.bounds(date, TimeZone.UTC).start
+        val start = kind.bounds(date, timeline.zoneAt(nominal)).start
+        ClosedOpenRange(start, start)
+    }
+
+    /** Whether travel skipped the whole local time of [kind] on this date. */
+    fun isSkipped(kind: DailyWindow): Boolean = window(kind).isEmpty()
 
     fun windowEnd(kind: DailyWindow): Instant = hullOf(kind).end
 
@@ -165,6 +175,7 @@ internal class RowFactory(private val day: DayContext) {
      * feature without the event).
      */
     fun collector(def: DailyFeatureDefinition, metric: String, value: Double?, coverage: Double, hasEvents: Boolean): DailySummaryRow {
+        if (day.isSkipped(def.window)) return skipped(def, metric)
         val observed = coverage > 0.0 || hasEvents
         val lineage = lineage(def, if (observed) setOf(SourceFamily.ON_DEVICE) else emptySet())
         val (status, reason) = when {
@@ -174,7 +185,7 @@ internal class RowFactory(private val day: DayContext) {
             observed -> DailyRowStatus.PARTIAL to null
             else -> DailyRowStatus.MISSING to MissingReason.COLLECTOR_INACTIVE
         }
-        val shown = if (observed && status != DailyRowStatus.MISSING) value else null
+        val shown = if (observed && day.windowStarted(def.window) && status != DailyRowStatus.MISSING) value else null
         return finish(def, metric, shown, coverage, status, reason, null, lineage)
     }
 
@@ -192,6 +203,7 @@ internal class RowFactory(private val day: DayContext) {
         reason: MissingReason = MissingReason.INVALID_VALUE,
     ): DailySummaryRow {
         val family = requireNotNull(def.metricFamily) { "${def.id} has no metric family" }
+        if (day.isSkipped(def.window)) return skipped(def, metric)
         val coverage = day.sourceCoverageFraction(family, def.window, sources)
         val waiting = day.inGrace(def.window) && (pending || coverage < 1.0)
         val status = if (!day.windowEnded(def.window) || waiting) DailyRowStatus.PROVISIONAL else DailyRowStatus.FINAL
@@ -209,15 +221,27 @@ internal class RowFactory(private val day: DayContext) {
         reason: MissingReason = MissingReason.NO_DATA,
         waitInGrace: Boolean = false,
     ): DailySummaryRow {
+        if (day.isSkipped(def.window)) return skipped(def, metric)
         val over = day.windowEnded(def.window) && !(waitInGrace && day.inGrace(def.window))
         val status = if (over) DailyRowStatus.MISSING else DailyRowStatus.PROVISIONAL
         val why = if (day.windowStarted(def.window)) reason else MissingReason.NOT_YET_AVAILABLE
         return DailySummaryRow(day.date, metric, def.id, null, 0.0, status, why, null, lineage(def, emptySet()), day.now)
     }
 
+    /** The window's local time did not occur on this date (skipped by travel): no value, never zero. */
+    private fun skipped(def: DailyFeatureDefinition, metric: String): DailySummaryRow {
+        val over = day.windowEnded(def.window)
+        return DailySummaryRow(
+            day.date, metric, def.id, null, 0.0, if (over) DailyRowStatus.MISSING else DailyRowStatus.PROVISIONAL,
+            if (over) MissingReason.NO_DATA else MissingReason.NOT_YET_AVAILABLE, null, lineage(def, emptySet()), day.now,
+        )
+    }
+
     /** Clock, calendar and Agentle's own records. */
     fun alwaysKnown(def: DailyFeatureDefinition, metric: String, value: Double, kind: DailyWindow): DailySummaryRow =
-        if (!day.windowStarted(kind)) {
+        if (day.isSkipped(kind)) {
+            skipped(def, metric)
+        } else if (!day.windowStarted(kind)) {
             DailySummaryRow(
                 day.date, metric, def.id, null, 0.0, DailyRowStatus.PROVISIONAL, MissingReason.NOT_YET_AVAILABLE, null,
                 lineage(def, emptySet()), day.now,
