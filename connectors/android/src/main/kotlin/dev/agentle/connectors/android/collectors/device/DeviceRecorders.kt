@@ -316,9 +316,9 @@ public class SystemRecorder(private val runtime: CollectorRuntime) {
     private val locale = StateStream(runtime, STREAM_LOCALE, listOf(CapabilityIds.LOCALE_TIME_FORMAT))
 
     /** TIMEZONE_CHANGED keyed `sys|tz|<eventMs>`; the first observation only stores the zone. */
-    public suspend fun recordZone(at: Instant): WriteResult? {
+    public suspend fun recordZone(at: Instant, via: LiveWriter.Channel? = null): WriteResult? {
         val current = runtime.clock.zone().id
-        return zone.record(current, recordFirst = false) { previous ->
+        return zone.record(current, recordFirst = false, via = via) { previous ->
             runtime.events.create(
                 EventType.TIMEZONE_CHANGED,
                 AndroidSources.SYSTEM,
@@ -330,13 +330,13 @@ public class SystemRecorder(private val runtime: CollectorRuntime) {
     }
 
     /** LOCALE_CHANGED keyed `sys|locale|<eventMs>`; the state is the language tag plus the 12/24-hour setting. */
-    public suspend fun recordLocale(tag: String, is24Hour: Boolean?, at: Instant): WriteResult? {
+    public suspend fun recordLocale(tag: String, is24Hour: Boolean?, at: Instant, via: LiveWriter.Channel? = null): WriteResult? {
         val state = "$tag|${when (is24Hour) {
             true -> "24h"
             false -> "12h"
             null -> "?"
         }}"
-        return locale.record(state, recordFirst = false) { previous ->
+        return locale.record(state, recordFirst = false, via = via) { previous ->
             runtime.events.create(
                 EventType.LOCALE_CHANGED,
                 AndroidSources.SYSTEM,

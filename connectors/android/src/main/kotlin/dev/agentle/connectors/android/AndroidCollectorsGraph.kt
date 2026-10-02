@@ -68,6 +68,7 @@ import dev.agentle.connectors.android.core.LiveController
 import dev.agentle.connectors.android.core.LiveSource
 import dev.agentle.connectors.android.core.LiveWriter
 import dev.agentle.connectors.android.core.PlatformExitInfoSource
+import dev.agentle.connectors.android.core.RateLimit
 import dev.agentle.connectors.android.core.SafeCoverage
 import dev.agentle.connectors.android.core.SettingsSource
 import dev.agentle.connectors.android.core.UnavailableWriter
@@ -273,6 +274,12 @@ public class AndroidCollectorsGraph(
     )
 
     public val liveWriter: LiveWriter = LiveWriter(runtime)
+    init {
+        bluetooth.live = liveWriter.channel("android.bluetooth_acl", RateLimit(burst = 20, perHour = 60))
+        deviceState.live = liveWriter.channel("android.dnd_listener")
+        system.live = liveWriter.channel("android.system_live")
+    }
+
     public val screenLive: ScreenLiveSource = ScreenLiveSource(runtime, seams.device, liveWriter)
     public val powerLive: PowerLiveSource = PowerLiveSource(runtime, seams.device, battery.recorder, liveWriter)
     public val networkLive: NetworkLiveSource = NetworkLiveSource(runtime, seams.device, network.recorder, liveWriter)

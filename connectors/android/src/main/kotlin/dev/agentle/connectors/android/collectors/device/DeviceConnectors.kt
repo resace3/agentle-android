@@ -8,6 +8,7 @@ import dev.agentle.connectors.android.core.AndroidConnectorIds
 import dev.agentle.connectors.android.core.CollectOutcome
 import dev.agentle.connectors.android.core.CollectorRuntime
 import dev.agentle.connectors.android.core.CoverageIds
+import dev.agentle.connectors.android.core.LiveWriter
 import dev.agentle.connectors.android.core.RunTally
 import dev.agentle.connectors.android.core.RunWrites
 import dev.agentle.connectors.android.core.epochSafely
@@ -47,7 +48,8 @@ internal suspend fun CollectorRuntime.writeInto(tally: RunTally, coverageIds: Li
 
 /**
  * Battery level, plug state, power save, device idle and thermal status (§6.4 "Battery, charging, power save, thermal"):
- * a 5-minute-bucket sample per sweep plus change-detected transitions; [PowerRecorder] is shared with the live receivers.
+ * a BATTERY_SAMPLE only when the level enters another 5% bucket (red team lifecycle-battery-17) plus change-detected
+ * transitions; [PowerRecorder] is shared with the live receivers, which write through the [LiveWriter].
  */
 public class BatteryConnector(
     runtime: CollectorRuntime,
@@ -144,6 +146,9 @@ public class BluetoothConnector(
 ) {
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.BLUETOOTH_ADAPTER_STATE)
 
+    /** The batched live writer for ACL broadcasts (lifecycle-battery-17); null writes directly (tests). */
+    public var live: LiveWriter.Channel? = null
+
     override val coverageIds: List<String> = CoverageIds.BLUETOOTH
 
     override suspend fun collect(trigger: SyncTrigger, statuses: Map<String, CapabilityStatus>): CollectOutcome {
@@ -172,7 +177,10 @@ public class BluetoothConnector(
         if (connected && device.bluetoothEnabled() == false) return 0
         val address = readAddress(bluetoothDevice)
         val event = recorder.acl(connected, address?.let(runtime.hasher::shortHash), readDeviceClass(bluetoothDevice), at)
-        return recorder.writeAcl(event).written
+        val out = live ?: return recorder.writeAcl(event).written
+        val accepted = out.submit(listOf(event))
+        out.flush()
+        return accepted
     }
 
     @SuppressLint("MissingPermission") // BLUETOOTH_CONNECT is checked first; a SecurityException is caught.
@@ -282,8 +290,11 @@ public class DeviceStateConnector(
     /** The listener's interruption filter callback (and the DND live receiver). */
     public suspend fun onInterruptionFilter(filter: Int, at: Instant) {
         if (!allowed(CapabilityIds.DND_STATE)) return
-        recorder.recordDnd(filter, at)
+        recorder.recordDnd(filter, at, via = live)
     }
+
+    /** The batched live writer for listener callbacks (lifecycle-battery-17); null writes directly (tests). */
+    public var live: LiveWriter.Channel? = null
 
     private suspend fun allowed(capabilityId: String): Boolean =
         isEnabled(runtime.settings.current()) && permissions.statuses.value.notBlocked(capabilityId)
@@ -324,16 +335,24 @@ public class SystemConnector(
     }
 
     public suspend fun onZoneChanged(at: Instant) {
-        if (allowed(CapabilityIds.TIMEZONE_TIME_CHANGES)) recorder.recordZone(at)
+        if (allowed(CapabilityIds.TIMEZONE_TIME_CHANGES)) recorder.recordZone(at, via = live)
     }
+
+    /** The batched live writer for broadcasts (lifecycle-battery-17); null writes directly (tests). */
+    public var live: LiveWriter.Channel? = null
 
     public suspend fun onLocaleChanged(at: Instant) {
         if (!allowed(CapabilityIds.LOCALE_TIME_FORMAT)) return
-        device.localeTag()?.let { recorder.recordLocale(it, device.is24HourFormat(), at) }
+        device.localeTag()?.let { recorder.recordLocale(it, device.is24HourFormat(), at, via = live) }
     }
 
     public suspend fun onTimeSet(at: Instant) {
         if (!allowed(CapabilityIds.TIMEZONE_TIME_CHANGES)) return
+        val out = live
+        if (out != null) {
+            out.submit(listOf(recorder.timeSet(at)))
+            return
+        }
         runtime.writeInto(RunTally(), listOf(CapabilityIds.TIMEZONE_TIME_CHANGES), listOf(recorder.timeSet(at)))
     }
 
