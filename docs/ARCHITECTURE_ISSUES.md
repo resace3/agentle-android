@@ -76,11 +76,11 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 | [lifecycle-battery-01](#lifecycle-battery-01) | HIGH | JITAI correctness / process lifecycle / database | No collector coverage: outages read as zeros | Relayed to ANDROID-DATA, ANDROID-COLLECTORS, GOOGLE-HEALTH, REALTIME-FEATURES, ANALYTICS |
 | [lifecycle-battery-02](#lifecycle-battery-02) | HIGH | battery / database scaling / JITAI correctness | Notification updates are ingested and dispatched as new posts | Fixed on main 3bc4753; Relayed to ANDROID-COLLECTORS, ANDROID-DATA, REALTIME-FEATURES, ANALYTICS, JITAI-ENGINE |
 | [lifecycle-battery-03](#lifecycle-battery-03) | HIGH | scheduling / JITAI correctness | Daily wearable sync misses JITAI freshness; no sync-now or prefetch work | Relayed to GOOGLE-HEALTH, JITAI-ENGINE, REALTIME-FEATURES; Design updated (§13) |
-| [lifecycle-battery-04](#lifecycle-battery-04) | HIGH | scheduling / time zones / JITAI correctness | daily_at work cannot be re-pinned; its unique name collides | Relayed to JITAI-ENGINE |
+| [lifecycle-battery-04](#lifecycle-battery-04) | HIGH | scheduling / time zones / JITAI correctness | daily_at work cannot be re-pinned; its unique name collides | Relayed to JITAI-ENGINE, ANDROID-DATA |
 | [lifecycle-battery-05](#lifecycle-battery-05) | HIGH | JITAI correctness / background execution | Event triggers have no event-age bound | Relayed to JITAI-ENGINE, ANDROID-DATA, ANDROID-COLLECTORS |
 | [lifecycle-battery-06](#lifecycle-battery-06) | HIGH | Android background limits / JITAI correctness | Place features and LOCATION_CLASS_CHANGED offered without background location | Fixed on main 3bc4753; Relayed to JITAI-DSL, ANDROID-COLLECTORS, REALTIME-FEATURES, ANALYTICS |
 | [lifecycle-battery-07](#lifecycle-battery-07) | HIGH | Android lifecycle / JITAI correctness | Unlock, screen and charging triggers depend on runtime receivers | Relayed to ANDROID-COLLECTORS, JITAI-DSL, JITAI-ENGINE |
-| [lifecycle-battery-08](#lifecycle-battery-08) | HIGH | process lifecycle / database / data loss | A transient Keystore failure can trigger the destructive reset | Relayed to ANDROID-DATA |
+| [lifecycle-battery-08](#lifecycle-battery-08) | HIGH | process lifecycle / database / data loss | A transient Keystore failure can trigger the destructive reset | Relayed to ANDROID-DATA, ANDROID-COLLECTORS |
 | [lifecycle-battery-09](#lifecycle-battery-09) | MEDIUM | WorkManager / scheduling | The unique-work table mixes periodic and one-time work and omits works | Relayed to GOOGLE-HEALTH, JITAI-ENGINE; Design updated (§13); Open: :background (features works, sync-hc, charging trigger, schedule spec versions, stable worker names) |
 | [lifecycle-battery-10](#lifecycle-battery-10) | MEDIUM | Android lifecycle / battery | ScheduleReconciler misses signals, runs inline, and its receivers are exported | Relayed to ANDROID-COLLECTORS, JITAI-ENGINE, ANDROID-DATA; Open: :background (reconcile as unique work, registration record, permission-change and TIMEZONE_OFFSET_CHANGED triggers), ANDROID-COLLECTORS (listener watchdog, snapshot diff on reconnect) |
 | [lifecycle-battery-11](#lifecycle-battery-11) | MEDIUM | scheduling / battery / JITAI correctness | Profile tick drops 15-minute slots; the saver downgrade never reverts | Relayed to JITAI-ENGINE; Open: :background (Battery Saver revert, user and system profiles) |
@@ -183,7 +183,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: privacy / AI consent
 - Section: §0 Product in one paragraph; §8 Sign in with ChatGPT (Capabilities: BACKGROUND_INFERENCE); §9 AI layer (AiRequestPreview); §1 rule 6
 - Resolution: Relayed to AI-CONTEXT, ANDROID-DATA, JITAI-ENGINE; Design updated (§0, §1)
-- ARCHITECTURE.md: §0, §1 rule 6, §5.2 (ai_text_pool), §9.1, §11.5
+- ARCHITECTURE.md: §0, §1 rule 6, §5.2 (ai_text_pool), §8.4, §9.1, §11.5
 
 **Problem.** §0 promises that 'only a minimized, previewed, category-gated context ever leaves the device', but §9 shows AiRequestPreview only 'before user-initiated requests'. Meanwhile §8 enables BACKGROUND_INFERENCE=USER_BUDGETED, and the reports this doc synthesizes schedule unattended AI calls: R10 §3.3 refills a per-JITAI ai_text pool in the background, R02 §1.2 K2 runs a daily insights job that 'prefetches the JITAI message pool', and R06 §8.5 has JITAI workers call withAccessToken. No consent artifact exists for these sends. The pool has no table either (R10's jitai_runtime.pooledTexts is absent from §5.2), so nothing says pooled texts are purged when a category is switched off, when data is deleted, or when the snapshot they were written from no longer holds. Rule 6 ('rendered for approval') is false for pooled text: each generated text is delivered as a notification without anyone reviewing it.
 
@@ -201,7 +201,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: privacy / consent model
 - Section: §1 Non-negotiable rules (rule 2); §9 AI layer (ContextSelectionEngine); §5.2 (DataStore settings); §5.5 (delete all, 'DataStore personal keys'); §18 (health 'off by default')
 - Resolution: Relayed to ANDROID-DATA, AI-CONTEXT
-- ARCHITECTURE.md: §1 rule 2, §9.1, §18
+- ARCHITECTURE.md: §1 rule 2, §5.2, §9.1, §18
 
 **Problem.** Rule 2 fails closed only 'for any category the user disabled', and §9 removes 'disabled categories'. That is deny-list semantics: anything without an explicit 'disabled' record is allowed. A default is given only for health (§18); every other category's default is unspecified. Several paths reach 'no explicit record': a category added in an app update, DataStore corruption (a corruption handler returning empty preferences), 'delete all personal data' wiping 'DataStore personal keys', a backup restore of an old toggle set, and the first emission before DataStore has loaded. The consent is also a persistent per-category switch, while the evidence calls for feature-specific, informed consent that names the recipient. R05 §7.11 says Google Health API data sent to OpenAI 'needs explicit, feature-specific user consent and probably triggers CASA'. R01 §3.34 says notification content is 'never sent to the AI connector without an explicit per-feature consent'. Finally, the disclosure cannot describe OpenAI's processing truthfully: training use is UNDOCUMENTED (R06 §10 item 6), and every request is tied to the user's ChatGPT identity through the bearer token, so R06 §4.5's 'no identifiers' cannot be met.
 
@@ -221,7 +221,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: privacy / enforcement and concurrency
 - Section: §9 AI layer (AiProvider, ContextSelectionEngine final gate); §8 (ResponsesClient field whitelist); §3 Module map (:ai:api, :ai:context, :ai:chatgpt, :analytics:insights)
 - Resolution: Relayed to AI-CONTEXT, SIWC
-- ARCHITECTURE.md: §8.3, §9.3
+- ARCHITECTURE.md: §3, §8.3, §9.3
 
 **Problem.** The ConsentViolation gate lives inside ContextSelectionEngine.build(). The doc gives AiProvider.analyze() and generateStructured(schema) no parameter types. ResponsesClient whitelists top-level request fields but cannot tell where the content came from. Callers such as :analytics:insights ('AI interpretation orchestration') and the NL builder can therefore pass content the engine never saw; R10 §13.1's repair round, for example, resends the previous reply verbatim with validation errors. Between build and send there are also long gaps: the preview screen, R06 §8.1's bounded backoff (30 s, 2 min, 10 min) and connectivity retries via WorkManager NetworkType.CONNECTED. A retry that reuses the built envelope sends data under consent the user has since withdrawn. An envelope stored in WorkManager input Data to survive process death puts the payload outside Room, contradicting 'payloads are not stored or logged' and escaping every deletion action.
 
@@ -239,7 +239,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: privacy / data classification
 - Section: §3 (:core:model 'AI category enums'); §9 AI layer; §10 Feature and insight engines; §5.2 Room schema
 - Resolution: Relayed to AI-CONTEXT, ANALYTICS, ANDROID-DATA, JITAI-ENGINE, REALTIME-FEATURES
-- ARCHITECTURE.md: §5.2, §9.2, §10
+- ARCHITECTURE.md: §3, §5.2, §9.2, §10
 
 **Problem.** The doc never lists the AI categories or maps the 53 registry capabilities and the §10 features to them, and R04 §3.8 (the AI boundary) is '(pending)'. The gate checks category tags, but many derived artifacts mix sources and would carry a single tag. Examples: daily_summary and derived_feature rows; insight.finding and support_json (R10 H04 pairs screen time with bedtime); JITAI names, descriptions and provenance.evidence (R10 §14.7 puts sleep-outcome counts inside a DIGITAL_WELLBEING rule); 'recent intervention history'; user_goal.text; user_log.note. Data source is not modelled either. The same metric can come from the Google Health API, Health Connect or on-device sensors under different rules: R05 §7.11 lists CASA, feature-specific consent and human-reading limits for Google Health API data. App identity is not separated from usage totals, although R01 §3.4 classes the app inventory as SENSITIVE.
 
@@ -275,7 +275,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: AI output validation
 - Section: §9 AI layer (Output validation); §1 rule 6; §10 (AI interpretation of insights); §3 (:ai:api InsightSchema, MediaPromptSchema)
 - Resolution: Relayed to AI-CONTEXT, JITAI-DSL, ANALYTICS; Design updated (§1)
-- ARCHITECTURE.md: §1 rule 6, §9.5, §10
+- ARCHITECTURE.md: §1 rule 6, §3, §9.5, §10
 
 **Problem.** §9 lists the checks as 'enums, max lengths, operators, feature references, timestamps, delivery limits'. Missing are R10 §11.6's lint (L1 URL, L2 email, L3 phone, L4 markup, L5 control and bidi characters, L6 medical wording, L7 causal claims, L8 placeholders) and R10 §14.9's number check ('every number in the reply must appear in the evidence object'). Because this document overrides the reports, both are effectively dropped. R10's lint never covered InsightSchema output (AI interpretation of insights) or MediaPromptSchema text such as TTS scripts and slide captions anyway. R06 §6 cites OpenAI's Usage Policies against tailored medical advice; nothing in the doc enforces that for insights. Rule 6 says output is 'rendered for approval', but pooled ai_text and AI-worded insights reach the user with nobody approving each text.
 
@@ -293,7 +293,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: deletion / database
 - Section: §5.5 Retention and deletion; §5.2 Room schema; §2 Platform and toolchain (BundledSQLiteDriver); §12 Interventions (media)
 - Resolution: Relayed to ANDROID-DATA, ANALYTICS, JITAI-ENGINE
-- ARCHITECTURE.md: §5.4, §5.5
+- ARCHITECTURE.md: §2, §5.4, §5.5, §12
 
 **Problem.** Retention is 'applied per event family', so only the event table is pruned. Per-family deletion does not cascade to derived data. Rows that keep the deleted values include: daily_summary and derived_feature rows; insight.finding and support_json; jitai_decision.trace_json, where R10 §8.3 also stores snapshotJson with feature values and §8.8 keeps decisions for 400 days; intervention_outcome.metric_json and jitai_eval_log.trace_json; JITAI provenance, evidence and approvedRendering, whose jitai_definition history rows are 'immutable' and exempt from retention; media files (template cards drawn with 'the user's metric', TTS WAVs of health text, R09's transcript description); ai_request, raw_source_record and diagnostic_log rows; and user_log, which is mirrored as USER_LOG events, so removing one copy leaves the other. Physical bytes also survive. SQLite's secure_delete is off by default (the BundledSQLiteDriver compile flags are UNVERIFIED), and the WAL keeps old pages, so deleted rows remain in free pages and the -wal file; the post-delete count only proves logical deletion. Already-posted notifications keep their text in the shade. R04 §3.7 (deletion semantics) is '(pending)', and R09 §9.4 records that 'no sibling doc defines that flow yet'.
 
@@ -331,7 +331,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: OAuth / deletion
 - Section: §5.5 Retention and deletion; §8 Sign in with ChatGPT (SiwcSessionManager); §14 Security and privacy (token vault); §7 (Google disconnect)
 - Resolution: Relayed to SIWC, ANDROID-DATA, GOOGLE-HEALTH
-- ARCHITECTURE.md: §5.5, §8.2, §14
+- ARCHITECTURE.md: §5.5, §7.1, §8.2, §14
 
 **Problem.** §5.5 says 'deleting never disconnects', yet 'delete all personal data' includes the token vault. Wiping the vault without calling revocation leaves the SIWC refresh token live at OpenAI (rolling 30-day life, R06 §2.11) and the Google grant in place, while the user believes everything is gone. It also deletes the issued oaiapp_ client id that R06 says to keep ('keep client id and host id'). The next sign-in then registers again and leaves an orphan connection in ChatGPT Settings. R08 J9 expects the opposite: 'delete clears DB, DataStore and tokens, and both fakes' journals show the revoke calls'. There is also a race. DeletionService in :data clears SecretVault directly, outside SiwcSessionManager's Mutex. A refresh already in flight completes after the wipe and, because rotated tokens are 'persisted before use', writes the vault back. The session manager's in-memory access token also stays usable until the process dies.
 
@@ -379,7 +379,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 
 **Fix proposed by the critic.** Switch to allow-list logging: Logger.event(code: DiagCode, fields: Map&lt;DiagKey, DiagValue&gt;), with closed-enum keys and values limited to enums, numbers, durations, HTTP status and x-request-id. No free-text message. Record exceptions as class name plus AppError code, never message or toString. Keep the Redactor only as a backstop. Build the export from allow-listed columns only, show it to the user before sharing, and leave out account labels, emails and the install id. Add a lint rule banning HttpLoggingInterceptor at BODY or HEADERS for real endpoints, and silence library loggers. Add a canary test that seeds fake tokens, health values and notification text, forces every failure path, and asserts that none of them appear in diagnostic_log, the export or logcat.
 
-**Decided.** Every team was told never to put an exception's message or toString() into an AppError, log line, stored row or string: record the exception class name and an error code only (item 2 of each team's first message). Diagnostics are allow-listed structured entries: a code plus fields with closed-enum keys and values limited to enums, numbers, durations and HTTP status; no free-text message column; the export uses allow-listed columns only (ANDROID-DATA 10:27 #7). Tokens, codes and verifiers are a Secret value class with a masked toString, and a canary test drives every SIWC error path (SIWC 10:41 #7). The Redactor stays as a backstop; its fixes for oauth-security-13 are on main (1900559).
+**Decided.** Every team was told never to put an exception's message or toString() into an AppError, log line, stored row or string: record the exception class name and an error code only (item 2 of each team's first message: SIWC 10:27, JITAI-DSL 10:27, GOOGLE-HEALTH 10:27, ANDROID-DATA 10:27, ANDROID-COLLECTORS 10:27, REALTIME-FEATURES 10:27, ANALYTICS 10:27, AI-CONTEXT 10:28). Diagnostics are allow-listed structured entries: a code plus fields with closed-enum keys and values limited to enums, numbers, durations and HTTP status; no free-text message column; the export uses allow-listed columns only (ANDROID-DATA 10:27 #7). Tokens, codes and verifiers are a Secret value class with a masked toString, and a canary test drives every SIWC error path (SIWC 10:41 #7). The Redactor stays as a backstop; its fixes for oauth-security-13 are on main (1900559).
 
 **Not decided.** A lint rule against HttpLoggingInterceptor at BODY or HEADERS (HttpClientFactory logs metadata only), showing the export before sharing, and an app-wide canary over diagnostic_log and the export (see privacy-ai-20).
 
@@ -523,7 +523,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: privacy / third-party transfer
 - Section: §1 Non-negotiable rules (rule 2); §12 Interventions (Voice); §15 (Export diagnostic report); §4 Build variants and fakes (guards)
 - Resolution: Fixed on main af7661f; Relayed to GOOGLE-HEALTH, SIWC, AI-CONTEXT; Design updated (§1, §14.1); Open: :interventions (TTS engine policy), integrator (user data export)
-- ARCHITECTURE.md: §1 rule 2, §14.1
+- ARCHITECTURE.md: §1 rule 2, §14.1, §18
 
 **Problem.** Rule 2 names two egress paths, but others carry personal data. The TTS engine is third-party code that 'receives the text even for local voices' (R09 §2.3). Intervention text with health values goes to whatever package is the default engine, possibly a cloud engine; 'network voices off' only governs the chosen voice's isNetworkConnectionRequired(). Further paths: the share sheet (diagnostic export, media share copies, and the data 'export' that R08 J9 tests but this doc never defines); OAuth and OIDC endpoints (discovery, JWKS, token, revoke) and GET /v1/models; and Play services (AuthorizationClient, Recording API, Activity Recognition). Without a full inventory, no guard can assert that nothing else leaves.
 
@@ -618,7 +618,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Severity: HIGH
 - Area: scheduling / time zones / JITAI correctness
 - Section: §11 Scheduling ('daily_at one-time unique work'); §13 (unique name jitai-at-&lt;id&gt;-&lt;HHmm&gt;; 'KEEP on reconcile'; 'ScheduleReconciler ... re-pins daily work')
-- Resolution: Relayed to JITAI-ENGINE
+- Resolution: Relayed to JITAI-ENGINE, ANDROID-DATA
 - ARCHITECTURE.md: §11.7, §13
 
 **Problem.** A one-time request carries an absolute delay. Under 'KEEP on reconcile' an ENQUEUED request is left alone, so TIME_SET and TIMEZONE_CHANGED cannot move it. This contradicts R10 §7.5 (recompute every daily_at delay), R02 TL;DR 3 and §5.3 step 2 (pin daily jobs with setNextScheduleTimeOverride + UPDATE), and R02 §5.1 ('Time / time-zone change: Not rescheduled by WorkManager'). R10 guards only against lateness (MISSED); nothing rejects a run that fires early. Self-rescheduling is undefined. Re-enqueuing the same name with KEEP from inside the RUNNING work is a no-op, because RUNNING counts as pending, so the next day is never scheduled. REPLACE cancels the running work. Because HH:mm is in the name, editing 08:00 to 09:00 leaves the 08:00 work enqueued. The jitai-tick override that skips inactive windows is also an absolute instant and has the same problem.
@@ -637,7 +637,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: JITAI correctness / background execution
 - Section: §11 Scheduling (jitai-eval-events: KEEP; expedited on 31+, plain one-time on 29-30); §2 minSdk 29
 - Resolution: Relayed to JITAI-ENGINE, ANDROID-DATA, ANDROID-COLLECTORS
-- ARCHITECTURE.md: §5.6, §6.4, §11.3, §11.7
+- ARCHITECTURE.md: §2, §5.6, §6.4, §11.3, §11.7
 
 **Problem.** R10 §8.2 sets decisionPointAt to the evaluation instant, and the delivery deadline counts from it. An event processed hours late is therefore treated as fresh. Lateness is normal:
 - On API 29-30, plain jobs wait for the standby bucket's job window.
@@ -661,7 +661,7 @@ Where a critic's fix and a correction differ, the correction wins; where two cor
 - Area: Android background limits / JITAI correctness
 - Section: §6.4 Location row ('Foreground only (background DEFER)'); §10 feature catalog ('time at place class'); §11 (R10 event types via the validator and prompt catalog); §14 (ACCESS_BACKGROUND_LOCATION excluded from the release manifest)
 - Resolution: Fixed on main 3bc4753; Relayed to JITAI-DSL, ANDROID-COLLECTORS, REALTIME-FEATURES, ANALYTICS
-- ARCHITECTURE.md: §6.4, §10, §11.1
+- ARCHITECTURE.md: §6.4, §10, §11.1, §14
 
 **Problem.** R10 §7.2 offers LOCATION_CLASS_CHANGED from geofence transitions, and R10 §5.4 E derives location_class from geofences. Both need ACCESS_BACKGROUND_LOCATION. The architecture collects location only while the app is visible, excludes ACCESS_BACKGROUND_LOCATION from the release manifest, and marks location_background DEFER. Yet §10 keeps 'time at place class' in the single catalog that feeds the validator, the prompt catalog and the schema enum. A sampler that runs only while the app is visible cannot produce dwell time, and coarse location (the default) cannot tell home from a nearby workplace.
 
@@ -703,7 +703,7 @@ Re-read the same state in R10 §8.5's re-check step, and resolve SUPPRESSED(STAT
 - Severity: HIGH
 - Area: process lifecycle / database / data loss
 - Section: §5.4 Encryption at rest (current HEAD: 'One retry on a Keystore failure, then the local data unreadable reset flow; never a plaintext fallback'); §5.5 Retention and deletion
-- Resolution: Relayed to ANDROID-DATA
+- Resolution: Relayed to ANDROID-DATA, ANDROID-COLLECTORS
 - ARCHITECTURE.md: §5.4, §6.5
 
 **Problem.** Every process start must unwrap the database key through Android Keystore before Room opens; R04 §3.2 does this in Application.onCreate. Most process starts happen in the background: WorkManager jobs, the listener bind, boot and time receivers, notification actions. §5.4 allows one retry and then enters the reset flow. R04 §3.2's failure policy maps any GeneralSecurityException to LocalDataUnreadable, which means deleting the database files and the key file, then re-syncing. Transient Keystore 'system error' failures typically surface as a GeneralSecurityException (InvalidKeyException from Cipher.init). Nothing separates transient failures from permanent ones: KeyPermanentlyInvalidatedException, a missing alias with existing ciphertext, an AEAD tag failure on the wrapped key, or 'file is not a database' after a successful unwrap. Nothing restricts the deletion to a visible activity with user confirmation, and R04 itself lists Keystore flakiness as UNVERIFIED (§6 item 18). The data is local-only and excluded from backup by design (§5.4, R04 §3.3), so a wrong reset cannot be undone for any non-cloud source.
@@ -886,7 +886,7 @@ Acquire tokens single-flight through the AccessTokenSource port. Add the risk to
 - Area: permissions / scheduling consistency
 - Section: §6.2 (registry drives the Permission Center); §6.3 resolver list (AlarmManager.canScheduleExactAlarms); §11 ('no exact alarms'); §14 release-manifest deny list; §2 minSdk row ('no exact-alarm permission' gate); §6.4 sensing tiers
 - Resolution: Relayed to ANDROID-COLLECTORS; Open: integrator (capabilities.json entry to DEFER, registry consistency test)
-- ARCHITECTURE.md: §2, §6.3, §6.4, §14
+- ARCHITECTURE.md: §2, §6.3, §6.4, §11.7, §14
 
 **Problem.** capabilities.json marks exact_alarm_jitai_scheduling IMPLEMENT ('JITAIs keep the PendingIntent variant'), and R01 §3.37 says 'Agentle uses SCHEDULE_EXACT_ALARM, optionally'. Against that, §11 says 'no exact alarms', R02 TL;DR 3 and §3.2 reject them, and R02 T-ARCH-01 asserts that the merged manifest contains no SCHEDULE_EXACT_ALARM. §14's CI deny list includes USE_EXACT_ALARM but not SCHEDULE_EXACT_ALARM. Because the Permission Center is generated from the registry, this capability will appear and be resolved. The new §6.4 Tier 2 sensing (R03 §10.3) also schedules windows with the API 37 listener overload of setExactAndAllowWhileIdle, which R02 U13 says is 'Not used in v1'.
 
@@ -1065,7 +1065,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: oauth-android-lifecycle
 - Section: §8 Sign in with ChatGPT (LoopbackCallbackServer bullet; 'Plain Custom Tab ...; ACTION_VIEW fallback'; States list including CONNECTING); §14 Exported components ('ignored unless a sign-in is pending')
 - Resolution: Relayed to SIWC
-- ARCHITECTURE.md: §8.1
+- ARCHITECTURE.md: §8.1, §14
 
 **Problem.** The listener, PKCE verifier, state, nonce and the 'pending sign-in' flag that the intent:// target depends on all live only in memory. The doc never says who owns them (process scope or a ViewModel), what happens on process death or tab close, or whether a second 'Continue with ChatGPT' tap may start a new attempt while a listener is open. It lists CONNECTING among the states SiwcErrorMapper maps, but R06 §8.1 says 'Connecting is a transient UI overlay, not a persisted state'. For a first-time sign-in, OpenAI creates the registration when the user approves, and the issued oaiapp_ id reaches the app only on the redirect (R06 §2.2). A dead or closed port therefore loses that id. The retry has to send client_id=dynamic_agent_client again, which is the re-registration R06 §2.2 forbids, and it leaves an orphan 'Agentle' connection in the user's ChatGPT settings (R06 §3.3 #5). The Custom Tabs keep-alive quoted in R04 §3.5 does not cover three cases: the ACTION_VIEW fallback (a separate browser task), a user who leaves the tab to fetch an emailed login code (boost duration UNVERIFIED), or a ViewModel-scoped listener.
 
@@ -1123,7 +1123,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: oauth-siwc-identity
 - Section: §8 Sign in with ChatGPT ('The issued oaiapp_... client id is persisted (encrypted) ... and reused afterwards'; 'ID token verified with Nimbus ... iss/aud/azp/nonce/exp'); §14 Token vault ('stores SIWC tokens + issued client id')
 - Resolution: Relayed to SIWC; Design updated (§8)
-- ARCHITECTURE.md: §8.1, §8.2, §8.4
+- ARCHITECTURE.md: §8.1, §8.2, §8.4, §14
 
 **Problem.** The vault holds a single client id next to a single token set. R06 §2.14 requires a list of registrations and says 'Never ... combine one registration's client ID with another registration's tokens'. Several checks are also missing. The ID-token checks omit the required iat and sub claims (R06 §2.7). There is no stored-sub comparison on re-auth or on ID tokens returned by refresh (ACCOUNT_MISMATCH; R06 §2.7, §2.11, §8.1). The 5 s skew is unspecified (Nimbus defaults to 60 s). The plan-grant check is absent: R06 §2.8 requires the token-response scope to contain chatgpt.tokens.use.direct and resource.invoke, else NOT_ELIGIBLE(PLAN_USAGE_NOT_GRANTED). §8 derives NOT_ELIGIBLE only from error codes, and a 200 with a missing scope is not an error code. A JWKS or discovery outage has no retryable path that keeps the connection.
 
@@ -1221,7 +1221,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: exported-components
 - Section: §14 Security and privacy &gt; Exported components; §6.4 Android collectors (rows 'Bluetooth ... (exported, sender is Bluetooth UID)' and 'Time zone / time / locale changes, boot'); §13 ScheduleReconciler; §12 Interventions (content intent)
 - Resolution: Relayed to ANDROID-COLLECTORS, ANDROID-DATA; Design updated (§12, §14)
-- ARCHITECTURE.md: §6.4, §12, §14
+- ARCHITECTURE.md: §6.4, §12, §13, §14
 
 **Problem.** §14 exports 'the boot/time/package receivers (system broadcasts)'. R02 §5.2 and R04 §3.4 require exported='false', because system_server delivers protected broadcasts to non-exported receivers. The doc does not require the per-receiver action allow-list that R02 §5.2 makes mandatory. enforceIntentFilter (§14) applies only on API 36+, while minSdk is 29, so on API 29-35 any app can send an explicit broadcast with a null or arbitrary action and arbitrary extras. 'Sender is Bluetooth UID' cannot be checked at runtime: getSentFromUid() is API 34+ and populated only when the sender opts in (UNVERIFIED for Bluetooth). The protected action is the only guard, and it is moot if the receiver never checks the action. §14 calls notification deep links 'internal (PendingIntent with explicit component)', but their target, MainActivity, is exported, and an explicit MAIN/LAUNCHER intent with extras still matches the launcher filter even under enforceIntentFilter.
 
@@ -1297,7 +1297,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: oauth-android-browser
 - Section: §8 Sign in with ChatGPT ('Plain Custom Tab (never WebView, never Auth Tab); ACTION_VIEW fallback'); §14 Security and privacy &gt; Platform hardening (R04 §3.4 &lt;queries&gt; rule)
 - Resolution: Relayed to SIWC; Open: integrator (manifest queries entries for Custom Tabs detection)
-- ARCHITECTURE.md: §8.1
+- ARCHITECTURE.md: §8.1, §14, §18
 
 **Problem.** Choosing between a Custom Tab and the ACTION_VIEW fallback means detecting a Custom Tabs provider (CustomTabsClient.getPackageName) and optionally binding to warm it up. With Android 11+ package visibility, that needs a &lt;queries&gt; intent for android.support.customtabs.action.CustomTabsService (Chrome Custom Tabs guidance; UNVERIFIED offline). R04 §3.4 says '&lt;queries&gt; holds only the launcher intent', and the manifest has none. Detection therefore returns null on API 30+, the app always takes the ACTION_VIEW path, and it loses the Custom Tab keep-alive R04 §3.5 relies on. Nothing handles the case where no browser exists at all, where startActivity throws ActivityNotFoundException. That is typical of managed work profiles, the same place Android 17's cross-profile rule applies.
 
@@ -1317,7 +1317,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: backup
 - Section: §14 Security and privacy &gt; Token vault ('Excluded from backup (dataExtractionRules, fullBackupContent)'); §5.4 Encryption at rest
 - Resolution: Open: integrator (:app backup rules)
-- ARCHITECTURE.md: unchanged (§14 describes the current rules)
+- ARCHITECTURE.md: §14, §18 (the gap only)
 
 **Problem.** data_extraction_rules.xml declares exclude-all only for &lt;cloud-backup&gt; and &lt;device-transfer&gt;. The Auto Backup docs say: 'If there are no rules for a particular backup mode ... that mode is fully enabled for all content except for no-backup and cache directories.' Cross-platform transfer (Android 16 QPR2, API 36.1) is a separate mode. At target 37, the database file, the DataStore settings (consents, AI category toggles, and the install id that §5.2 keeps in DataStore) and shared_prefs are therefore eligible. Whether anything actually moves without an iOS counterpart is UNVERIFIED (R04 §3.3).
 
@@ -1325,7 +1325,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 
 **Fix proposed by the critic.** Add &lt;cross-platform-transfer platform='ios'&gt; with the same exclude-all domains, after confirming that lint at compileSdk 37 accepts it. Keep the host id in noBackupFilesDir (R04 §3.1). Add a SEC-BAK test that parses the merged XML and requires all three sections.
 
-**Decided.** No correction covers this issue; data_extraction_rules.xml still has no cross-platform-transfer section.
+**Decided.** No correction covers this issue; data_extraction_rules.xml still has no cross-platform-transfer section. §14 describes the current rules and states the gap, and §18 lists it as an open design question.
 
 ### oauth-security-18
 
@@ -1335,7 +1335,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: fake-prod-separation
 - Section: §1 rule 7; §3 Module map (forbidden dependencies; :core:testing and :feature:settings rows); §4 Build variants and fakes (Guards; 'network_security_config with no cleartext')
 - Resolution: Relayed to BUILD-INFRA; Design updated (§3); Open: integrator (prod check on assemble and bundle, debug tools only in the fake flavor, localhost-deny test)
-- ARCHITECTURE.md: §1 rule 7, §3.1, §4
+- ARCHITECTURE.md: §1 rule 7, §3.1, §4, §18
 
 **Problem.** (1) verifyNoFakesInProd fails only on the project path ':fakes'. It does not check :core:testing ('in-memory port fakes'), mockwebserver3 or junit as external modules, or the :fakes:\* split that R07 names. (2) It is wired only into check, not into assembleProdRelease or bundleProdRelease as R07 §8.4 requires. (3) §3's rule ('only as fakeImplementation') contradicts the code (ModuleGraphRules allows test configurations) and R08 §5.1. (4) §3 puts debug tools, including time override and clear database, in every debug build including prodDebug, while §4 scopes the debug panel to the fake flavor. (5) §4 says only 'no cleartext'. The prod config's explicit localhost deny, which the code added for API 37's implicit localhost cleartext allowance, is not a documented requirement. It also lacks R04 §3.9's ip6-localhost, and no SEC-NET test pins it.
 
@@ -1411,7 +1411,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: jitai-data
 - Section: §5.2 Room schema (missing tables); §11 (three-valued evaluation); §13 (sync-googlehealth 'periodic daily + on demand')
 - Resolution: Relayed to ANDROID-DATA, ANDROID-COLLECTORS, GOOGLE-HEALTH, REALTIME-FEATURES, JITAI-ENGINE; Design updated (§13)
-- ARCHITECTURE.md: §5.2, §6.5, §10, §13
+- ARCHITECTURE.md: §5.2, §6.5, §10, §11.3, §13
 
 **Problem.** §11 says missing or stale data is UNKNOWN, but §5.2 has no source_coverage, collector_coverage, heartbeat or gap table. The only candidates are sync_cursor (the sync's wall time, not data completeness) and permission_snapshot (written on permission change only, blind to listener disconnects and process death). §13 syncs Google Health 'periodic daily + on demand', while R10 needs steps coverage within 20-30 min, and the R10 §7.4 prefetch before daily_at slots is omitted. Staleness is therefore the normal state, not an edge case.
 
@@ -1447,7 +1447,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: concurrency
 - Section: §11 JITAI engine (safety gates, arbitration, scheduling); §13 (unique work names)
 - Resolution: Relayed to ANDROID-DATA, REALTIME-FEATURES, JITAI-ENGINE
-- ARCHITECTURE.md: §5.6, §10, §11.4
+- ARCHITECTURE.md: §5.6, §10, §11.4, §13
 
 **Problem.** Gates and arbitration are defined per pass ('one delivery per pass'). jitai-tick, jitai-eval-events and each jitai-at-&lt;id&gt;-&lt;HHmm&gt; have different unique names, so WorkManager can run them at the same time. The doc does not require the R10 commit protocol: a process-wide mutex plus one write transaction that re-reads the cooldown, cap and gap counts and inserts the decision. The UNIQUE decision_key blocks only a duplicate of the same key, not two different JITAIs. Feature reads outside one read transaction may also see different WAL snapshots within a single pass.
 
@@ -1465,7 +1465,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: jitai-data
 - Section: §5.2 (jitai_decision, jitai_definition, intervention_outcome); §11 gates; §12 (Snooze 1 h action)
 - Resolution: Relayed to ANDROID-DATA, JITAI-ENGINE
-- ARCHITECTURE.md: §5.2, §11.5, §11.6
+- ARCHITECTURE.md: §5.2, §11.5, §11.6, §12
 
 **Problem.** Per-JITAI runtime state (snoozedUntil, snooze mode, consecutive ignored) has no table, and the DataStore list in §5.2 does not include it either. jitai_decision stores only wall-clock decided_ms/delivered_ms: no elapsedRealtime, no boot count, no engine_day, no content_ref, no response. Its states omit FAILED, CANCELLED, MISSED, NOT_TRIGGERED, UNKNOWN, NOT_AVAILABLE and NOT_RANDOMIZED. The only index is decision_key. jitai_definition mixes immutable versions with mutable enabled/state and states no key. intervention_outcome has no key.
 
@@ -1521,7 +1521,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: privacy-sync
 - Section: §5.5 Retention and deletion ('deleting never disconnects'); §7 Sync (backfill to 90 d, weekly 30-day deep re-sync); §6.4 Health Connect
 - Resolution: Relayed to ANDROID-DATA, GOOGLE-HEALTH, ANDROID-COLLECTORS
-- ARCHITECTURE.md: §5.2, §5.5, §7.3
+- ARCHITECTURE.md: §5.2, §5.5, §6.4, §7.3
 
 **Problem.** Sync windows never consult retention or deletion. Backfill goes to 90 days, the weekly deep re-sync re-reads 30 days, and Health Connect token expiry triggers a 30-day re-read. Deleting never disconnects, and nothing says whether sync cursors are kept or reset on deletion. Either choice re-imports the data. R04 instead stops collection first.
 
@@ -1557,7 +1557,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: sync-transactions
 - Section: §7 Sync ('commit each window and its cursor in one transaction only after all pages succeeded'); §6.1 Connector SPI; §6.4 Notifications collector
 - Resolution: Relayed to ANDROID-DATA, GOOGLE-HEALTH, ANDROID-COLLECTORS
-- ARCHITECTURE.md: §5.4, §5.6, §7.3
+- ARCHITECTURE.md: §5.4, §5.6, §6.1, §6.4, §7.3
 
 **Problem.** The window is [cursor - overlap, now), so after a long gap it grows without bound. Either every page (pageSize 10,000) is buffered in memory, or a write transaction stays open across network calls. The single commit writes every row through 7 B-trees under SQLCipher while holding the only write lock. The doc states no journal mode, pool size, busy timeout, synchronous or journal_size_limit for the SQLCipher path, and no single batched writer for the notification listener.
 
@@ -1577,7 +1577,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: scale-battery
 - Section: §5.2 (event columns and indexes); §5.5 (default keep indefinitely); §7 (48 h sample overlap); §13 (on-demand sync); §16 Timeline (Paging 3)
 - Resolution: Relayed to ANDROID-DATA, GOOGLE-HEALTH
-- ARCHITECTURE.md: §5.2, §5.3, §7.3, §16
+- ARCHITECTURE.md: §5.2, §5.3, §7.3, §13, §16
 
 **Problem.** The scale evidence is for a different design. R08 measured UNIQUE(source, type, start_ms), one index, INSERT OR IGNORE and no encryption: 147.9 MiB per 1M rows. §5.2 adds a TEXT UUID id UNIQUE, a TEXT dedup_key UNIQUE (about 60-110 B), four secondary indexes, payload_json, text type/source/zone_id, and SQLCipher. Column-size arithmetic gives about 0.6-0.85 KB per event, 4-6x the measured size (UNVERIFIED estimate). Volume: the synthetic user has heart rate every 5 min, but R05 notes raw HR can reach 86,400 points/day. At 5-s HR (17,280/day), plus per-minute steps and 2-6k Android events per day, a user reaches 1M rows in about 45 days and 7-9M rows/year under the default 'keep indefinitely', or 5-7 GB. Every sync re-reads 48 h of raw samples and probes the dedup index for every point.
 
@@ -1633,7 +1633,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: oauth-data
 - Section: §5.2 google_health_state / sync_cursor / event; §5.3 Google Health keys; §5.5 ('Disconnecting the wearable never deletes data'); §7 Authorization
 - Resolution: Relayed to GOOGLE-HEALTH, ANDROID-DATA, REALTIME-FEATURES, ANALYTICS, AI-CONTEXT
-- ARCHITECTURE.md: §5.2, §7.2, §10
+- ARCHITECTURE.md: §5.2, §7.2, §10, §18
 
 **Problem.** google_health_state stores account_hint but not R05's healthUserId. The doc never requires the identity call before linking or before each sync. Cursors are keyed by (connector_id, stream), and events carry source = googlehealth.&lt;stream&gt;. Nothing ties a row or a cursor to an account, and disconnecting keeps both.
 
@@ -1751,7 +1751,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: safety-gates
 - Section: §11 JITAI engine (JitaiDefinition field list; 'Safety gates in fixed order'), contradicting §3 `:jitai:engine` 'safety gates G01-G16'
 - Resolution: Relayed to JITAI-DSL, JITAI-ENGINE; Design updated (§11)
-- ARCHITECTURE.md: §11.1, §11.2
+- ARCHITECTURE.md: §3, §11.1, §11.2
 
 **Problem.** §3 says :jitai:engine implements G01-G16. §11 instead declares a 'fixed order' (disabled, paused, expired, snoozed, quiet hours/DND, cooldown, per-rule caps, global daily cap + min gap, arbitration). That order omits G04 GLOBAL_PAUSE, G05 NOTIFICATIONS_BLOCKED, G08 SUPPRESSED_BY_RULE, G14 GLOBAL_WEEKLY_CAP, G15 CHANNEL_CAP and the ALLOW_WHEN_INTERACTIVE exception of G06. §11's field list also omits R10's kind (INTERVENTION/SUPPRESSION), category, status, suppression, delivery.quietHoursPolicy, deliveryDeadlineMinutes and userConfirmedUnknownOverrides, and G06/G08/E026 cannot be implemented without them. The preamble says the architecture wins over the research. R02 §3.3 treats DND as 'defer, not drop' while R10 G07 suppresses, and §11 does not choose between them.
 
@@ -1769,7 +1769,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: three-valued-logic
 - Section: §5.2 Room schema (v1); §10 Feature and insight engines (dirty-day recompute, intra-day range queries over `event`); §11 'Three-valued evaluation'
 - Resolution: Relayed to ANDROID-DATA, ANDROID-COLLECTORS, GOOGLE-HEALTH, REALTIME-FEATURES, ANALYTICS
-- ARCHITECTURE.md: §5.2, §6.5, §10
+- ARCHITECTURE.md: §5.2, §6.5, §10, §11.3
 
 **Problem.** R10 §5.3 can only compute Known, Stale or Missing from source_coverage(source, metric, coverageThrough) and collector_coverage(collector, fromMs, toMs). §5.2 has neither table. ARCH instead persists derived_feature.status (OK/UNKNOWN/STALE) at computed_ms, recomputes only days marked dirty by ingestion, and answers intra-day features with range queries over `event`. Staleness relative to the decision instant t and coverage gaps therefore cannot be represented. The existing code contract (Freshness.CollectorCoverage / SourceLag in FeatureDefinition.kt) has nothing to read.
 
@@ -1777,7 +1777,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 
 **Fix proposed by the critic.** Add source_coverage and collector_coverage tables (or R02's heartbeat + collection_gap) to §5.2. Collectors write coverage in the same transaction as their data and close the interval on SecurityException, onListenerDisconnected or a null queryEvents. The resolver computes Known/Stale/Missing at evaluation time t from coverage, never from a persisted status, and derived_feature.status becomes advisory. Add Robolectric tests that revoke a permission mid-window and assert UNKNOWN.
 
-**Decided.** The coverage corrections for lifecycle-battery-01 cover it: coverage tables, collectors that close intervals on permission changes and listener disconnects, coverage written with the data, and features computing Missing(COVERAGE_GAP) or Stale at evaluation time, with one gap test per feature.
+**Decided.** The coverage corrections for lifecycle-battery-01 cover it: coverage tables, collectors that close intervals on permission changes and listener disconnects, coverage written with the data, and features computing Missing(COVERAGE_GAP) or Stale at evaluation time, with one gap test per feature (ANDROID-DATA 10:27 #3, ANDROID-COLLECTORS 10:27 #3, GOOGLE-HEALTH 10:27 #3, REALTIME-FEATURES 10:27 #3, ANALYTICS 10:27 #4).
 
 ### jitai-correctness-03
 
@@ -1787,7 +1787,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: sync-cadence/freshness
 - Section: §7 Google Health API connector (one canonical source; Fitbit-origin Health Connect records skipped while connected); §13 (`sync-googlehealth` 'periodic daily + on demand'); §11
 - Resolution: Relayed to REALTIME-FEATURES, JITAI-ENGINE, GOOGLE-HEALTH; Design updated (§13)
-- ARCHITECTURE.md: §10, §11.7, §13
+- ARCHITECTURE.md: §7.3, §10, §11.7, §13
 
 **Problem.** When a wearable is connected, ARCH makes the Google Health API the only step source and drops the Fitbit-origin Health Connect copy. It syncs that source only 'periodic daily + on demand', and defines no JITAI prefetch and no staleness retry. steps_today needs coverageThrough &gt;= t-30 min (code: SourceLag(30.minutes)); activity_level_last_30m and steps_last_60m need 20 min. The monotone lower bound can only turn an `lt` rule FALSE, never TRUE. R05 recommends hourly sync and R02 6 h / 1 h / 30 min, but even hourly is too slow without R10's 10-minute prefetch.
 
@@ -1863,7 +1863,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: concurrency-arbitration
 - Section: §11 JITAI engine ('arbitration (one delivery per pass, highest priority)'; Scheduling); §13
 - Resolution: Relayed to JITAI-ENGINE, ANDROID-DATA
-- ARCHITECTURE.md: §11.2, §11.4
+- ARCHITECTURE.md: §11.2, §11.4, §13
 
 **Problem.** Every `jitai-at-<id>-<HHmm>` work, the tick and `jitai-eval-events` are independent passes, and arbitration (G16) only applies inside a pass. A scheduled slot that fails G12/G13 is consumed as SUPPRESSED, so it loses its only chance. §11 also does not restate R10 §8.4's process-wide mutex with the cap counts re-read inside the commit transaction. It only says uncertain deliveries count, not DECIDED/DELIVERING.
 
@@ -2065,7 +2065,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: privacy-notifications
 - Section: §12 Interventions (template content); §14 ('notifications VISIBILITY_PRIVATE with a generic public version'); §1 rule 2
 - Resolution: Relayed to JITAI-ENGINE, JITAI-DSL
-- ARCHITECTURE.md: §12, §17
+- ARCHITECTURE.md: §12, §14, §17
 
 **Problem.** R10's templates put raw values in notification bodies, for example 'You are at {{steps_today}} steps today' and '{{app_minutes_since}} minutes on Instagram since 10 PM'. R04 §3.10 requires generic default text 'unless the user enables detailed notifications', because other apps' notification listeners can read posted text. ARCH adopts only VISIBILITY_PRIVATE, which covers the lock screen, and does not set setLocalOnly. The full text therefore reaches any NotificationListenerService app and is bridged to paired watches.
 
@@ -2143,7 +2143,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: testing/build
 - Section: §3 Module map (:fakes; :ai:chatgpt 'BrowserLauncher and CredentialStore are ports') and the forbidden-dependency rule; §4
 - Resolution: Relayed to SIWC; Design updated (§3); Open: integrator (integration wave: :fakes split, ports moved, module and import checks)
-- ARCHITECTURE.md: §3.2
+- ARCHITECTURE.md: §3.2, §4
 
 **Problem.** The fakes are the only oracle for Google Health (Google is not onboarding new projects) and SIWC (no CI account). They therefore must encode the documented wire contract independently (R07 §8.5, R08 §5.1). §3 places FakeChatGptAuthClient and FakeBrowserLauncher in :fakes, while their port interfaces live in :ai:chatgpt, which forces :fakes -&gt; :ai:chatgpt. fakes/build.gradle.kts already declares implementation(:ai:chatgpt) and implementation(:core:network), contradicting its own comment 'The fakes never depend on the clients they fake'. ModuleGraphRules has no rule on :fakes' outgoing edges.
 
@@ -2191,7 +2191,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 
 **Fix proposed by the critic.** (1) Default TestAgentleClock to a DST zone with a non-whole-hour offset (e.g. Australia/Adelaide). (2) Set the test JVM's user.timezone and the TZ env var for native SQLite to a different DST zone (e.g. America/St_Johns), so mixing the default zone and the clock zone fails. (3) Run the :analytics:features, :jitai:engine and DAO suites in a zone matrix (UTC, America/Los_Angeles, Asia/Kolkata, Pacific/Chatham). (4) Run type-resolved detekt tasks in CI. (5) Add ForbiddenImport for kotlin.time.Clock.System and TimeSource.Monotonic, and ForbiddenMethodCall for ZoneId.systemDefault, TimeZone.getDefault/currentSystemDefault, java.util.Date.&lt;init&gt; and SystemClock.uptimeMillis. Suppress these only in :core:time and the app clock binding. (6) Lint DAO SQL for UTC epoch-day arithmetic.
 
-**Decided.** Test JVMs run with user.timezone and TZ = America/St_Johns (BUILD-INFRA item A; on main in 9697eb0, which names testing-build-04 (2)); forbidden time APIs are checked by type-resolved detekt (detektMain, detektTest) in main and test sources in CI, proven by probes, exempting only SystemAgentleClock in :core:time and the app clock binding (item B; on main in 14c35cc, which names testing-build-04 (1) and reports that a call through a TimeSource-typed variable is not detected); TestAgentleClock defaults to Australia/Adelaide and can run on a TestCoroutineScheduler (item C, not yet on main). Every team was told to use the clock's zone, never the JVM default; JITAI-ENGINE, REALTIME-FEATURES and ANALYTICS run their suites under UTC, America/Los_Angeles, Asia/Kolkata, Pacific/Chatham and Australia/Adelaide, DST transitions included.
+**Decided.** Test JVMs run with user.timezone and TZ = America/St_Johns (BUILD-INFRA item A; on main in 9697eb0, which names testing-build-04 (2)); forbidden time APIs are checked by type-resolved detekt (detektMain, detektTest) in main and test sources in CI, proven by probes, exempting only SystemAgentleClock in :core:time and the app clock binding (item B; on main in 14c35cc, which names testing-build-04 (1) and reports that a call through a TimeSource-typed variable is not detected); TestAgentleClock defaults to Australia/Adelaide and can run on a TestCoroutineScheduler (item C, not yet on main). Every team was told to use the clock's zone, never the JVM default (ANDROID-DATA 12:41 #8, AI-CONTEXT 12:41 #5, SIWC 12:41 #5, GOOGLE-HEALTH 12:41 #3, ANDROID-COLLECTORS 12:41 #4, JITAI-ENGINE 12:41 #4, JITAI-DSL 12:42 #3); JITAI-ENGINE, REALTIME-FEATURES and ANALYTICS run their suites under UTC, America/Los_Angeles, Asia/Kolkata, Pacific/Chatham and Australia/Adelaide, DST transitions included (JITAI-ENGINE 12:41 #4, REALTIME-FEATURES 12:42, ANALYTICS 12:42).
 
 **Not decided.** Linting DAO SQL for UTC epoch-day arithmetic.
 
@@ -2223,7 +2223,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: database/security
 - Section: §5.4 Encryption at rest; §2 Platform table, DB row; §4 'Failure injection'
 - Resolution: Relayed to ANDROID-DATA; Design updated (§2); Open: integrator (instrumented SEC-DB suite on the device tier)
-- ARCHITECTURE.md: §2, §5.4, §17
+- ARCHITECTURE.md: §2, §4, §5.4, §17
 
 **Problem.** §5.4 runs SQLCipher in every app variant, but 'JVM and Robolectric tests use the unencrypted driver', and Robolectric has no AndroidKeyStore provider (R04 §4). The key manager, raw-key open, PRAGMAs and reset flow can therefore only run on a device. §17 schedules none of R04's SEC-DB-01..04 or SEC-BAK-03 device tests, and the CI emulator job is manual. FailureInjector has no Keystore or DEK fault, so the one path that deletes all user data on purpose ('One retry on a Keystore failure, then the local data unreadable reset flow') is never executed. §2 still says BundledSQLiteDriver in production, contradicting §5.4, and both drivers are on :core:database's classpath.
 
@@ -2243,7 +2243,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: privacy/database
 - Section: §5.5 Retention and deletion ('each verified by a post-delete count query returned to the UI'); §14 Deletion order; §7 Sync
 - Resolution: Relayed to ANDROID-DATA, GOOGLE-HEALTH, ANDROID-COLLECTORS; Open: integrator (host-side checks after 'delete everything', SEC-DEL-03)
-- ARCHITECTURE.md: §5.5, §17
+- ARCHITECTURE.md: §5.5, §7.3, §14, §17
 
 **Problem.** Each delete action is checked by a count over the same tables the action deletes, so a forgotten table counts 0 by construction. ARCHITECTURE drops R04's DataCategoryRegistry and SEC-DEL-05 (fail the build when an exported-schema table is unregistered), SEC-DEL-01 (marker and byte scans) and SEC-DEL-04 (race). 'Delete everything' ends with clearApplicationUserData(), which kills the process and the instrumentation, so its result can be neither shown nor asserted in-process. Durability is untested. The code has EventSink.importFloor (default null; the only test asserts null), but ARCHITECTURE never specifies it. Meanwhile §7 re-reads 48 h and 7-day overlaps and runs a weekly 30-day deep re-sync, and Health Connect Fitbit records are skipped only 'while the API source is connected'.
 
@@ -2263,7 +2263,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: lifecycle
 - Section: §8 Sign in with ChatGPT (LoopbackCallbackServer on 127.0.0.1:0); §13 (ScheduleReconciler 'runs on process start'); §4 fake flavor; §17
 - Resolution: Relayed to SIWC; Design updated (§17); Open: integrator (integration wave: AppInitializer, host-driven process-death tests)
-- ARCHITECTURE.md: §8.1, §17
+- ARCHITECTURE.md: §4, §8.1, §17
 
 **Problem.** §17 names no process-death test. While the Custom Tab is in front, the SIWC listener, PKCE verifier, state and nonce exist only in process memory, and R06 §3.3 row 5 notes the process can be killed. The fake flavor runs the fake auth server in the same process (§4), so killing the app also kills the fake: the scenario is untestable by construction. J5 uses an in-process FakeBrowserLauncher hop. Separately, every Robolectric test and the instrumented runner use HiltTestApplication, so AgentleApplication.onCreate is executed by no test. That method covers WorkManager Configuration.Provider and HiltWorkerFactory, SQLCipher loadLibrary and logger silencing 'before its first class loads', deletion_in_progress resume, and ScheduleReconciler on process start.
 
@@ -2283,7 +2283,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: database/upgrade
 - Section: §5.2 'Migrations: ... every version bump ships a Migration ... and a migration test'; §5.1 schema evolution; §11 'strict decoding'; §17 L3
 - Resolution: Relayed to ANDROID-DATA, JITAI-DSL, JITAI-ENGINE; Open: integrator (release APK archive, upgrade journey, SQLCipher migration tests on devices)
-- ARCHITECTURE.md: §17
+- ARCHITECTURE.md: §5.2, §11.1, §17
 
 **Problem.** Migration tests run under Robolectric with AndroidSQLiteDriver (host SQLite), while production opens SQLCipher (its own SQLite 3.53.4, encrypted, secure_delete). R08 §7.1 recommended JVM tests on the bundled driver plus nightly device tests; ARCHITECTURE adopts neither. Persisted contracts that change without a Room schema change have no tests at all: payload_json versions, jitai_definition.json under a strict codec with 'no polymorphic fallback', trace_json, DataStore keys, WorkManager unique names and input Data, and the decision keys/tags of notifications already posted. No previous-release APK is kept (APK artifacts expire after 7 days), so the 'adb install -r old -&gt; new' scenario (R08 row 30, R02 E6) cannot run.
 
@@ -2363,7 +2363,7 @@ The matrix has no OEM devices, and Robolectric TestDriver bypasses quotas, Doze 
 - Area: build
 - Section: §3 Forbidden dependencies (verifyModuleGraph); §4 Guards; §14 ('`:ai:*` may not depend on those modules'); §16 Debug panel
 - Resolution: Relayed to ANDROID-DATA, BUILD-INFRA; Open: integrator (:ai:\* forbidden-module list, debug panel only in src/fake)
-- ARCHITECTURE.md: §3.1, §4
+- ARCHITECTURE.md: §3.1, §4, §14, §16, §18
 
 **Problem.** ModuleGraphRules inspects only each configuration's declared ProjectDependency, never the resolved graph. :data re-exports :core:database, :core:security, :core:datastore, :connectors:api and :jitai:engine via api, so every :feature:\* module compiles against Room DAOs and SecretVault. featureForbidden omits :connectors:api (the doc says ':connectors:\*') and :core:security. §14's ':ai:\* may not depend on ... network calls' is unenforced and contradicts :ai:chatgpt's required api(:core:network). verifyNoFakesInProd checks only :fakes. It does not check :core:testing (with its settable TestAgentleClock), mockwebserver3 coordinates, or debug tools. §3 puts 'debug tools (debug builds only)' in :feature:settings, which ships in prodDebug against real data, and §4 and §16 disagree on whether the panel is fake-flavor or debug-type.
 
