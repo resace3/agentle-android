@@ -1,6 +1,7 @@
 package dev.agentle.buildlogic
 
 import com.diffplug.gradle.spotless.SpotlessExtension
+import dev.detekt.gradle.Detekt
 import dev.detekt.gradle.extensions.DetektExtension
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -14,10 +15,11 @@ class QualityConventionPlugin : Plugin<Project> {
         pluginManager.apply("com.diffplug.spotless")
         pluginManager.apply("org.jetbrains.kotlinx.kover")
 
+        val detektConfig = rootProject.file("config/detekt/detekt.yml")
         extensions.configure<DetektExtension> {
             buildUponDefaultConfig.set(true)
             parallel.set(true)
-            config.setFrom(rootProject.file("config/detekt/detekt.yml"))
+            config.setFrom(detektConfig)
             val baselineFile = file("detekt-baseline.xml")
             if (baselineFile.exists()) baseline.set(baselineFile)
             // Release variants compile the same sources as debug (no src/release), so type-resolved detekt skips them.
@@ -29,6 +31,19 @@ class QualityConventionPlugin : Plugin<Project> {
         plugins.withType(LifecycleBasePlugin::class.java) {
             tasks.named(LifecycleBasePlugin.CHECK_TASK_NAME).configure {
                 dependsOn(DETEKT_MAIN_TASK, DETEKT_TEST_TASK)
+            }
+        }
+        // Android tests run on JUnit 4, so their sources must not import JUnit Jupiter (red team testing-build-03).
+        // The extra rules go on the tasks that read test sources: the plain task and the unit and instrumented test
+        // variants. JVM modules use Jupiter and never get them.
+        val androidTestsConfig = rootProject.file("config/detekt/detekt-android-tests.yml")
+        for (androidPlugin in listOf("com.android.application", "com.android.library")) {
+            pluginManager.withPlugin(androidPlugin) {
+                tasks.withType(Detekt::class.java).configureEach {
+                    if (name == "detekt" || name.endsWith("UnitTest") || name.endsWith("AndroidTest")) {
+                        config.setFrom(detektConfig, androidTestsConfig)
+                    }
+                }
             }
         }
         extensions.configure<SpotlessExtension> {
@@ -48,6 +63,7 @@ class QualityConventionPlugin : Plugin<Project> {
             }
         }
         ModuleGraphRules.register(this)
+        CoverageGates.configure(this)
     }
 
     private companion object {
