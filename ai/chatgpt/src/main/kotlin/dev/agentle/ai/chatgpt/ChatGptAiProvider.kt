@@ -170,8 +170,9 @@ public class ChatGptAiProvider(
 /**
  * Builds the Responses request from an envelope (docs/ARCHITECTURE.md §9). It sends exactly what the user approved:
  * the envelope's app-constant `instructions`, its quoted data as a `developer` item and its quoted user request (if
- * any) as a `user` item, with `max_output_tokens` from the envelope. Nothing is added, so the bytes hash to
- * [AiRequestEnvelope.inputSha256]. The structured-output contract is part of the envelope's instructions.
+ * any) as a `user` item. Nothing is added, so the bytes hash to [AiRequestEnvelope.inputSha256]. The
+ * structured-output contract is part of the envelope's instructions. [AiRequestEnvelope.maxOutputTokens] is ignored:
+ * the direct route does not accept `max_output_tokens` (R06 §4.4), so that cap cannot be enforced here.
  */
 internal object PromptBuilder {
     fun build(model: String, envelope: AiRequestEnvelope): ResponsesRequest = ResponsesRequest(
@@ -181,7 +182,6 @@ internal object PromptBuilder {
             InputMessage(InputRole.DEVELOPER, envelope.dataInputJson),
             envelope.userInputJson?.let { InputMessage(InputRole.USER, it) },
         ),
-        maxOutputTokens = envelope.maxOutputTokens,
     )
 }
 
