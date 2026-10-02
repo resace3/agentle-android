@@ -923,66 +923,217 @@ assume it.
 
 ## 14. Security and privacy
 
-- Token vault: `SecretVault` (Tink AEAD, Keystore-wrapped keyset, no user-auth requirement so background refresh
-  works) stores SIWC tokens + issued client id; Google tokens are not stored (Play services). Excluded from backup
-  (`dataExtractionRules`, `fullBackupContent`).
-- Logging: `Logger` facade -> `Redactor` (token patterns `eyJ…`, `Bearer`, `refresh_token`, `code=`, emails,
-  coordinates beyond 2 decimals, long digit runs) -> logcat (debug) + `diagnostic_log`. Structured fields only;
-  no AI payloads, notification text or precise location.
-- Exported components: only `MainActivity` (launcher), the NotificationListenerService (permission-protected by
-  `BIND_NOTIFICATION_LISTENER_SERVICE`), the boot/time/package receivers (system broadcasts), the Bluetooth ACL
-  receiver. Deep links are internal (`PendingIntent` with explicit component) — no browsable deep link except the
-  intent:// return page target which carries no secrets and is ignored unless a sign-in is pending.
-- Prompt injection [R04 §3.8]: no third-party text reaches the model in v1; the user's own text is data inside a
-  delimited, escaped block; instructions are app-constant; outputs are validated against closed schemas and the
-  JITAI lint L1-L8 and rendered as plain text; no tools and no code path from model output to export, deletion,
-  intents, network calls or settings (`:ai:*` may not depend on those modules).
-- Platform hardening [R04 §3.4, §3.10]: `intentMatchingFlags="enforceIntentFilter"`; every `PendingIntent`
-  explicit and `FLAG_IMMUTABLE` except the Activity Recognition one, which Play services requires mutable (explicit
-  component, non-exported receiver); `HIDE_OVERLAY_WINDOWS`; `taskAffinity=""`; Handoff off; `FLAG_SECURE` and
-  `Modifier.sensitiveContent()` on raw-content screens; notifications `VISIBILITY_PRIVATE` with a generic public
-  version; copies to the clipboard flagged sensitive.
-- Deletion order [R04 §3.7]: block writers (epoch guard), cancel work by tag and alarms, revoke tokens remotely,
-  delete rows with `secure_delete`, checkpoint and `VACUUM`, delete media, DataStore, `-wal`/`-shm` files, then the
-  Keystore aliases (crypto-erasure); "delete everything" ends with `clearApplicationUserData()`.
-- Release manifest excludes READ_SMS, READ_CALL_LOG, QUERY_ALL_PACKAGES, accessibility services,
-  ACCESS_BACKGROUND_LOCATION, READ_MEDIA_IMAGES/VIDEO, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, USE_EXACT_ALARM,
-  BODY_SENSORS(_BACKGROUND); a CI check asserts it on the merged release manifest.
+- Token vault: `SecretVault` (`:core:security`) keeps the SIWC tokens, the pending rotation record (§8.2) and the
+  issued client registration in one blob in `noBackupFilesDir`, replaced atomically. The blob is sealed directly with
+  Tink's `AndroidKeystore` helper: an AES-256-GCM Keystore key under alias `agentle.kek.vault.v1`
+  (`generateNewAes256GcmKey`, `getAead`), AAD `agentle/siwc-credentials/v1|<package>|<record version>`. No keyset is
+  kept in `shared_prefs`, and there is no plaintext fallback (`AndroidKeysetManager` is banned, §2). The key needs no
+  user authentication, so a background refresh works while the phone is locked. The vault is built lazily, its
+  construction never throws, and a key is never generated over existing ciphertext. A permanent failure (the classes
+  of §5.4) wipes the blob and returns Unreadable, which SIWC persists as `REAUTH_REQUIRED(LOCAL_CREDENTIALS_UNREADABLE)`
+  (`NEEDS_REAUTH` in the provider state, §8.4); a transient failure is retried later. Google tokens are never stored:
+  Play services holds them (§7.1).
+- Backups: the manifest sets `allowBackup="false"` and `fullBackupContent="false"`, and `data_extraction_rules.xml`
+  excludes every domain (root, file, database, sharedpref, external and the device-protected domains) from cloud
+  backup and from device transfer, so no record, token, key file, setting or media file leaves through backup. A
+  restore clears all consent grants (§9.1). The rules have no cross-platform-transfer section yet.
+- Logging: `Logger` facade -> `Redactor` -> logcat (debug builds) + `diagnostic_log`. Code logs structured fields only
+  (§15) and never logs AI payloads, notification text or precise location. The `Redactor` is a backstop: it masks
+  JWTs, bearer tokens and `Authorization` headers, OAuth parameters and any key ending in `token`, `secret`,
+  `verifier`, `password` or `api_key` (short keys match only as whole words, so fields such as `last_error_code` stay
+  readable), e-mail addresses, coordinates beyond 2 decimals, digit runs of 7 or more, and the provider token and id
+  prefixes `sk-`, `rt-`, `rt_`, `at_`, `oaiapp_`, `ya29.` and `urn:uuid:`. Tokens, codes and verifiers are a `Secret`
+  value class with a masked `toString()` (§8.2).
+- Exported components: `MainActivity` (launcher, plus the browsable target of the SIWC return page; its extras are
+  navigation hints, never commands), the `NotificationListenerService` (only the system can bind it, through
+  `BIND_NOTIFICATION_LISTENER_SERVICE`), at most one Bluetooth ACL receiver (protected broadcasts only; extras are
+  hints), and reviewed library components (WorkManager's `SystemJobService` with `BIND_JOB_SERVICE` and its
+  `DiagnosticsReceiver` with `DUMP`). Everything else is `exported="false"`: the boot, time, time-zone, locale and
+  package-replaced receivers (§6.4, §13), the notification entry activity and action receiver (§12) and the
+  FileProvider. Every `onReceive` dispatches through an action allow-list. Deep links are internal (`PendingIntent`
+  with an explicit component); the `intent://` of the SIWC return page carries no secrets and is ignored unless a
+  sign-in attempt is live (§8.1).
+- Prompt injection [R04 §3.8]: no third-party text reaches the model in v1, and every string the app did not write is
+  `UntrustedText`, sent only as a JSON string value inside a data item (§9.4); instructions are app-constant; outputs
+  are validated against closed schemas and `AiTextPolicy` (§9.5) and rendered as plain text; the model has no tools,
+  and no code path leads from model output to export, deletion, intents, network calls or settings. The matching
+  module rule (which modules `:ai:*` may not depend on) is not yet written down as a list or checked (§3.1).
+- Platform hardening [R04 §3.4, §3.10]: `intentMatchingFlags="enforceIntentFilter"`; every `PendingIntent` explicit
+  and `FLAG_IMMUTABLE` except the Activity Recognition one, which Play services requires mutable (explicit component,
+  non-exported receiver); notification actions carry only the decision key and its `delivery_nonce` (§12);
+  `HIDE_OVERLAY_WINDOWS`; `taskAffinity=""`; Handoff off. `FLAG_SECURE` is set while a sensitive screen is visible
+  (Timeline and notification detail, health and calendar detail, the NL request and AI review, export preview);
+  `Modifier.sensitiveContent()` marks personal content; `setRecentsScreenshotEnabled(false)` on API 33+; a "Protect
+  all screens" setting turns `FLAG_SECURE` on everywhere. Notifications use `VISIBILITY_PRIVATE` with a neutral public
+  version (§12). Clipboard copies happen only on an explicit user action and are flagged sensitive. R04 §3.4 allows
+  only the launcher intent in `<queries>`; the entries that Custom Tabs detection needs are not decided (§18).
+- Deletion: §5.5 is the deletion design (per-category deletes in chunks under the epoch guard; "delete everything" as
+  a stop, revoke, close and erase sequence with a resume marker; no VACUUM on the deletion path).
+- The release manifest declares none of: READ_SMS, READ_CALL_LOG, QUERY_ALL_PACKAGES, an accessibility service,
+  ACCESS_BACKGROUND_LOCATION, READ_MEDIA_IMAGES/VIDEO, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, SCHEDULE_EXACT_ALARM,
+  USE_EXACT_ALARM, BODY_SENSORS(_BACKGROUND). The design calls for a CI check on the merged `prodRelease` manifest that
+  asserts this list and the exported-components allow-list (R04 §3.4); it is not on main yet.
+
+### 14.1 Egress inventory
+
+Every path by which data can leave the app. Rule 2 (§1) allows the first five; the others are local hand-offs that
+the user starts or that the platform performs.
+
+| Path | Destination | What leaves | Control |
+|---|---|---|---|
+| Google Health client | `health.googleapis.com` | Requests for the user's own data (data type, time window, page token) with a bearer token from Play services | Egress allow-list; the real source sits behind a flag that is off by default (§7) |
+| Google authorization | Play services (`AuthorizationClient`) | Scope requests, token invalidation, revocation | Outside Agentle's HTTP clients |
+| SIWC auth client | `auth.openai.com` | Discovery, JWKS, code exchange (code and PKCE verifier), refresh (refresh token), revocation | Egress allow-list, no redirects, endpoints must share the issuer's origin (§8.3) |
+| ChatGPT sign-in page | The browser (Custom Tab) | The authorization request (PKCE challenge, `state`, `nonce`, per-install host id, `agent_name_hint`) | Outside Agentle's HTTP clients; the callback returns to the loopback listener on `127.0.0.1` (§8.1) |
+| SIWC API client | `api.openai.com` | AI requests built by `:ai:context` from granted categories; the model list | Egress allow-list; consent checked again on the exact body bytes (§9.3) |
+| Text-to-speech | The device's TTS engine (another app) | Intervention text to be spoken | Network voices off by default (§12). An allow-list of on-device engines is not decided |
+| Share sheet | An app the user picks | Copies of generated media (FileProvider, explicit grants) and the diagnostic report (allow-listed columns, §15) | User-initiated only |
+| Notifications | System UI; notification listeners of other apps can read posted text | Posted intervention text | Generic by default, `VISIBILITY_PRIVATE`, local-only unless the user opts in (§12) |
+| Backup and device transfer | None | Nothing: every domain is excluded (above) | `data_extraction_rules.xml`, `allowBackup="false"` |
+
+Rule 2 leaves no room for an analytics SDK, a crash reporter or any other network client. A user data export is not
+defined in v1 (R08 J9 tests one); whether it exists and how it leaves the device is open.
 
 ## 15. Error model and observability
 
-`AppError` sealed hierarchy: `PermissionDenied`, `PermissionPermanentlyDenied`, `AuthenticationRequired`,
-`TokenExpired`, `RateLimited(retryAfter?)`, `NetworkUnavailable`, `RemoteServerError(status)`, `ParsingError`,
-`DatabaseError`, `UnsupportedFeature`, `ValidationError(codes)`, `ConsentViolation`, `Cancelled`. Each has a stable
-code, a user-facing message resource and a retry hint. Diagnostics screen: app version, DB version, API level,
-permission states, connector states, last syncs, SIWC state, worker states (WorkManager `getWorkInfosFlow`), counts
-(events/insights/JITAIs), recent sanitized errors, "Export diagnostic report" (sanitized JSON via share sheet).
+`AppError` sealed hierarchy (`:core:common`): `PermissionDenied`, `PermissionPermanentlyDenied`,
+`AuthenticationRequired`, `TokenExpired`, `RateLimited(retryAfter?)`, `NetworkUnavailable`,
+`RemoteServerError(status)`, `ParsingError`, `DatabaseError`, `UnsupportedFeature`, `ValidationError(codes)`,
+`ConsentViolation`, `NotEligible(reason)`, `Cancelled`, `Unexpected`. Each has a stable code and a retry hint; the UI
+resolves user-facing text from the code, never from `detail`. No `AppError`, log line, stored row or diagnostic entry
+carries an exception's message or `toString()`: kotlinx.serialization decode errors embed the JSON input, so a
+malformed body would copy health data into diagnostics. Only the exception class name and an error code are recorded
+(§1 rule 5).
+
+Diagnostics screen: app version, DB version, API level, permission states, connector states, last syncs, SIWC state,
+worker states (WorkManager `getWorkInfosFlow`), counts (events/insights/JITAIs) and recent errors. Errors are
+`diagnostic_log` entries: an event code plus allow-listed fields whose keys are closed enums and whose values are
+enums, numbers, durations or HTTP status codes; there is no free-text column (§5.2). "Export diagnostic report" writes
+JSON from allow-listed columns only and hands it to the share sheet.
 
 ## 16. UI
 
 Screens: Onboarding, Dashboard, Data Sources, Permission Center, Timeline (Paging 3, filters source/type/date),
 Insights, JITAIs (Active/Suggested/Paused/History), JITAI Builder (manual + NL), Proposal Review, Wearable
-(Google Health), ChatGPT, AI Data Sharing, Settings, Diagnostics, Debug panel (fake flavor/debug only). UDF:
+(Google Health), ChatGPT, AI Data Sharing, Settings, Diagnostics, Debug panel (§4; where it lives is open, §18). UDF:
 `ViewModel` exposes `StateFlow<UiState>`, receives `Intent`s, emits one-off effects through a channel. All screens
 work with zero permissions. Status is never color-only (icon + text). Touch targets >= 48 dp, content descriptions,
 font scaling to 2.0.
+- Timeline pages by keyset on (`start_ms`, `seq`) with an upper bound captured when the Timeline opens, so rows
+  ingested while the user scrolls do not shift pages and no page uses an offset.
+- Sensitive screens set `FLAG_SECURE` and personal content uses `Modifier.sensitiveContent()` (§14).
+- Settings hold "detailed notifications" (off by default, §12) and "Protect all screens" (§14). The Permission Center
+  shows blocked notifications (§12) and the hibernation capability (§6.3).
 
 ## 17. Testing summary
 
-Tiers: L1 JVM unit (all JVM modules, JUnit 6), L2 JVM integration (clients vs fake servers, engine vs synthetic
-users), L3 Robolectric (Room DAOs/migrations, resolvers with shadowed app-ops, workers via `TestDriver`, Compose
-screens + Roborazzi screenshots, journeys J1-J10 on the fake flavor across SDK 29-37), L4 instrumented on emulators
-(GitHub Actions with KVM: API 29, 31, 34, 37; phone profiles small/Pixel/large; journeys + adb state injection), L5
-the 36-step final scenario. Evidence: JUnit XML aggregated by `tools/junit_summary.py` with `--no-build-cache` and a
-freshness gate; reported numbers come only from its JSON. Coverage gates (Kover): JITAI >= 95% line, features
->= 90%, normalization >= 90%, OAuth state >= 90%, repository/domain >= 85%.
+This section describes the test design. It does not claim that a test exists or passes; reported numbers come only
+from the evidence JSON.
+
+Tiers:
+- L1 JVM unit: all JVM modules, JUnit 6.
+- L2 JVM integration: the real clients against the fake servers, which serve literal R05/R06 bodies (§3.2); the
+  engine against synthetic users.
+- L3 Robolectric: JUnit 4 with the Robolectric runner (`org.junit.jupiter` imports are forbidden in Android modules);
+  Room DAOs and migrations on `BundledSQLiteDriver`; resolvers whose test helpers require every app-op mode and
+  notification state to be set explicitly; workers via `TestDriver`; Compose screens with Roborazzi screenshots;
+  journeys J1-J10 on the fake flavor. The full CI run covers Robolectric SDKs 29, 30, 31 and 33-37.
+- L4 instrumented on emulators or devices (SQLCipher, Keystore, real permission dialogs, process death). The device
+  matrix and its schedule are not decided yet (see "Planned" below).
+- L5: the 36-step final scenario. Its evidence format is not decided.
+
+Evidence: `tools/junit_summary.py` aggregates the JUnit XML, and reported numbers come only from its JSON. Evidence
+runs generate the expected-suite list from the build with minimum counts (`--expect`), pass `--fresh-after` with the
+run's start time, run without the build cache, fail on skipped tests unless they are allow-listed, and record the
+build mode. Pushes to `android/**` branches run a light CI (Robolectric SDKs 29 and 37, `lintDebug` only) that writes
+its mode and SDK list into the job summary; pushes to main, pull requests and manual runs use the full matrix, so
+evidence comes from those. Screenshot goldens live in each module's `src/screenshots`; CI records them only on a
+manual dispatch (`record_screenshots`, refused on main) and runs `verifyRoborazziDebug` for every module that has
+goldens.
+
+Time: test JVMs run with `user.timezone` and `TZ` set to America/St_Johns (a DST zone with a half-hour offset), and
+type-resolved detekt (`detektMain`, `detektTest`) enforces rule 8 in main and test sources. `TestAgentleClock`
+defaults to Australia/Adelaide and can run on a `TestCoroutineScheduler`, so virtual time drives wall and elapsed
+time; the sleeper derives from the clock. The fake servers and the synthetic generator take the clock as a
+constructor parameter, the SIWC fake shares the injected clock with the code under test, and the fake flavor anchors
+synthetic data to the device's real now. The JITAI engine, feature and analytics suites run under UTC,
+America/Los_Angeles, Asia/Kolkata, Pacific/Chatham and Australia/Adelaide, DST transitions included.
+
+Coverage gates (Kover): per-module line and branch gates: JITAI >= 95%, features >= 90%, normalization >= 90%,
+OAuth >= 90%, repository/domain >= 85%; `:fakes` and `:core:testing` are excluded. `koverVerify` runs in CI in report
+mode until the wave-1 branches merge, then it is enforced. `:ai:context`, `:background` and `:interventions` have no
+gate yet.
+
+Required tests (each named in a correction):
+- AI and privacy: SEC-AI-01 over every subset of enabled categories (or pairwise plus all-on and all-off) with a
+  canary marker per category, asserted on the exact bytes the `beforeSend` hook receives; SEC-AI-06; consent-store
+  faults (IOException and CorruptionException on read, a missing key, an unknown category, a toggle-off racing an
+  in-flight request), each of which denies; an injection corpus (calendar, notification, app-label and stored-insight
+  vectors); a canary over every SIWC error path; the neutral public version and the default posted text contain no
+  snapshot value.
+- Deletion and storage: a test that fails when a table of the exported schema is missing from
+  `DataCategoryRegistry`; an independent checker that walks `sqlite_master` and scans every column, JSON included, for
+  seeded markers and numbers after each delete action; "delete, then sync, inserts nothing older than the floor"
+  (storage and Google Health); the database key manager behind an interface with a JCE fake and a fault-injecting
+  decorator (transient `KeyStoreException`, `AEADBadTagException`, missing or truncated key file, missing alias, "file
+  is not a database"), with a golden test that pins the AAD, alias and file paths; a deleted vault alias or a corrupted
+  blob gives no crash, a reauth state and no keyset material in `shared_prefs`; golden JSON corpora decoded by the
+  current code (payload kinds, DataStore records, WorkManager input `Data`, every R10 `JitaiDefinition` example,
+  decision traces, rendered interventions); a renamed catalog id needs an alias table with a test.
+- Sync and features: upstream deletion and re-segmentation converge (R05 fixtures R7d, R6c); cursor clamps after clock
+  jumps in both directions; an account switch; a worker that gets `NeedsResolution`; the `FakeGoogleAuthorizer`
+  scripts; two devices' overlapping step records that `list` would return and `:reconcile` returns once; a watch at
+  7,800 steps and a phone at 7,000 over the same minutes never give 14,800; one test per feature with a gap inside its
+  window; with a daily-only API sync plus phone steps, `steps_today lt 3000` at 17:00 is TRUE on a 2,000-step day and
+  FALSE on a 9,000-step day; every collector's coverage id is a `CapabilityIds` value.
+- JITAI: every R10 §12 vector as a parameterized test whose name contains the vector id; R10 §13.6.3's SUPPRESSION
+  example as a golden test; crash points after commit, after claim, during render and after the post; co-timed rules
+  arbitrated across one pass; two concurrent passes against a real database; a real-thread stress test of the commit
+  protocol (parallel passes on `Dispatchers.Default` behind a start barrier, 1,000 times).
+- SIWC: a fake clock offset of ±2 min (sign-in works) and ±2 h (`DEVICE_CLOCK_WRONG`); captive portal and TLS
+  interception on discovery, token and refresh keep the tokens; a crash between the refresh response and the vault
+  write recovers from `pendingRotation`; owner cancellation after rotation; a JWKS failure; a 200 body that fails DTO
+  parsing; process death during sign-in gives `INTERRUPTED`.
+- Collectors and components: 5,000 updates of one notification key produce one row; an unknown broadcast action is
+  ignored; an exported-components allow-list holds.
+
+Planned (integrator, integration wave): a minified build type for the fake flavor and a `prodRelease` smoke test
+(§4); startup moved into an `AppInitializer` shared by `AgentleApplication` and a Hilt test application, with
+host-driven process-death tests; one device matrix, a nightly emulator workflow required for release tags, a
+host-side scenario runner and Orchestrator; a permanent archive of release APKs with an upgrade journey and SQLCipher
+migration tests on devices; nightly instrumented SQLCipher suites (SEC-DB, DAO, migration, concurrency); a real Custom
+Tab journey against the fake authorize endpoint; PIT mutation testing for `:jitai:dsl`, `:jitai:engine` and
+`:ai:context` with a traceability report of R10 vector and R04 SEC ids; Lincheck for the decision store and
+`SingleFlight`. Background wave: R02 E1-E18 on devices and a synthetic-day scheduling budget test per profile.
+Emulator swarm: the scale ladder and its budgets on SQLCipher. Tests that no correction or plan covers yet are listed
+as open in `docs/ARCHITECTURE_ISSUES.md`.
 
 ## 18. Known limitations and open questions
 
-- Google Health API is not onboarding new projects: production connector cannot be live tested.
+- Google Health API is "not onboarding new projects": the production connector cannot be live tested. The real API
+  source stays behind a flag that is off until the live spike (R05 §7.9 step 1) passes.
+- Launch blocker: whether an Android OAuth client (Play services `AuthorizationClient`) can be granted the
+  `googlehealth.*` scopes is UNVERIFIED. R05 §7.9's fallback (a Web client) needs a client secret on a token broker,
+  which v1 rules out (`verifyNoSecrets` rejects client secrets in the tree). If the live spike fails, the product owner
+  must decide how wearable data ships.
+- Google authorization, UNVERIFIED until the live spike: refresh tokens of an app in Testing publishing status expire
+  after 7 days [R05], and whether that applies to grants held by Play services is unknown; whether `AuthorizationClient`
+  returns tokens to a background worker without UI is unknown. The `AuthorizationClient` plumbing can be live-tested
+  now with a non-health scope (R05 §7.8 row 3); only the health scopes wait for onboarding.
 - SIWC on Android (loopback redirect from a Custom Tab) is standards-conformant but undocumented by OpenAI; needs a
   live device test with a Plus/Pro account.
 - json_schema structured outputs on SIWC are undocumented: prompted JSON + validation is the baseline.
-- Health data to OpenAI is a third-party transfer: explicit per-category consent, off by default.
-- Emulators cannot run in the build container (no KVM); emulator tiers run on GitHub Actions or a developer
-  machine.
+- Whether unattended plan-funded requests are acceptable is UNDOCUMENTED [R06 §10]; background AI sends stay within a
+  standing consent and its daily budget (§9.1).
+- Whether SIWC plan-usage requests follow the user's ChatGPT data controls, or are used for training, is UNDOCUMENTED
+  [R06 §10]. Requests set `store:false`; the consent disclosure names OpenAI and says requests are linked to the
+  user's ChatGPT account, but it cannot state OpenAI's retention or training use.
+- Health data to OpenAI is a third-party transfer: explicit per-category consent, off by default. Google's terms for
+  passing Google Health API data to a third party need legal review; until then `GH_API` values are never sent to AI
+  (§9.2).
+- Emulators cannot run in the build container (no KVM); emulator tiers run on GitHub Actions or a developer machine.
+- Open design questions (owners in `docs/ARCHITECTURE_ISSUES.md`): what happens to a previous Google Health account's
+  rows (§7.2); whether the debug tools live only in the fake flavor (§3 lists them in `:feature:settings` for debug
+  builds, §4 in the fake flavor); the module list behind the `:ai:*` rule (§3.1, §14); the `<queries>` entries for
+  Custom Tabs detection (§14); a cross-platform-transfer section in the backup rules (§14); an allow-list of on-device
+  TTS engines and whether a user data export exists (§14.1).
