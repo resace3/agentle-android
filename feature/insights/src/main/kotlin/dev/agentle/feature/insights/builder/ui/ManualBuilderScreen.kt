@@ -188,11 +188,14 @@ private fun EditingForm(state: ManualBuilderUiState.Editing, actions: BuilderAct
     ) { update(form.copy(confirmUnknownOverrides = it)) }
     Issues(v.general)
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (state.needsApproval) StatusLine(R.drawable.ic_insights_info, stringResource(R.string.builder_needs_approval))
         OutlinedButton(onClick = actions.saveDraft, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) {
             Text(stringResource(R.string.builder_save_draft))
         }
-        Button(onClick = actions.activate, enabled = !state.saving && v.canActivate, modifier = Modifier.heightIn(min = 48.dp)) {
-            Text(stringResource(R.string.builder_activate))
+        if (!state.needsApproval) {
+            Button(onClick = actions.activate, enabled = !state.saving && v.canActivate, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(stringResource(R.string.builder_activate))
+            }
         }
     }
 }

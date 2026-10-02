@@ -13,6 +13,7 @@ import dev.agentle.feature.insights.testing.FakeJitaiBuilderPort
 import dev.agentle.feature.insights.testing.Fixtures
 import dev.agentle.feature.insights.testing.MainDispatcherRule
 import dev.agentle.feature.insights.testing.record
+import dev.agentle.jitai.dsl.model.CreatedBy
 import dev.agentle.jitai.dsl.model.JitaiStatus
 import dev.agentle.jitai.dsl.nl.UnsupportedReason
 import dev.agentle.jitai.dsl.validation.IssueCode
@@ -76,6 +77,25 @@ class BuilderViewModelsTest {
         advanceUntilIdle()
         assertThat(editing(vm).isEdit).isTrue()
         assertThat(editing(vm).form.name).isEqualTo("Afternoon walk")
+        vm.saveDraft()
+        advanceUntilIdle()
+        assertThat(port.saved.single().status).isEqualTo(JitaiStatus.DRAFT)
+    }
+
+    @Test
+    fun `an edited AI rule can only be saved as a draft`() = runTest {
+        port.definitions[Fixtures.RULE_ID] = Fixtures.walkRule().copy(
+            createdBy = CreatedBy.AI_NATURAL_LANGUAGE,
+            description = "A walk in the afternoon.",
+        )
+        val vm = ManualBuilderViewModel(Fixtures.RULE_ID, port)
+        val effects = record(vm.effects)
+        advanceUntilIdle()
+        assertThat(editing(vm).needsApproval).isTrue()
+        vm.activate()
+        advanceUntilIdle()
+        assertThat(port.saved).isEmpty()
+        assertThat(effects).containsExactly(ScreenEffect.Message(UserMessage.SAVE_BLOCKED))
         vm.saveDraft()
         advanceUntilIdle()
         assertThat(port.saved.single().status).isEqualTo(JitaiStatus.DRAFT)

@@ -105,6 +105,7 @@ internal fun Outcome<Unit>.message(success: UserMessage, resume: Boolean = false
 
     is Outcome.Failure -> {
         val error = error
+        if (error is AppError.ValidationError && JitaiLifecycle.RULE_EXPIRED in error.codes) return UserMessage.RULE_EXPIRED
         val blocked = resume && error is AppError.ValidationError && JitaiLifecycle.ILLEGAL_TRANSITION !in error.codes
         if (blocked) UserMessage.RESUME_BLOCKED else UserMessage.ACTION_FAILED
     }

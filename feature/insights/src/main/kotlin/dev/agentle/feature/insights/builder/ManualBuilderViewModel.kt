@@ -160,7 +160,7 @@ internal class ManualBuilderViewModel @AssistedInject constructor(
         val current = revalidate(editing)
         val rule = built ?: return
         val validation = current.validation
-        val allowed = if (activate) validation.canActivate else validation.canSaveDraft
+        val allowed = if (activate) validation.canActivate && !current.needsApproval else validation.canSaveDraft
         if (!allowed) {
             mutableState.value = current.copy(showAllIssues = true)
             effectChannel.trySend(ScreenEffect.Message(UserMessage.SAVE_BLOCKED))
@@ -201,6 +201,7 @@ internal class ManualBuilderViewModel @AssistedInject constructor(
             JitaiLifecycle.apply(definition.copy(status = base.status), LifecycleEvent.EDIT, clock)
         }
         if (!activate) return draft
+        // SAVE refuses an AI-written rule (APPROVAL_REQUIRED): after an edit it stays a draft until approved again.
         return draft.flatMap { JitaiLifecycle.apply(it, LifecycleEvent.SAVE, clock) }.flatMap { active ->
             val verdict = RuleValidator.revalidate(active, environment.context.mediaLibrary)
             if (verdict.isValid) {
@@ -211,8 +212,12 @@ internal class ManualBuilderViewModel @AssistedInject constructor(
         }
     }
 
-    private fun saveFailure(error: AppError): UserMessage =
-        if (error is AppError.ValidationError) UserMessage.SAVE_BLOCKED else UserMessage.SAVE_FAILED
+    private fun saveFailure(error: AppError): UserMessage = when {
+        error is AppError.ValidationError && JitaiLifecycle.RULE_EXPIRED in error.codes -> UserMessage.RULE_EXPIRED
+        error is AppError.ValidationError && JitaiLifecycle.APPROVAL_REQUIRED in error.codes -> UserMessage.APPROVAL_REQUIRED
+        error is AppError.ValidationError -> UserMessage.SAVE_BLOCKED
+        else -> UserMessage.SAVE_FAILED
+    }
 
     @AssistedFactory
     interface Factory {
@@ -244,7 +249,10 @@ internal sealed interface ManualBuilderUiState {
         val isEdit: Boolean,
         val saving: Boolean = false,
         val showAllIssues: Boolean = false,
-    ) : ManualBuilderUiState
+    ) : ManualBuilderUiState {
+        /** An AI-written rule cannot be turned on from the editor: after an edit it must be approved again. */
+        val needsApproval: Boolean get() = RuleOrigin.of(form.base.createdBy) == RuleOrigin.AI
+    }
 }
 
 internal data class RuleChoice(val id: String, val name: String)

@@ -44,6 +44,7 @@
     <string name="builder_media">Media</string>
     <string name="builder_min">Minimum</string>
     <string name="builder_name">Name</string>
+    <string name="builder_needs_approval">Written by AI: after changes it is saved as a draft and must be approved again before it runs.</string>
     <string name="builder_negate">Not</string>
     <string name="builder_no">No</string>
     <string name="builder_operator">Comparison</string>
@@ -106,6 +107,7 @@
     <string name="insights_msg_action_failed">That did not work. Try again.</string>
     <string name="insights_msg_activated">Reminder turned on</string>
     <string name="insights_msg_already_handled">This suggestion was already handled</string>
+    <string name="insights_msg_approval_required">A reminder written by AI must be approved again after changes. It was kept as a draft.</string>
     <string name="insights_msg_disabled">Reminder turned off</string>
     <string name="insights_msg_feedback_failed">Could not save your feedback</string>
     <string name="insights_msg_feedback_saved">Thanks for your feedback</string>
@@ -113,6 +115,7 @@
     <string name="insights_msg_rejected">Suggestion declined</string>
     <string name="insights_msg_resume_blocked">This reminder needs changes before it can run again</string>
     <string name="insights_msg_resumed">Reminder resumed</string>
+    <string name="insights_msg_rule_expired">This reminder has ended. Edit it to set a new end date.</string>
     <string name="insights_msg_save_blocked">Fix the problems before turning it on</string>
     <string name="insights_msg_save_failed">Could not save</string>
     <string name="insights_msg_saved_draft">Saved as draft</string>

@@ -28,6 +28,8 @@ internal enum class UserMessage {
     FEEDBACK_FAILED,
     PROPOSAL_REJECTED,
     PROPOSAL_ALREADY_HANDLED,
+    RULE_EXPIRED,
+    APPROVAL_REQUIRED,
 }
 
 /**

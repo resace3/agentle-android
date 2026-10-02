@@ -112,7 +112,13 @@ internal class ProposalReviewViewModel @AssistedInject constructor(
         viewModelScope.launch {
             val verdict = RuleValidator.revalidate(definition, model.environment.context.mediaLibrary)
             val result = if (verdict.isValid) {
-                JitaiLifecycle.apply(definition, LifecycleEvent.APPROVE, model.environment.context.clock, model.report.rendering)
+                JitaiLifecycle.apply(
+                    definition,
+                    LifecycleEvent.APPROVE,
+                    model.environment.context.clock,
+                    approvedRendering = model.report.rendering,
+                    verdict = verdict,
+                )
                     .flatMap { approved -> port.activate(proposalId, approved) }
             } else {
                 Outcome.failure(AppError.ValidationError(verdict.codes.map { it.name }))

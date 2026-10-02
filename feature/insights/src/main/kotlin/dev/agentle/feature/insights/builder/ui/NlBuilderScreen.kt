@@ -40,7 +40,9 @@ import dev.agentle.feature.insights.ui.SectionTitle
 import dev.agentle.feature.insights.ui.StatusLine
 import dev.agentle.feature.insights.ui.issueText
 import dev.agentle.feature.insights.ui.label
+import dev.agentle.jitai.dsl.nl.NlContract
 import dev.agentle.jitai.dsl.nl.QuestionId
+import dev.agentle.jitai.dsl.nl.UnsupportedReason
 
 /** Everything the natural-language builder can do. */
 internal data class NlActions(
@@ -155,7 +157,16 @@ private fun PhaseContent(phase: NlPhase, actions: NlActions) {
 
         is NlPhase.Refused -> {
             StatusLine(R.drawable.ic_insights_info, stringResource(R.string.nl_refused_title))
-            Text(label(phase.reason))
+            // HEALTH_OR_SAFETY: the rule DSL's fixed message is the only text shown.
+            Text(
+                if (phase.reason ==
+                    UnsupportedReason.HEALTH_OR_SAFETY
+                ) {
+                    NlContract.unsupportedMessage(phase.reason)
+                } else {
+                    label(phase.reason)
+                },
+            )
             phase.detail?.let { Text(stringResource(R.string.nl_ai_said, it), style = MaterialTheme.typography.bodySmall) }
             OutlinedButton(
                 onClick = actions.startOver,

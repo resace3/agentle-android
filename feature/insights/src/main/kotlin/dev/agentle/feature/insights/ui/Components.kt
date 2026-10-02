@@ -176,6 +176,8 @@ internal fun issueText(issue: ValidationIssue): String = issueText(issue.code, i
 @StringRes
 internal fun UserMessage.text(): Int = when (this) {
     UserMessage.PAUSED -> R.string.insights_msg_paused
+    UserMessage.RULE_EXPIRED -> R.string.insights_msg_rule_expired
+    UserMessage.APPROVAL_REQUIRED -> R.string.insights_msg_approval_required
     UserMessage.RESUMED -> R.string.insights_msg_resumed
     UserMessage.DISABLED -> R.string.insights_msg_disabled
     UserMessage.ACTION_FAILED -> R.string.insights_msg_action_failed
