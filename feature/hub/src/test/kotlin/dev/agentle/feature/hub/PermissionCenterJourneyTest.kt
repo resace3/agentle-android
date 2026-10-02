@@ -1,7 +1,6 @@
 package dev.agentle.feature.hub
 
 import android.app.Application
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.result.ActivityResultRegistry
 import androidx.activity.result.ActivityResultRegistryOwner
@@ -10,7 +9,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -18,6 +17,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.core.app.ActivityOptionsCompat
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
 import com.google.common.truth.Truth.assertThat
 import dev.agentle.core.model.CapabilityCategory
@@ -39,7 +41,12 @@ import org.robolectric.annotation.Config
 @Config(sdk = [37], qualifiers = "en-rUS")
 class PermissionCenterJourneyTest {
     @get:Rule
-    val compose = createAndroidComposeRule<ComponentActivity>()
+    val compose = createComposeRule()
+
+    private class TestLifecycle : LifecycleOwner {
+        val registry = LifecycleRegistry.createUnsafe(this).apply { currentState = Lifecycle.State.RESUMED }
+        override val lifecycle: Lifecycle get() = registry
+    }
 
     private val app = ApplicationProvider.getApplicationContext<Application>()
 
@@ -72,8 +79,10 @@ class PermissionCenterJourneyTest {
             override val activityResultRegistry: ActivityResultRegistry = registry
         }
         val viewModel = PermissionCenterViewModel(null, port, clockPort())
+        val lifecycle = TestLifecycle()
         compose.setContent {
             CompositionLocalProvider(
+                LocalLifecycleOwner provides lifecycle,
                 LocalActivityResultRegistryOwner provides owner,
                 // First denial: Android would ask again; after the second it would not.
                 LocalPermissionRationale provides PermissionRationale { !permanently },
@@ -97,8 +106,10 @@ class PermissionCenterJourneyTest {
 
         // The user allows it in Settings and comes back: the screen re-evaluates on resume.
         port.setState("activity_recognition_transitions", PermissionState.ALLOWED)
-        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
-        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.runOnIdle {
+            lifecycle.registry.currentState = Lifecycle.State.CREATED
+            lifecycle.registry.currentState = Lifecycle.State.RESUMED
+        }
         compose.waitForIdle()
         compose.onNodeWithText("Allowed").assertExists()
         compose.onAllNodesWithText("Open Android Settings").assertCountEquals(0)

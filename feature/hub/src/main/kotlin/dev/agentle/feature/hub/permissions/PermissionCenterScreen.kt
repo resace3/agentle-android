@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -64,10 +65,11 @@ internal fun PermissionCenterRoute(viewModel: PermissionCenterViewModel, onBack:
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val requester = rememberPermissionRequester(viewModel::onPermissionResult)
+    val currentRequester by rememberUpdatedState(requester)
     LaunchedEffect(viewModel) {
         viewModel.effect.collect { effect ->
             when (effect) {
-                is PermissionCenterEffect.Request -> requester.request(effect.permissions)
+                is PermissionCenterEffect.Request -> currentRequester.request(effect.permissions)
                 is PermissionCenterEffect.OpenSettings -> context.openSettingsScreen(effect.intent)
             }
         }
