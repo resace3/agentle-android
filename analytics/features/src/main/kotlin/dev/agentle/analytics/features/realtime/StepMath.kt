@@ -36,6 +36,19 @@ internal object StepMath {
     const val MIN_OBSERVED_MINUTES: Int = 24
     const val CADENCE_MINUTES: Int = 30
 
+    /** The observed share a windowed step feature needs: 4/5, the 24 of 30 minutes of R10 §5.4 F. */
+    private const val OBSERVED_NUMERATOR = 4L
+    private const val OBSERVED_DENOMINATOR = 5L
+
+    /**
+     * True if at least 80 % of [window] lies in fused segments, so some source observed it (R10 §5.4 F: 24 of 30
+     * minutes; 48 of 60 by the same rule). Exact: compares nanoseconds.
+     */
+    fun mostlyObserved(series: FusedStepSeries, window: ClosedOpenRange): Boolean {
+        val observed = series.segments.sumOf { it.range.intersect(window)?.duration?.inWholeNanoseconds ?: 0L }
+        return observed * OBSERVED_DENOMINATOR >= window.duration.inWholeNanoseconds * OBSERVED_NUMERATOR
+    }
+
     /** True if some segment has an interval with data inside [window] (a true zero counts; coverage alone does not). */
     fun hasData(series: FusedStepSeries, window: ClosedOpenRange): Boolean = series.segments.any { segment ->
         val part = segment.range.intersect(window)

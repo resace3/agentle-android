@@ -18,6 +18,7 @@ internal object ActivityFeatures {
     private val REPORTED =
         setOf(ActivityKind.STILL, ActivityKind.WALKING, ActivityKind.RUNNING, ActivityKind.ON_BICYCLE, ActivityKind.IN_VEHICLE)
     private const val SECONDS_PER_MINUTE = 60L
+    private const val STEPS_TODAY = "steps_today"
 
     /**
      * `activity_state`: the activity of the latest ENTER, while its EXIT has not followed (a later EXIT of that activity
@@ -46,10 +47,18 @@ internal object ActivityFeatures {
      * `steps_today`, `steps_last_60m`, `steps_last_30m`: exact prorated sums over the fused series. Fresh when the
      * series' `coverageThrough >= t - maxLag`; otherwise `Stale` (the monotone lower bound applies to `steps_today` in
      * the evaluator). A window without any step interval is `Missing(NO_DATA)`, never 0.
+     *
+     * A minute in no fused segment is not observed: no source has a value or coverage for it, so it is no data, never
+     * 0 steps (R10 §5.4 F, lifecycle-battery-01). `steps_last_60m` and `steps_last_30m` need at least 80 % of their
+     * window observed (48 of 60 and 24 of 30 minutes, the rule of `activity_level_last_30m`); otherwise they are
+     * `Missing(COVERAGE_GAP)` when the series is fresh and `Missing(NOT_SYNCED)` when it is not (REALTIME-FEATURES-R1-1).
+     * `steps_today` keeps R10 §12.D: uncovered parts of the day count no steps (D1), and only a day with no step
+     * interval at all is `NO_DATA` (D6).
      */
     suspend fun steps(pass: FeaturePass, definition: FeatureDefinition): FeatureValue {
+        val today = definition.id == STEPS_TODAY
         val window = when (definition.id) {
-            "steps_today" -> ClosedOpenRange(LocalTimeRules.today(pass.at, pass.zone).start, pass.at)
+            STEPS_TODAY -> ClosedOpenRange(LocalTimeRules.today(pass.at, pass.zone).start, pass.at)
             "steps_last_60m" -> ClosedOpenRange(pass.at - 60.minutes, pass.at)
             else -> ClosedOpenRange(pass.at - 30.minutes, pass.at)
         }
@@ -58,9 +67,10 @@ internal object ActivityFeatures {
             val fresh = through != null && through >= pass.at - maxLag(definition)
             when {
                 // Nothing asserted for today yet: no lower bound exists for the new day (R10 §12.D D8).
-                through == null || (through < window.start && definition.id == "steps_today") -> FeatureValue.Missing(
-                    MissingReason.NOT_SYNCED,
-                )
+                through == null || (through < window.start && today) -> FeatureValue.Missing(MissingReason.NOT_SYNCED)
+
+                !today && !StepMath.mostlyObserved(series, window) ->
+                    FeatureValue.Missing(if (fresh) MissingReason.COVERAGE_GAP else MissingReason.NOT_SYNCED)
 
                 !StepMath.hasData(series, window) -> FeatureValue.Missing(if (fresh) MissingReason.NO_DATA else MissingReason.NOT_SYNCED)
 

@@ -37,7 +37,8 @@ class StepsPropertyTest {
     fun `step features over random sources are the floor of the exact fused sum`() = runTest {
         for (seed in 1..SEEDS) check(seed)
 
-        for (kind in listOf("known FINAL", "known PROVISIONAL", "stale", "missing NO_DATA", "missing NOT_SYNCED")) {
+        val kinds = listOf("known FINAL", "known PROVISIONAL", "stale", "missing NO_DATA", "missing NOT_SYNCED", "missing COVERAGE_GAP")
+        for (kind in kinds) {
             assertWithMessage(kind).that(seen[kind] ?: 0).isAtLeast(MIN_CASES)
         }
     }
@@ -89,7 +90,10 @@ class StepsPropertyTest {
             StepInterval(start, start + length, count)
         }
 
-    /** The per-minute oracle: owner = first source with a value in the minute or, without true zeros, coverage of it. */
+    /**
+     * The per-minute oracle: owner = first source with a value in the minute or, without true zeros, coverage of it.
+     * A windowed sum needs 80 % of its window in owned minutes (REALTIME-FEATURES-R1-1).
+     */
     private fun expected(sources: List<Source>, id: String, start: Instant, t: Instant, maxLag: Duration): FeatureValue {
         val through = sources.mapNotNull { it.through }.maxOrNull()
         if (through == null || (id == "steps_today" && through < start)) return FeatureValue.Missing(MissingReason.NOT_SYNCED)
@@ -98,6 +102,7 @@ class StepsPropertyTest {
         var sum = Fraction.ZERO
         var hasData = false
         var provisional = false
+        var observed = Duration.ZERO
         var minute = floorMinute(start)
         while (minute < t) {
             val minuteEnd = minute + 1.minutes
@@ -108,6 +113,7 @@ class StepsPropertyTest {
                 if (owner > 0 && (canonicalThrough == null || minuteEnd > canonicalThrough)) provisional = true
                 val lo = maxOf(minute, start)
                 val hi = minOf(minuteEnd, t)
+                observed += hi - lo
                 for (interval in sources[owner].intervals) {
                     if (interval.start == interval.end) {
                         if (interval.start >= lo && interval.start < hi) {
@@ -124,6 +130,9 @@ class StepsPropertyTest {
                 }
             }
             minute = minuteEnd
+        }
+        if (id != "steps_today" && observed * 5 < (t - start) * 4) {
+            return FeatureValue.Missing(if (fresh) MissingReason.COVERAGE_GAP else MissingReason.NOT_SYNCED)
         }
         if (!hasData) return FeatureValue.Missing(if (fresh) MissingReason.NO_DATA else MissingReason.NOT_SYNCED)
         val value = FeatureScalar.IntValue(sum.floor())

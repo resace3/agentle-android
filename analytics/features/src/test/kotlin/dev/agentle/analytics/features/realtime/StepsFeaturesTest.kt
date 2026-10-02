@@ -133,13 +133,16 @@ class StepsFeaturesTest {
     }
 
     @ParameterizedTest(name = "{0}")
-    @CsvSource("steps_last_60m, 16:41", "steps_last_30m, 16:41")
-    fun `windowed step sums need a lag of at most 20 minutes and are not lower bounds`(id: String, through: String) = runTest {
+    @CsvSource("steps_last_60m", "steps_last_30m")
+    fun `windowed step sums need a lag of at most 20 minutes and are not lower bounds`(id: String) = runTest {
         val f = d()
+        // The watch reported every minute of the hour (zeros around one walk); only its coverage assertion lags.
+        f.stepMinutes(watch, "2026-10-01T16:00", minutes = 30, count = 0)
         f.steps(watch, "2026-10-01T16:30", "2026-10-01T16:40", 500)
-        f.stepsCoverage(watch, "2026-10-01T$through")
+        f.stepMinutes(watch, "2026-10-01T16:40", minutes = 20, count = 0)
+        f.stepsCoverage(watch, "2026-10-01T16:41")
 
-        assertWithMessage(id).that(f.value(id)).isInstanceOf(FeatureValue.Known::class.java)
+        assertWithMessage(id).that(f.value(id)).isEqualTo(knownInt(500, f.local("2026-10-01T16:41")))
 
         f.stepsCoverage(watch, "2026-10-01T16:39")
         assertThat(f.value(id)).isEqualTo(
@@ -148,14 +151,128 @@ class StepsFeaturesTest {
     }
 
     @Test
-    fun `a window without step data is NO_DATA when fresh and NOT_SYNCED when stale`() = runTest {
+    fun `an observed window without step data is NO_DATA when fresh and NOT_SYNCED when stale`() = runTest {
+        // The phone omits zero minutes, so its coverage alone observes the window (R10 §5.4 F).
+        val f = RealtimeFixture(start = "2026-10-01T17:00").apply { onlyStepSource(phone, reportsTrueZeros = false) }
+        f.steps(phone, "2026-10-01T08:00", "2026-10-01T09:00", 1_000)
+        f.stepsCoverage(phone, "2026-10-01T17:00")
+        assertThat(f.value("steps_last_30m")).isEqualTo(missing(MissingReason.NO_DATA))
+
+        f.stepsCoverage(phone, "2026-10-01T16:00")
+        assertThat(f.value("steps_last_30m")).isEqualTo(missing(MissingReason.NOT_SYNCED))
+    }
+
+    // ------------------------------------------------------------------ gaps inside the window (lifecycle-battery-01, R1-1)
+
+    @Test
+    fun `R1-1 probe D an off-wrist hour is a coverage gap, never 0 steps`() = runTest {
+        // Worn 16:00-16:05 with 0 steps, then charged; the watch's coverage is fresh (16:55).
+        val f = d()
+        f.stepMinutes(watch, "2026-10-01T16:00", minutes = 5, count = 0)
+        f.stepsCoverage(watch, "2026-10-01T16:55")
+
+        assertThat(f.value("steps_last_60m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+        assertThat(f.value("steps_last_30m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+        assertThat(f.value("activity_level_last_30m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+    }
+
+    @Test
+    fun `R1-1 probe D2 a lagging zero-omitting source does not turn the unobserved minutes into zeros`() = runTest {
+        // The default three sources; Health Connect synced only through 15:30 and the phone never asserted coverage.
+        val f = RealtimeFixture(start = "2026-10-01T17:00")
+        f.stepMinutes(watch, "2026-10-01T16:00", minutes = 5, count = 0)
+        f.stepsCoverage(watch, "2026-10-01T16:55")
+        f.stepsCoverage(healthConnect, "2026-10-01T15:30")
+
+        assertThat(f.value("steps_last_60m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+    }
+
+    @Test
+    fun `R1-1 probe E one worn zero minute is not a 30-minute value`() = runTest {
+        val f = d()
+        f.stepMinutes(watch, "2026-10-01T16:40", minutes = 1, count = 0)
+        f.stepsCoverage(watch, "2026-10-01T16:55")
+
+        assertThat(f.value("steps_last_30m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+    }
+
+    @ParameterizedTest(name = "{0}: gap of {1} min")
+    @CsvSource(
+        "steps_last_60m, 12, 4800",
+        "steps_last_60m, 13, -1",
+        "steps_last_30m, 6, 2400",
+        "steps_last_30m, 7, -1",
+    )
+    fun `R1-1 a gap inside the window is allowed only while 80 percent of the window is observed`(
+        id: String,
+        gapMinutes: Int,
+        expected: Long,
+    ) = runTest {
+        // 100 steps in every worn minute; the watch is off the wrist for gapMinutes in the middle of the window.
+        val f = d()
+        val windowMinutes = if (id == "steps_last_60m") 60 else 30
+        val start = f.now - windowMinutes.minutes
+        val before = windowMinutes / 3
+        repeat(windowMinutes) { k ->
+            val worn = k < before || k >= before + gapMinutes
+            if (worn) f.inputs.steps.add(watch, StepInterval(start + k.minutes, start + (k + 1).minutes, 100))
+        }
+        f.stepsCoverage(watch, "2026-10-01T17:00")
+
+        val expectedValue = if (expected < 0) missing(MissingReason.COVERAGE_GAP) else knownInt(expected, f.now)
+        assertWithMessage("$id, ${windowMinutes - gapMinutes} observed minutes").that(f.value(id)).isEqualTo(expectedValue)
+    }
+
+    @Test
+    fun `R1-1 an unobserved window that is not fresh is NOT_SYNCED`() = runTest {
+        val f = d()
+        f.stepMinutes(watch, "2026-10-01T16:00", minutes = 5, count = 0)
+        f.stepsCoverage(watch, "2026-10-01T16:30")
+
+        assertThat(f.value("steps_last_60m")).isEqualTo(missing(MissingReason.NOT_SYNCED))
+        assertThat(f.value("steps_last_30m")).isEqualTo(missing(MissingReason.NOT_SYNCED))
+    }
+
+    @Test
+    fun `R1-1 R10 12D D1 a gap inside today is accepted for steps_today`() = runTest {
+        // Worn 08:00-09:00 (2,999 steps) and from 16:00, off the wrist 09:00-16:00: R10 §12.D D1 counts the day as known.
+        val f = d()
+        f.steps(watch, "2026-10-01T08:00", "2026-10-01T09:00", 2_999)
+        f.stepMinutes(watch, "2026-10-01T16:00", minutes = 31, count = 0)
+        f.stepsCoverage(watch, "2026-10-01T16:31")
+
+        assertThat(f.value("steps_today")).isEqualTo(knownInt(2_999, f.local("2026-10-01T16:31")))
+    }
+
+    @Test
+    fun `R1-1 a gap inside the activity level window is a coverage gap`() = runTest {
+        // Observed 17:30-17:35 and 17:42-18:00: 23 minutes, the gap in the middle of the window.
+        val f = RealtimeFixture(start = "2026-10-01T18:00").apply { onlyStepSource(watch) }
+        stepIntervalsEveryMinute(f, f.local("2026-10-01T17:30"), 5, 120)
+        stepIntervalsEveryMinute(f, f.local("2026-10-01T17:42"), 18, 120)
+        f.stepsCoverage(watch, "2026-10-01T18:00")
+
+        assertThat(f.value("activity_level_last_30m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+    }
+
+    @Test
+    fun `R1-1 a fully observed hour of true zeros is a known 0`() = runTest {
+        val f = d()
+        f.stepMinutes(watch, "2026-10-01T16:00", minutes = 60, count = 0)
+        f.stepsCoverage(watch, "2026-10-01T17:00")
+
+        assertThat(f.value("steps_last_60m")).isEqualTo(knownInt(0, f.now))
+        assertThat(f.value("steps_last_30m")).isEqualTo(knownInt(0, f.now))
+    }
+
+    @Test
+    fun `R1-1 a watch with nothing in a fresh window is a coverage gap, not NO_DATA`() = runTest {
+        // A source with true zeros reports every worn minute, so a window without any report was not observed.
         val f = d()
         f.steps(watch, "2026-10-01T08:00", "2026-10-01T09:00", 1_000)
         f.stepsCoverage(watch, "2026-10-01T16:50")
-        assertThat(f.value("steps_last_30m")).isEqualTo(missing(MissingReason.NO_DATA))
 
-        f.stepsCoverage(watch, "2026-10-01T16:00")
-        assertThat(f.value("steps_last_30m")).isEqualTo(missing(MissingReason.NOT_SYNCED))
+        assertThat(f.value("steps_last_30m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
     }
 
     @Test
@@ -174,7 +291,9 @@ class StepsFeaturesTest {
     @Test
     fun `an interval spanning the window start is found and prorated`() = runTest {
         val f = RealtimeFixture(start = "2026-10-01T17:30").apply { onlyStepSource(watch) }
+        f.stepMinutes(watch, "2026-10-01T16:30", minutes = 20, count = 0)
         f.steps(watch, "2026-10-01T16:50", "2026-10-01T17:10", 200)
+        f.stepMinutes(watch, "2026-10-01T17:10", minutes = 20, count = 0)
         f.stepsCoverage(watch, "2026-10-01T17:30")
 
         assertThat(f.value("steps_last_30m").knownLong).isEqualTo(100)
@@ -187,6 +306,7 @@ class StepsFeaturesTest {
         val windowStart = f.local("2026-10-01T17:00")
         // Ten intervals straddle the window start, each with 1/10 of its length inside: exactly 1 step in total.
         for (u in 1..10) f.inputs.steps.add(watch, StepInterval(windowStart - (9 * u).seconds, windowStart + u.seconds, 1))
+        f.stepMinutes(watch, "2026-10-01T17:01", minutes = 29, count = 0)
         f.stepsCoverage(watch, "2026-10-01T17:30")
 
         assertThat(f.value("steps_last_30m").knownLong).isEqualTo(1)
