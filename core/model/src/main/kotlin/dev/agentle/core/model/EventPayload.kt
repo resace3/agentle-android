@@ -3,7 +3,6 @@ package dev.agentle.core.model
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlin.time.Instant
 
 /**
  * Typed event payloads. Serialized with a `kind` discriminator (see [EventCodec]); every class has a stable
@@ -143,10 +142,12 @@ public data class ExercisePayload(
     val events: List<ExerciseEventEntry> = emptyList(),
     val startUtcOffsetSeconds: Int? = null,
     val endUtcOffsetSeconds: Int? = null,
-    /** Upstream last-modified time, when the source reports one. */
-    val upstreamUpdatedAt: Instant? = null,
 ) : EventPayload
 
+/**
+ * Heart rate: one sample ([bpm]), or an aggregate over the event's interval (for example a 60-second Google Health
+ * rollup), where [bpm] is the average and [minBpm]/[maxBpm] are the bounds.
+ */
 @Serializable
 @SerialName("heart_rate")
 public data class HeartRatePayload(
@@ -155,6 +156,8 @@ public data class HeartRatePayload(
     val motionContext: String? = null,
     /** Upstream sensor location (e.g. `WRIST`), when reported. */
     val sensorLocation: String? = null,
+    val minBpm: Double? = null,
+    val maxBpm: Double? = null,
 ) : EventPayload
 
 /**
@@ -226,8 +229,6 @@ public data class SleepSessionPayload(
     val manuallyEdited: Boolean? = null,
     val startUtcOffsetSeconds: Int? = null,
     val endUtcOffsetSeconds: Int? = null,
-    /** Upstream last-modified time, when the source reports one. */
-    val upstreamUpdatedAt: Instant? = null,
 ) : EventPayload
 
 @Serializable

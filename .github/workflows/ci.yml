@@ -46,7 +46,7 @@ jobs:
           add-job-summary: never
       - name: Test, detekt, ktlint
         shell: bash
-        run: mkdir -p build && ./gradlew test detekt spotlessCheck --continue 2>&1 | tee build/gradle-output.log
+        run: mkdir -p build && ./gradlew test detekt spotlessCheck verifyNoSecrets --continue 2>&1 | tee build/gradle-output.log
       - name: Test counts
         if: always()
         run: mkdir -p build && python3 tools/junit_summary.py --root . --json build/junit-summary.json --markdown "$GITHUB_STEP_SUMMARY"
