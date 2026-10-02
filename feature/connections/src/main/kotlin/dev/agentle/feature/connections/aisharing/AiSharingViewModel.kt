@@ -31,8 +31,7 @@ import javax.inject.Inject
  * history as metadata. Turning a category off is written at once and reports the requests it cancelled.
  */
 @HiltViewModel
-public class AiSharingViewModel @Inject constructor(private val port: AiDataSharingPort, zones: DisplayZonePort) :
-    ViewModel() {
+public class AiSharingViewModel @Inject constructor(private val port: AiDataSharingPort, zones: DisplayZonePort) : ViewModel() {
     private val reload = MutableStateFlow(0)
     private val local = MutableStateFlow(AiSharingLocal())
     private var previewJob: Job? = null

@@ -33,8 +33,7 @@ import javax.inject.Inject
  * A disconnect shows the disconnected state as soon as the port returns, whatever the port's flow says meanwhile.
  */
 @HiltViewModel
-public class ChatGptViewModel @Inject constructor(private val port: ChatGptConnectionPort, zones: DisplayZonePort) :
-    ViewModel() {
+public class ChatGptViewModel @Inject constructor(private val port: ChatGptConnectionPort, zones: DisplayZonePort) : ViewModel() {
     private val reload = MutableStateFlow(0)
     private val local = MutableStateFlow(ChatGptLocal())
 

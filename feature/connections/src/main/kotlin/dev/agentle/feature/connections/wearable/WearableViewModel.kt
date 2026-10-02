@@ -39,8 +39,7 @@ import javax.inject.Inject
  * back as [WearableAction.ConsentResult], also after the process was recreated meanwhile.
  */
 @HiltViewModel
-public class WearableViewModel @Inject constructor(private val port: WearableConnectionPort, zones: DisplayZonePort) :
-    ViewModel() {
+public class WearableViewModel @Inject constructor(private val port: WearableConnectionPort, zones: DisplayZonePort) : ViewModel() {
     private val reload = MutableStateFlow(0)
     private val local = MutableStateFlow(WearableLocal())
     private val effectChannel = Channel<WearableEffect>(Channel.BUFFERED)
