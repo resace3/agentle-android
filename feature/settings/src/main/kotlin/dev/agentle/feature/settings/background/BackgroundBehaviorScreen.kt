@@ -139,10 +139,12 @@ private fun SourcesSection(sources: List<ConnectorMetadata>?, onAction: (Backgro
 private fun SourceLine(source: ConnectorMetadata) {
     when {
         !source.enabled -> StatusLine(StatusKind.OFF, stringResource(R.string.settings_background_source_off, source.name))
+
         !source.permissionSummary.canCollect -> StatusLine(
             StatusKind.WARNING,
             stringResource(R.string.settings_background_source_blocked, source.name, permissionLabel(source.permissionSummary)),
         )
+
         else -> StatusLine(StatusKind.OK, stringResource(R.string.settings_background_source_on, source.name))
     }
 }

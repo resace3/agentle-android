@@ -27,7 +27,12 @@ internal fun SettingsHubRoute(navigator: AppNavigator, modifier: Modifier = Modi
 
 /** Settings (spec §22): one link per section; AI settings link to the connections feature's screens. */
 @Composable
-internal fun SettingsHubScreen(state: SettingsHubUiState, onNavigate: (AppRoute) -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SettingsHubScreen(
+    state: SettingsHubUiState,
+    onNavigate: (AppRoute) -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val formats = rememberDisplayFormats(state.zone)
     val snackbarHostState = remember { SnackbarHostState() }
     SettingsScaffold(

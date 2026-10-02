@@ -85,7 +85,9 @@ private fun AccessSection(access: NotificationAccess?, onAction: (NotificationAc
     SectionHeader(stringResource(R.string.settings_notifications_section_access))
     when {
         access == null -> StatusLine(StatusKind.INFO, stringResource(R.string.settings_notifications_access_unknown))
+
         access.canPost -> StatusLine(StatusKind.OK, stringResource(R.string.settings_notifications_access_ok))
+
         access.permission != PermissionState.ALLOWED -> NoticeCard(
             kind = StatusKind.WARNING,
             title = stringResource(R.string.settings_notifications_permission_missing),
@@ -152,7 +154,11 @@ private fun QuietHoursSection(quietHours: QuietHours, formats: DisplayFormats, o
     SectionHeader(stringResource(R.string.settings_notifications_section_quiet))
     SwitchRow(
         title = stringResource(R.string.settings_notifications_quiet_switch),
-        summary = stringResource(R.string.settings_notifications_quiet_summary, formats.time(quietHours.start), formats.time(quietHours.end)),
+        summary = stringResource(
+            R.string.settings_notifications_quiet_summary,
+            formats.time(quietHours.start),
+            formats.time(quietHours.end),
+        ),
         checked = quietHours.enabled,
         onCheckedChange = { onAction(NotificationAction.SetQuietHoursEnabled(it)) },
     )
@@ -233,14 +239,18 @@ private fun ContentSection(detailed: Boolean, showOnWearables: Boolean, onAction
     SectionHeader(stringResource(R.string.settings_notifications_section_content))
     SwitchRow(
         title = stringResource(R.string.settings_notifications_detailed),
-        summary = stringResource(if (detailed) R.string.settings_notifications_detailed_on else R.string.settings_notifications_detailed_off),
+        summary = stringResource(
+            if (detailed) R.string.settings_notifications_detailed_on else R.string.settings_notifications_detailed_off,
+        ),
         checked = detailed,
         onCheckedChange = { onAction(NotificationAction.SetDetailed(it)) },
     )
     BodyText(stringResource(R.string.settings_notifications_detailed_lock_screen))
     SwitchRow(
         title = stringResource(R.string.settings_notifications_wearables),
-        summary = stringResource(if (showOnWearables) R.string.settings_notifications_wearables_on else R.string.settings_notifications_wearables_off),
+        summary = stringResource(
+            if (showOnWearables) R.string.settings_notifications_wearables_on else R.string.settings_notifications_wearables_off,
+        ),
         checked = showOnWearables,
         onCheckedChange = { onAction(NotificationAction.SetShowOnWearables(it)) },
     )
@@ -256,7 +266,9 @@ private fun ChannelsSection(channels: List<NotificationChannelInfo>?, onAction: 
         channels.forEach { channel ->
             NavigationRow(
                 title = channel.name,
-                summary = stringResource(if (channel.blocked) R.string.settings_notifications_channel_blocked else R.string.settings_notifications_channel_on),
+                summary = stringResource(
+                    if (channel.blocked) R.string.settings_notifications_channel_blocked else R.string.settings_notifications_channel_on,
+                ),
                 onClick = { onAction(NotificationAction.OpenChannel(channel.id)) },
             )
         }

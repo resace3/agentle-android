@@ -82,10 +82,8 @@ internal sealed interface DeleteDataAction {
  * the progress, a failure or a resumed run after a restart all show the same way.
  */
 @HiltViewModel
-internal class DeleteDataViewModel @Inject constructor(
-    private val port: DeletionPort,
-    private val zone: UserTimeZonePort,
-) : EffectViewModel() {
+internal class DeleteDataViewModel @Inject constructor(private val port: DeletionPort, private val zonePort: UserTimeZonePort) :
+    EffectViewModel() {
     private data class Local(
         val request: DeleteRequest? = null,
         val deleting: DeletionTarget? = null,
@@ -112,9 +110,9 @@ internal class DeleteDataViewModel @Inject constructor(
             confirmingDeleteAll = pending.confirmingDeleteAll && deleteAll is DeleteAllState.Idle,
             startingDeleteAll = pending.startingDeleteAll,
             finishing = pending.finishing,
-            zone = zone.zone(),
+            zone = zonePort.zone(),
         )
-    }.stateIn(viewModelScope, WhileUiSubscribed, DeleteDataUiState(zone = zone.zone()))
+    }.stateIn(viewModelScope, WhileUiSubscribed, DeleteDataUiState(zone = zonePort.zone()))
 
     fun onAction(action: DeleteDataAction) {
         when (action) {

@@ -53,18 +53,20 @@ internal sealed interface RetentionAction {
  * ([RetentionPort.impactOf]) and needs confirmation when the next daily cleanup would delete anything.
  */
 @HiltViewModel
-internal class RetentionViewModel @Inject constructor(
-    private val port: RetentionPort,
-    private val zone: UserTimeZonePort,
-) : EffectViewModel() {
-    private data class Local(val saving: RetentionPeriod? = null, val counting: RetentionPeriod? = null, val confirmation: RetentionImpact? = null)
+internal class RetentionViewModel @Inject constructor(private val port: RetentionPort, private val zonePort: UserTimeZonePort) :
+    EffectViewModel() {
+    private data class Local(
+        val saving: RetentionPeriod? = null,
+        val counting: RetentionPeriod? = null,
+        val confirmation: RetentionImpact? = null,
+    )
 
     private val reloads = MutableStateFlow(0)
     private val local = MutableStateFlow(Local())
 
     val state: StateFlow<RetentionUiState> = combine(reloads.reloading { port.settings }, local) { settings, pending ->
-        RetentionUiState(settings, pending.saving, pending.counting, pending.confirmation, zone.zone())
-    }.stateIn(viewModelScope, WhileUiSubscribed, RetentionUiState(zone = zone.zone()))
+        RetentionUiState(settings, pending.saving, pending.counting, pending.confirmation, zonePort.zone())
+    }.stateIn(viewModelScope, WhileUiSubscribed, RetentionUiState(zone = zonePort.zone()))
 
     fun onAction(action: RetentionAction) {
         when (action) {

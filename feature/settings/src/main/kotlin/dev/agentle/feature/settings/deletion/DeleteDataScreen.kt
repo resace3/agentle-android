@@ -154,7 +154,8 @@ private fun itemCounts(item: DeletionItem, formats: DisplayFormats): String {
 @Composable
 private fun DeleteTargetDialog(request: DeleteRequest, formats: DisplayFormats, onAction: (DeleteDataAction) -> Unit) {
     val item = request.item
-    val fromSources = item.target is DeletionTarget.WearableData || item.target is DeletionTarget.PhoneData || item.target is DeletionTarget.Category
+    val fromSources =
+        item.target is DeletionTarget.WearableData || item.target is DeletionTarget.PhoneData || item.target is DeletionTarget.Category
     ConfirmDialog(
         title = stringResource(R.string.settings_delete_confirm_title, targetLabel(item.target)),
         confirmLabel = stringResource(R.string.settings_delete_action),
@@ -188,7 +189,10 @@ private fun DeletionReportCard(report: DeletionReport, formats: DisplayFormats, 
     val label = targetLabel(report.target)
     NoticeCard(
         kind = if (report.complete) StatusKind.DONE else StatusKind.WARNING,
-        title = stringResource(if (report.complete) R.string.settings_delete_report_done else R.string.settings_delete_report_incomplete, label),
+        title = stringResource(
+            if (report.complete) R.string.settings_delete_report_done else R.string.settings_delete_report_incomplete,
+            label,
+        ),
     ) {
         BodyText(
             if (report.deletedFiles > 0) {

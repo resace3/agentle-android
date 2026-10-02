@@ -21,10 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
 import javax.inject.Inject
 
-internal data class PrivacyUiState(
-    val content: Loadable<PrivacyState> = Loadable.Loading,
-    val zone: TimeZone = TimeZone.UTC,
-)
+internal data class PrivacyUiState(val content: Loadable<PrivacyState> = Loadable.Loading, val zone: TimeZone = TimeZone.UTC)
 
 internal sealed interface PrivacyAction {
     data object Retry : PrivacyAction
@@ -38,15 +35,13 @@ internal sealed interface PrivacyAction {
 
 /** Privacy: what is stored where, what never leaves the phone, AI sharing and the protections in force. */
 @HiltViewModel
-internal class PrivacyViewModel @Inject constructor(
-    private val port: PrivacyPort,
-    private val zone: UserTimeZonePort,
-) : EffectViewModel() {
+internal class PrivacyViewModel @Inject constructor(private val port: PrivacyPort, private val zonePort: UserTimeZonePort) :
+    EffectViewModel() {
     private val reloads = MutableStateFlow(0)
 
     val state: StateFlow<PrivacyUiState> = reloads.reloading { port.state }
-        .map { PrivacyUiState(it, zone.zone()) }
-        .stateIn(viewModelScope, WhileUiSubscribed, PrivacyUiState(zone = zone.zone()))
+        .map { PrivacyUiState(it, zonePort.zone()) }
+        .stateIn(viewModelScope, WhileUiSubscribed, PrivacyUiState(zone = zonePort.zone()))
 
     fun onAction(action: PrivacyAction) {
         when (action) {
@@ -58,6 +53,7 @@ internal class PrivacyViewModel @Inject constructor(
             }
 
             PrivacyAction.OpenAiDataSharing -> send(SettingsEffect.Navigate(AppRoute.AiDataSharing))
+
             PrivacyAction.OpenNotificationSettings -> send(SettingsEffect.Navigate(AppRoute.NotificationSettings))
         }
     }

@@ -89,10 +89,8 @@ internal sealed interface DebugAction {
  * [DebugPanelUiState.NotAvailable] for good and this ViewModel never touches the port again.
  */
 @HiltViewModel
-internal class DebugPanelViewModel @Inject constructor(
-    private val port: DebugToolsPort,
-    private val zone: UserTimeZonePort,
-) : EffectViewModel() {
+internal class DebugPanelViewModel @Inject constructor(private val port: DebugToolsPort, private val zonePort: UserTimeZonePort) :
+    EffectViewModel() {
     private data class Local(
         val eventType: EventType? = null,
         val eventCount: Int = EVENT_COUNTS[1],
@@ -116,22 +114,30 @@ internal class DebugPanelViewModel @Inject constructor(
                 running = pending.running,
                 choosingEventType = pending.choosingEventType,
                 confirmingClear = pending.confirmingClear,
-                zone = zone.zone(),
+                zone = zonePort.zone(),
             )
-        }.stateIn(viewModelScope, WhileUiSubscribed, DebugPanelUiState.Available(zone = zone.zone()))
+        }.stateIn(viewModelScope, WhileUiSubscribed, DebugPanelUiState.Available(zone = zonePort.zone()))
     }
 
     fun onAction(action: DebugAction) {
         if (!available) return
         when (action) {
             DebugAction.Retry -> reloads.update { it + 1 }
+
             is DebugAction.SelectWearableScenario -> runTool(Done) { port.selectWearableScenario(action.id) }
+
             is DebugAction.SelectChatGptScenario -> runTool(Done) { port.selectChatGptScenario(action.id) }
+
             DebugAction.ChooseEventType -> local.update { it.copy(choosingEventType = true) }
+
             DebugAction.DismissEventTypes -> local.update { it.copy(choosingEventType = false) }
+
             is DebugAction.SelectEventType -> local.update { it.copy(eventType = action.type, choosingEventType = false) }
+
             is DebugAction.StepEventCount -> local.update { it.copy(eventCount = stepCount(it.eventCount, action.up)) }
+
             DebugAction.GenerateEvents -> generateEvents()
+
             DebugAction.GenerateDataset -> runTool({ count: Int -> message(R.string.settings_debug_dataset_done, count) }) {
                 port.generateDataset(DATASET_DAYS)
             }
@@ -141,11 +147,17 @@ internal class DebugPanelViewModel @Inject constructor(
             }
 
             is DebugAction.ShiftTime -> shiftTime(action.delta)
+
             DebugAction.ClearTimeOffset -> runTool(Done) { port.clearTimeOffset() }
+
             is DebugAction.ForceSync -> runTool(Done) { port.forceSync(action.connectorId) }
+
             is DebugAction.ForceWorker -> runTool(Done) { port.forceWorker(action.uniqueName) }
+
             DebugAction.RequestClearDatabase -> local.update { it.copy(confirmingClear = true) }
+
             DebugAction.DismissClearDatabase -> local.update { it.copy(confirmingClear = false) }
+
             DebugAction.ConfirmClearDatabase -> {
                 local.update { it.copy(confirmingClear = false) }
                 runTool(Done) { port.clearDatabase() }
@@ -158,7 +170,9 @@ internal class DebugPanelViewModel @Inject constructor(
     private fun generateEvents() {
         val current = state.value as? DebugPanelUiState.Available ?: return
         val type = current.effectiveEventType ?: return
-        runTool({ count: Int -> message(R.string.settings_debug_events_done, count) }) { port.generateSyntheticEvents(type, current.eventCount) }
+        runTool({ count: Int ->
+            message(R.string.settings_debug_events_done, count)
+        }) { port.generateSyntheticEvents(type, current.eventCount) }
     }
 
     private fun shiftTime(delta: Duration) {
@@ -195,6 +209,7 @@ internal class DebugPanelViewModel @Inject constructor(
         /** The message of a tool without a result to show. */
         private val Done: (Any?) -> SettingsEffect.Message = { SettingsEffect.Message(R.string.settings_debug_done) }
 
-        private fun message(@StringRes text: Int, value: Any): SettingsEffect.Message = SettingsEffect.Message(text, listOf(value.toString()))
+        private fun message(@StringRes text: Int, value: Any): SettingsEffect.Message =
+            SettingsEffect.Message(text, listOf(value.toString()))
     }
 }

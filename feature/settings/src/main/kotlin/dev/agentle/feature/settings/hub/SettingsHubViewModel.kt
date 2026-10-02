@@ -43,7 +43,7 @@ internal class SettingsHubViewModel @Inject constructor(
     background: BackgroundBehaviorPort,
     notifications: NotificationSettingsPort,
     debugTools: DebugToolsPort,
-    private val zone: UserTimeZonePort,
+    private val zonePort: UserTimeZonePort,
 ) : ViewModel() {
     private val debugAvailable: Boolean = debugTools.available
 
@@ -58,12 +58,12 @@ internal class SettingsHubViewModel @Inject constructor(
             pause = notification?.pause,
             dailyCap = notification?.limits?.dailyCap,
             debugAvailable = debugAvailable,
-            zone = zone.zone(),
+            zone = zonePort.zone(),
         )
     }.stateIn(
         scope = viewModelScope,
         started = WhileUiSubscribed,
-        initialValue = SettingsHubUiState(debugAvailable = debugAvailable, zone = zone.zone()),
+        initialValue = SettingsHubUiState(debugAvailable = debugAvailable, zone = zonePort.zone()),
     )
 }
 

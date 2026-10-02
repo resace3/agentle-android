@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 internal val WhileUiSubscribed: SharingStarted = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000)
 
 /** A settings ViewModel with a channel of one-off [SettingsEffect]s, collected by [HandleSettingsEffects]. */
-internal abstract class EffectViewModel : ViewModel() {
+internal open class EffectViewModel : ViewModel() {
     private val effectChannel = Channel<SettingsEffect>(Channel.BUFFERED)
 
     /** One-off effects; each is delivered to one collector once. */

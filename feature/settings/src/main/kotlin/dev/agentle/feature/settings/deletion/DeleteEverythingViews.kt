@@ -145,7 +145,9 @@ private fun VerifiedPanel(state: DeleteAllState.Verified, finishing: Boolean, on
         report.checks.forEach { CheckLine(it) }
     }
     SectionHeader(stringResource(R.string.settings_delete_all_close_title))
-    BodyText(stringResource(if (report.complete) R.string.settings_delete_all_close_body else R.string.settings_delete_all_close_body_left_over))
+    BodyText(
+        stringResource(if (report.complete) R.string.settings_delete_all_close_body else R.string.settings_delete_all_close_body_left_over),
+    )
     ButtonRow {
         DestructiveButton(
             text = stringResource(R.string.settings_delete_all_close_action),

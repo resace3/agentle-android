@@ -80,7 +80,7 @@ internal sealed interface NotificationAction {
 internal class NotificationSettingsViewModel @Inject constructor(
     private val port: NotificationSettingsPort,
     private val systemSettings: SystemSettingsPort,
-    private val zone: UserTimeZonePort,
+    private val zonePort: UserTimeZonePort,
 ) : EffectViewModel() {
     private val reloads = MutableStateFlow(0)
     private val pendingLimits = MutableStateFlow<DeliveryLimits?>(null)
@@ -102,32 +102,45 @@ internal class NotificationSettingsViewModel @Inject constructor(
         } else {
             content
         }
-        NotificationSettingsUiState(shown, zone.zone())
-    }.stateIn(viewModelScope, WhileUiSubscribed, NotificationSettingsUiState(zone = zone.zone()))
+        NotificationSettingsUiState(shown, zonePort.zone())
+    }.stateIn(viewModelScope, WhileUiSubscribed, NotificationSettingsUiState(zone = zonePort.zone()))
 
     fun onAction(action: NotificationAction) {
         when (action) {
             NotificationAction.Retry -> reloads.update { it + 1 }
+
             is NotificationAction.Pause -> write { port.pause(action.option) }
+
             NotificationAction.Resume -> write { port.resume() }
+
             is NotificationAction.SetQuietHoursEnabled -> editQuietHours { it.copy(enabled = action.enabled) }
+
             is NotificationAction.StepQuietHoursStart ->
                 editQuietHours { it.copy(start = it.start.plusMinutesWrapped(quietStep(action.later))) }
 
             is NotificationAction.StepQuietHoursEnd -> editQuietHours { it.copy(end = it.end.plusMinutesWrapped(quietStep(action.later))) }
+
             is NotificationAction.StepDailyCap -> editLimits { it.withDailyCap(it.dailyCap + step(LimitSteps.DAILY_CAP, action.up)) }
+
             is NotificationAction.StepWeeklyCap -> editLimits { it.withWeeklyCap(it.weeklyCap + step(LimitSteps.WEEKLY_CAP, action.up)) }
+
             is NotificationAction.StepMinGap -> editLimits { it.withMinGap(it.minGapMinutes + step(LimitSteps.MIN_GAP_MINUTES, action.up)) }
+
             is NotificationAction.StepChannelCap -> editLimits {
                 it.withChannelCap(action.channel, it.effectiveChannelCap(action.channel) + step(LimitSteps.CHANNEL_CAP, action.up))
             }
 
             is NotificationAction.SetDetailed -> write { port.setDetailedNotifications(action.enabled) }
+
             is NotificationAction.SetShowOnWearables -> write { port.setShowOnWearables(action.enabled) }
+
             is NotificationAction.OpenChannel ->
                 openSystemPage(systemSettings.intentFor(SystemSettingsTarget.NotificationChannel(action.channelId)))
 
-            NotificationAction.OpenAppNotificationSettings -> openSystemPage(systemSettings.intentFor(SystemSettingsTarget.AppNotifications))
+            NotificationAction.OpenAppNotificationSettings -> openSystemPage(
+                systemSettings.intentFor(SystemSettingsTarget.AppNotifications),
+            )
+
             NotificationAction.FixPermission -> fixPermission()
         }
     }

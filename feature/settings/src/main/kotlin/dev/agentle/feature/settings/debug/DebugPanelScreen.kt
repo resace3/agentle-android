@@ -94,7 +94,12 @@ internal fun DebugPanelScreen(
 }
 
 @Composable
-private fun DebugTools(tools: DebugToolsState, state: DebugPanelUiState.Available, formats: DisplayFormats, onAction: (DebugAction) -> Unit) {
+private fun DebugTools(
+    tools: DebugToolsState,
+    state: DebugPanelUiState.Available,
+    formats: DisplayFormats,
+    onAction: (DebugAction) -> Unit,
+) {
     val enabled = !state.running
     ScenarioSection(
         title = stringResource(R.string.settings_debug_section_wearable),
@@ -145,7 +150,10 @@ private fun DebugTools(tools: DebugToolsState, state: DebugPanelUiState.Availabl
 
     SectionHeader(stringResource(R.string.settings_debug_section_time))
     InfoRow(stringResource(R.string.settings_debug_app_time), formats.dateTime(tools.appTime))
-    InfoRow(stringResource(R.string.settings_debug_time_offset), tools.timeOffset?.toString() ?: stringResource(R.string.settings_debug_none))
+    InfoRow(
+        stringResource(R.string.settings_debug_time_offset),
+        tools.timeOffset?.toString() ?: stringResource(R.string.settings_debug_none),
+    )
     ButtonRow {
         OutlinedButton(onClick = { onAction(DebugAction.ShiftTime(1.hours)) }, enabled = enabled) {
             Text(stringResource(R.string.settings_debug_plus_hour))

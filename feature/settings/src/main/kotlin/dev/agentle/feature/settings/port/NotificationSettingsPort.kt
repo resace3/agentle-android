@@ -76,11 +76,10 @@ public object DeliveryLimitBounds {
     public fun channelCapRange(dailyCap: Int): IntRange = 0..dailyCap.coerceIn(dailyCapRange)
 
     /** True when [limits] is within every ceiling. */
-    public fun contains(limits: DeliveryLimits): Boolean =
-        limits.dailyCap in dailyCapRange &&
-            limits.weeklyCap in weeklyCapRange &&
-            limits.minGapMinutes in minGapRange &&
-            limits.channelCaps.values.all { it in channelCapRange(limits.dailyCap) }
+    public fun contains(limits: DeliveryLimits): Boolean = limits.dailyCap in dailyCapRange &&
+        limits.weeklyCap in weeklyCapRange &&
+        limits.minGapMinutes in minGapRange &&
+        limits.channelCaps.values.all { it in channelCapRange(limits.dailyCap) }
 }
 
 /** Whether Agentle can post notifications (the delivery prerequisite: red team jitai-correctness-13). */

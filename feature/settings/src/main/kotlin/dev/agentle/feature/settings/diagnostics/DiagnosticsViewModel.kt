@@ -37,16 +37,14 @@ internal sealed interface DiagnosticsAction {
 
 /** Diagnostics (spec §55): codes, states, counts and times only; the export goes to the share sheet. */
 @HiltViewModel
-internal class DiagnosticsViewModel @Inject constructor(
-    private val port: DiagnosticsPort,
-    private val zone: UserTimeZonePort,
-) : EffectViewModel() {
+internal class DiagnosticsViewModel @Inject constructor(private val port: DiagnosticsPort, private val zonePort: UserTimeZonePort) :
+    EffectViewModel() {
     private val reloads = MutableStateFlow(0)
     private val exporting = MutableStateFlow(false)
 
     val state: StateFlow<DiagnosticsUiState> = combine(reloads.reloading { port.snapshot }, exporting) { content, isExporting ->
-        DiagnosticsUiState(content, isExporting, zone.zone())
-    }.stateIn(viewModelScope, WhileUiSubscribed, DiagnosticsUiState(zone = zone.zone()))
+        DiagnosticsUiState(content, isExporting, zonePort.zone())
+    }.stateIn(viewModelScope, WhileUiSubscribed, DiagnosticsUiState(zone = zonePort.zone()))
 
     fun onAction(action: DiagnosticsAction) {
         when (action) {

@@ -26,6 +26,7 @@ internal fun HandleSettingsEffects(effects: Flow<SettingsEffect>, navigator: App
         effects.collect { effect ->
             when (effect) {
                 is SettingsEffect.Message -> {
+                    @Suppress("SpreadOperator") // a few short format arguments, once per message
                     val text = resources.getString(effect.text, *effect.args.toTypedArray())
                     launch { snackbarHostState.showSnackbar(text) }
                 }

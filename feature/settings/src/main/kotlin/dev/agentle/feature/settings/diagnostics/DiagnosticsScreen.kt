@@ -96,8 +96,14 @@ internal fun DiagnosticsScreen(
 private fun AppSection(snapshot: DiagnosticsSnapshot) {
     SectionHeader(stringResource(R.string.settings_diagnostics_section_app))
     val build = snapshot.build
-    InfoRow(stringResource(R.string.settings_diagnostics_version), stringResource(R.string.settings_diagnostics_version_value, build.versionName, build.versionCode))
-    InfoRow(stringResource(R.string.settings_diagnostics_build), stringResource(R.string.settings_diagnostics_build_value, build.flavor, build.buildType))
+    InfoRow(
+        stringResource(R.string.settings_diagnostics_version),
+        stringResource(R.string.settings_diagnostics_version_value, build.versionName, build.versionCode),
+    )
+    InfoRow(
+        stringResource(R.string.settings_diagnostics_build),
+        stringResource(R.string.settings_diagnostics_build_value, build.flavor, build.buildType),
+    )
     InfoRow(
         stringResource(R.string.settings_diagnostics_database_version),
         snapshot.databaseVersion?.toString() ?: stringResource(R.string.settings_diagnostics_unavailable),
