@@ -41,6 +41,15 @@ public data class NotificationPayload(
     val channelHash: String? = null,
     val ongoing: Boolean = false,
     val groupSummary: Boolean = false,
+    /**
+     * SHA-256 of `StatusBarNotification.key`. One POSTED row per key: updates of a posted notification are folded into
+     * [updateCount]/[lastUpdateEpochMs] of that row instead of becoming new posts (red team lifecycle-battery-02).
+     */
+    val keyHash: String? = null,
+    val foregroundService: Boolean = false,
+    val localOnly: Boolean = false,
+    val updateCount: Int = 0,
+    val lastUpdateEpochMs: Long? = null,
     /** Whether the notification carried text at all (known even when content capture is off). */
     val hasText: Boolean = false,
     /** Personal text: only captured when notification content capture is enabled for this app. */

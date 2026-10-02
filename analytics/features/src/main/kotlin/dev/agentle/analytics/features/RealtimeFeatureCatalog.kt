@@ -9,8 +9,10 @@ import kotlin.time.Duration.Companion.minutes
  * the "data required" list all read it. Changing an id, type, range or arg is a breaking change: bump [VERSION] and
  * migrate stored rules.
  *
- * v1 deviation from R10: `location_class` comes from the latest foreground location fix (background location and
- * geofencing are deferred, docs/ARCHITECTURE.md §6.4), so it is usually UNKNOWN while the app is in the background.
+ * v1 deviation from R10: `location_class` is [FeatureAvailability.Unavailable]. R10 derives it from geofences, which
+ * need background location, and background location is deferred (docs/ARCHITECTURE.md §6.4). A foreground fix cannot
+ * say where the user is while the app is closed, so rules may not reference it and the `LOCATION_CLASS_CHANGED`
+ * trigger does not exist in v1 (architecture red team, lifecycle-battery-06).
  */
 public object RealtimeFeatureCatalog {
     public const val VERSION: Int = 1
@@ -169,8 +171,12 @@ public object RealtimeFeatureCatalog {
             "At home, at work or elsewhere (latest location fix)",
             Freshness.SourceLag(30.minutes),
             enumValues = listOf("HOME", "WORK", "OTHER"),
-            sources = setOf("location_foreground"),
+            sources = setOf("location_background"),
             category = DataCategory.LOCATION,
+            availability = FeatureAvailability.Unavailable(
+                capabilityId = "location_background",
+                reason = "Background location is not collected in this version",
+            ),
         ),
         // F. Activity and steps
         FeatureDefinition(
