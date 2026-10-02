@@ -2,6 +2,7 @@ package dev.agentle.jitai.dsl.validation
 
 import dev.agentle.analytics.features.FeatureRef
 import dev.agentle.jitai.dsl.analysis.RuleAnalysis
+import dev.agentle.jitai.dsl.codec.DslSerializers
 import dev.agentle.jitai.dsl.codec.RuleCodec
 import dev.agentle.jitai.dsl.codec.SchemaWalker
 import dev.agentle.jitai.dsl.codec.Schemas
@@ -73,7 +74,7 @@ internal class ValidationRun(private val request: ValidationRequest, private val
             sink.add(IssueCode.E001, Stage.S0, "", mapOf("detail" to "text before or after the object"))
             return
         }
-        val decoded = decode(json, Schemas.proposal, JitaiProposal.serializer()) ?: return
+        val decoded = decode(json, Schemas.proposal, DslSerializers.proposal) ?: return
         proposal(decoded, createdBy)
     }
 
@@ -82,13 +83,13 @@ internal class ValidationRun(private val request: ValidationRequest, private val
         stage = Stage.S4
         val draft = value.jitai
         if (draft != null && RuleValidator.tooDeep(sink, JITAI_BASE, origin, draft.conditions, draft.contextRequirements)) return
-        val decoded = decode(RuleCodec.encodeProposal(value), Schemas.proposal, JitaiProposal.serializer()) ?: return
+        val decoded = decode(RuleCodec.encodeProposal(value), Schemas.proposal, DslSerializers.proposal) ?: return
         proposal(decoded, createdBy)
     }
 
     private fun discoveredText(text: String) {
         origin = request.origin ?: RuleOrigin.AI
-        val decoded = decode(text, Schemas.discovered, DiscoveredProposal.serializer()) ?: return
+        val decoded = decode(text, Schemas.discovered, DslSerializers.discovered) ?: return
         discovered(decoded)
     }
 
@@ -96,13 +97,13 @@ internal class ValidationRun(private val request: ValidationRequest, private val
         origin = request.origin ?: RuleOrigin.AI
         stage = Stage.S4
         if (RuleValidator.tooDeep(sink, JITAI_BASE, origin, value.jitai.conditions, value.jitai.contextRequirements)) return
-        val decoded = decode(RuleCodec.encodeDiscovered(value), Schemas.discovered, DiscoveredProposal.serializer()) ?: return
+        val decoded = decode(RuleCodec.encodeDiscovered(value), Schemas.discovered, DslSerializers.discovered) ?: return
         discovered(decoded)
     }
 
     private fun definitionText(text: String) {
         origin = request.origin ?: RuleOrigin.AI
-        val decoded = decode(text, Schemas.definition, JitaiDefinition.serializer()) ?: return
+        val decoded = decode(text, Schemas.definition, DslSerializers.definition) ?: return
         definition(decoded)
     }
 
@@ -110,7 +111,7 @@ internal class ValidationRun(private val request: ValidationRequest, private val
         origin = request.origin ?: RuleOrigin.of(value.createdBy)
         stage = Stage.S4
         if (RuleValidator.tooDeep(sink, "", origin, value.conditions, value.contextRequirements)) return
-        val decoded = decode(RuleCodec.encodeDefinition(value), Schemas.definition, JitaiDefinition.serializer()) ?: return
+        val decoded = decode(RuleCodec.encodeDefinition(value), Schemas.definition, DslSerializers.definition) ?: return
         definition(decoded)
     }
 
