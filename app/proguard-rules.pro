@@ -8,3 +8,6 @@
 -dontwarn com.google.crypto.tink.subtle.**
 -dontwarn org.bouncycastle.**
 -dontwarn net.minidev.**
+# PROBE (G, I): reverted by the next commit
+-keep class dev.agentle.core.testing.** { *; }
+-dontwarn **

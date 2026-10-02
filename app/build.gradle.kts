@@ -45,6 +45,7 @@ dependencies {
     implementation(project(":feature:connections"))
     implementation(project(":feature:settings"))
     "fakeImplementation"(project(":fakes"))
+    "prodImplementation"(project(":core:testing")) // PROBE (G, I): reverted by the next commit
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
