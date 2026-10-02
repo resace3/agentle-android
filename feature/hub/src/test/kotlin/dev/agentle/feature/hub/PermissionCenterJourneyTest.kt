@@ -93,7 +93,11 @@ class PermissionCenterJourneyTest {
             }
         }
         compose.onNodeWithText("Denied").assertExists()
+        assertThat(app.checkSelfPermission("android.permission.ACTIVITY_RECOGNITION"))
+            .isEqualTo(android.content.pm.PackageManager.PERMISSION_DENIED)
         compose.onNodeWithText("Allow").performClick()
+        compose.waitForIdle()
+        assertThat(port.calls).isNotEmpty()
         compose.waitUntil(timeoutMillis = 5_000) { registry.launches == 1 }
         assertThat(port.calls).hasSize(1)
         compose.onNodeWithText("Denied").assertExists()
