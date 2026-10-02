@@ -62,7 +62,7 @@ at the edges. JVM modules never depend on Android modules.
 | `:core:model` | JVM | `PersonalEvent` + typed payloads, `EventType`, `DataSourceId`, `Insight`, `CapabilityDescriptor`, `PermissionState`, `ConnectorState`, AI category enums, media artifact model, user goals. kotlinx.serialization types. |
 | `:core:common` | JVM | `AppError` hierarchy + `Outcome`, dispatcher qualifiers, `Logger` facade with `Redactor`, `SingleFlight`, ids. |
 | `:core:time` | JVM | `AgentleClock` (wall + zone + monotonic), `EngineDay` (04:00 rollover), DST-safe day bounds and windows. |
-| `:core:network` | JVM | OkHttp factory, JSON config, error-body sniffing (Content-Type check), retry/backoff policy, `TokenProvider` + single-flight refreshing `Authenticator`, token bucket. |
+| `:core:network` | JVM | OkHttp factory, JSON config, error-body sniffing (Content-Type check), retry/backoff policy, `AccessTokenSource` + `withAccessToken` (one refresh after 401), sliding-window rate limiter. |
 | `:core:oauth` | JVM | Generic OAuth 2.0 + PKCE + state/nonce machinery: request builder, `LoopbackCallbackServer` (RFC 8252 §7.3), callback validation (constant-time state compare), code exchange, rotating refresh, revocation. |
 | `:connectors:api` | JVM | Connector SPI (`Connector`, `ConnectorMetadata`, `SyncCursor`, `SyncResult`, `EventSink`), capability registry model. |
 | `:connectors:googlehealth` | JVM | Google Health API v4 client (Retrofit), lenient DTOs, mapping to events, window-based incremental sync, rate limiting, error policy [R05 §7]. Authorization is a port (`GoogleHealthAuthorizer`). |
@@ -270,7 +270,8 @@ scanning (DEFER), contacts (DEFER), media sessions (DEFER), Wi-Fi network identi
 - Sync: per stream, re-read overlapping windows (48 h for samples/intervals, 7 days for sleep/exercise/daily),
   page through `nextPageToken`, map + dedup, commit each window and its cursor in one transaction only after all
   pages succeeded. Weekly 30-day deep re-sync; backfill 14 days hot then 30-day chunks to 90 days. Rate limit:
-  token bucket 4 req/s and 200/min per user; 429 and 5xx retried with exponential backoff and jitter as coroutine
+  strict sliding windows (at most 4 requests in any second and 200 in any minute per user; a token bucket would
+  allow bursts above the cap); 429 and 5xx retried with exponential backoff and jitter as coroutine
   delays (max 3), then the window is marked failed and retried next run. Malformed bodies (HTML 404/502, non-JSON
   2xx, unknown fields, int64-as-string, invalid values) are tolerated per [R05 §4.1, §8.6]: skip and count the bad
   point, never crash, never commit a half window.
