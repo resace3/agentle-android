@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Permission states (spec §6): every state has its own label. -->
+    <string name="ui_permission_allowed">Allowed</string>
+    <string name="ui_permission_background_allowed">Background allowed</string>
+    <string name="ui_permission_foreground_only">Foreground only</string>
+    <string name="ui_permission_partially_allowed">Partially allowed</string>
+    <string name="ui_permission_unavailable">Unavailable right now</string>
+    <string name="ui_permission_denied">Denied</string>
+    <string name="ui_permission_denied_permanently">Denied permanently</string>
+    <string name="ui_permission_requires_settings">Requires Settings screen</string>
+    <string name="ui_permission_restricted_by_android">Restricted by Android</string>
+    <string name="ui_permission_unsupported_on_device">Unsupported on this device</string>
+
+    <!-- Connection states -->
+    <string name="ui_connection_connected">Connected</string>
+    <string name="ui_connection_connecting">Connecting</string>
+    <string name="ui_connection_not_connected">Not connected</string>
+    <string name="ui_connection_needs_reauth">Sign-in needed</string>
+    <string name="ui_connection_disabled">Turned off</string>
+    <string name="ui_connection_unavailable">Unavailable</string>
+    <string name="ui_connection_error">Connection error</string>
+
+    <!-- Sync states -->
+    <string name="ui_sync_idle">Waiting to sync</string>
+    <string name="ui_sync_running">Syncing</string>
+    <string name="ui_sync_succeeded">Synced</string>
+    <string name="ui_sync_partial">Partly synced</string>
+    <string name="ui_sync_failed">Sync failed</string>
+
+    <!-- Common actions and states -->
+    <string name="ui_action_navigate_up">Navigate up</string>
+    <string name="ui_action_retry">Try again</string>
+    <string name="ui_action_cancel">Cancel</string>
+    <string name="ui_loading">Loading</string>
+
+    <!-- Errors: one message per stable AppError code (docs/ARCHITECTURE.md §15) -->
+    <string name="ui_error_title">Something went wrong</string>
+    <string name="ui_error_code">Error code: %1$s</string>
+    <string name="ui_error_permission_denied">Agentle does not have the permission this needs. You can allow it in the Permission Center.</string>
+    <string name="ui_error_permission_permanently_denied">This permission is turned off. You can allow it again in the Android Settings app.</string>
+    <string name="ui_error_authentication_required">Please sign in again to continue.</string>
+    <string name="ui_error_token_expired">Your sign-in expired. Agentle will try again shortly.</string>
+    <string name="ui_error_rate_limited">The service asked Agentle to slow down. Please try again in a few minutes.</string>
+    <string name="ui_error_network_unavailable">No internet connection. Your data on this phone is not affected.</string>
+    <string name="ui_error_remote_server_error">The service is having trouble right now. Please try again later.</string>
+    <string name="ui_error_parsing_error">Agentle received data it could not read. Nothing was saved from it.</string>
+    <string name="ui_error_database_error">Agentle could not read or save data on this phone. Please try again.</string>
+    <string name="ui_error_unsupported_feature">This is not available in this version of Agentle.</string>
+    <string name="ui_error_validation_error">Some values are not valid. Please check them and try again.</string>
+    <string name="ui_error_consent_violation">This would share data you have not allowed. Nothing was sent.</string>
+    <string name="ui_error_not_eligible">Your account cannot use this right now.</string>
+    <string name="ui_error_cancelled">The action was cancelled.</string>
+    <string name="ui_error_unexpected">An unexpected error occurred. Please try again.</string>
+
+    <!-- Relative times (the time is formatted in the user's zone) -->
+    <string name="ui_time_just_now">Just now</string>
+    <plurals name="ui_time_minutes_ago">
+        <item quantity="one">%d min ago</item>
+        <item quantity="other">%d min ago</item>
+    </plurals>
+    <plurals name="ui_time_hours_ago">
+        <item quantity="one">%d h ago</item>
+        <item quantity="other">%d h ago</item>
+    </plurals>
+    <plurals name="ui_time_in_minutes">
+        <item quantity="one">In %d min</item>
+        <item quantity="other">In %d min</item>
+    </plurals>
+    <string name="ui_time_yesterday_at">Yesterday, %1$s</string>
+    <string name="ui_time_today_at">Today, %1$s</string>
+    <string name="ui_time_tomorrow_at">Tomorrow, %1$s</string>
+    <string name="ui_date_time">%1$s, %2$s</string>
+
+    <!-- Durations -->
+    <plurals name="ui_duration_hours">
+        <item quantity="one">%d h</item>
+        <item quantity="other">%d h</item>
+    </plurals>
+    <plurals name="ui_duration_minutes">
+        <item quantity="one">%d min</item>
+        <item quantity="other">%d min</item>
+    </plurals>
+    <string name="ui_duration_hours_minutes">%1$s %2$s</string>
+</resources>
