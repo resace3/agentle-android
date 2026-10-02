@@ -18,10 +18,12 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.minus
 import kotlinx.datetime.offsetAt
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
+import java.io.File
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -281,7 +283,20 @@ class ZoneMatrixTest {
         return f.engine.resolve(everyCatalogRef(jitai).toSet(), f.now)
     }
 
+    @Test
+    fun `the realtime sources never read the JVM or system default zone or locale`() {
+        val root = File("src/main/kotlin/dev/agentle/analytics/features/realtime")
+        assertThat(root.isDirectory).isTrue()
+        val sources = root.walkTopDown().filter { it.extension == "kt" }.toList()
+        val offenders = sources.filter { file -> DEFAULT_READS.any { it in file.readText() } }.map { it.name }
+
+        assertThat(sources.size).isAtLeast(20)
+        assertThat(offenders).isEmpty()
+    }
+
     companion object {
+        private val DEFAULT_READS = listOf("currentSystemDefault", "systemDefault()", "TimeZone.getDefault", "Locale.getDefault")
+
         @JvmStatic
         fun zones(): List<String> =
             listOf("UTC", "America/Los_Angeles", "Asia/Kolkata", "Pacific/Chatham", "Australia/Adelaide", "America/St_Johns")

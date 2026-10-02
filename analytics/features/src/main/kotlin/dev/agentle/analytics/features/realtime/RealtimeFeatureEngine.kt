@@ -19,7 +19,8 @@ import kotlin.time.Instant
  * The realtime feature engine: resolves the features of the v1 catalog (R10 §5.4) for one evaluation pass.
  *
  * - The zone and the monotonic clock are read once per pass from [clock] (R10 §10.1); the instant is the `at` of
- *   [resolve], which the caller takes from the same clock.
+ *   [resolve], which the caller takes from the same clock. The JVM or system default zone is never read
+ *   (testing-build-04).
  * - Every port read of one [resolve] runs inside one [RealtimeFeatureInputs.readSnapshot] (database-sync-05) and is
  *   memoized, so each input is read at most once per pass and every ref sees the same data (R10 §5.2).
  * - Freshness follows R10 §5.3 and the coverage of [RealtimeFeatureCoverage]: absence is never zero.
