@@ -105,3 +105,15 @@ public data class FeatureRef(val featureId: String, val args: Map<String, String
 
     override fun toString(): String = key
 }
+
+/**
+ * This ref with `jitai=self` replaced by [jitaiId], the id of the rule being evaluated (R10 §4.5, §11.4); any other ref
+ * is returned unchanged. Stored rules keep `self`. The caller binds it per rule before resolving and looks values up
+ * by the bound ref: a snapshot memoizes refs by [FeatureRef.key], so an unbound `self` in two rules would share one
+ * value, and the resolver answers an unbound `self` with `Missing(INVALID_VALUE)` ([FeatureResolver]).
+ */
+public fun FeatureRef.bindSelf(jitaiId: String): FeatureRef =
+    if (args[JITAI_ARG] == SELF) copy(args = args + (JITAI_ARG to jitaiId)) else this
+
+private const val JITAI_ARG = "jitai"
+private const val SELF = "self"
