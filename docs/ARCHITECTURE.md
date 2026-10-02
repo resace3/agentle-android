@@ -692,53 +692,199 @@ returns `AppError.AuthenticationRequired` without network).
   late-night 22:00-04:00, last 60 min), unlocks (keyguard hidden count), steps (daily, by hour, since midnight),
   sedentary periods, sleep (duration, midpoint, bedtime, wake time, regularity), heart rate (resting, mean, max),
   notification counts (total, by app, late-night), charging start/end, time at place class, activity duration,
-  exercise days, local time, weekday/weekend, recent intervention history.
-- Daily features are recomputed for dirty engine days only (an ingestion marks the days it touched) and stored in
-  `daily_summary`/`derived_feature`; rolling windows aggregate daily rows; intra-day features run indexed range
-  queries over `event`. No feature scans the whole table.
+  exercise days, local time, weekday/weekend, recent intervention history. Every feature declares its
+  `DataCategory`, its coverage source and its availability. `location_class` (time at place class) is
+  `Unavailable("location_background")` in v1: rules cannot reference it, the NL catalog and schema enum leave it out,
+  and resolving it returns Missing(API_UNAVAILABLE).
+- Coverage: a window that its coverage source does not fully cover gives Missing(COVERAGE_GAP) or Stale, never a count
+  of 0 (§6.5). For example `notifications_last_60m` while the listener was disconnected is UNKNOWN, and `steps_today`
+  with lagging source coverage is Stale.
+- Fusion: wearable and phone metrics are read as a fused series through the `FeatureDataSource` port: per minute, the
+  canonical source where it has coverage, else the next source by priority (`metric_source_policy`). No feature sums
+  a metric across sources. When the canonical API source has no coverage for recent minutes, the freshest local copy
+  (Health Connect Fitbit-origin steps or on-device steps) fills those minutes as a provisional value; daily totals stay
+  API-canonical once covered. So a step rule works for a wearable user even when the API source syncs rarely.
+- Civil dates: daily values the source computed (resting heart rate, the wearable's daily totals) are read by civil
+  date in the user's zone, never shifted onto the 04:00 engine day. `resting_hr_today` at 01:30 reads today's civil
+  date; if there is none, it is Missing, never yesterday's value.
+- Notification counts are distinct notification keys whose first POSTED falls in the window, from other packages,
+  excluding ongoing notifications and group summaries; updates never count as new posts.
+- Queries: window queries find intervals that span the window start (`start < windowEnd AND end > windowStart`),
+  never start-only filters. One `resolve()` reads from one consistent snapshot (`FeatureDataSource.readSnapshot`).
+  Only the active Google Health account's rows are read. Every `FeatureValue` traces to its `DataCategory`.
+- Daily features are computed per engine day, idempotently, for every engine day an interval overlaps. Dirty days are
+  persisted (`dirty_day`, §5.6); a refresh takes the set of dirty days and never assumes it sees each change once. A
+  daily feature whose engine day or civil date is dirty is resolved on demand, never served from a stale stored value.
+  A day removed by retention or deletion is Missing, never zero. Derived rows carry `catalogVersion` and lineage; a
+  catalog-version or time-zone change triggers a bounded recompute, and a coverage change marks days dirty. Rolling
+  windows aggregate daily rows; intra-day features run indexed range queries over `event`. No feature scans the whole
+  table.
 - Insights: local candidates from pre-registered hypotheses, stratified tests, minimum support, non-causal templates
   ("associated with", "coincided with", "tended to occur together"); AI interpretation optional and receives only
-  the candidate's aggregates.
+  the candidate's aggregates. AI-worded insight text passes `AiTextPolicy` (§9.5) before it is stored and shown.
 
 ## 11. JITAI engine
 
-Per [R10] with these fixed decisions:
-- `JitaiDefinition` fields: id, name, description, enabled, trigger(s), condition rule, context requirements,
-  delivery channel, content strategy, active window, cooldown, max per day/week, priority, snooze, expiry,
-  createdBy (MANUAL/NL/AI_DISCOVERED), created/modified, outcome metric, version.
+Per [R10]. R10 §2.1 (every `JitaiDefinition` field) and R10 §9.1 (safety gates G01-G16 in R10's order) are
+normative; the subsections below record the decisions that refine or override R10.
+
+### 11.1 Definitions and validation
+
+- `JitaiDefinition` has R10 §2.1's full field set: id, name, description, enabled, trigger, conditions,
+  contextRequirements, delivery (channel, `quietHoursPolicy`, `notificationTimeoutMinutes`,
+  `deliveryDeadlineMinutes`), content, activeWindow, cooldownMinutes, maxPerDay, maxPerWeek, priority, snooze
+  (`SnoozePolicy`), expiresAt, createdBy (USER_MANUAL, AI_NATURAL_LANGUAGE, AI_DISCOVERED, RULE_TEMPLATE),
+  createdAt/modifiedAt, outcome, and schemaVersion, version, `kind` (INTERVENTION | SUPPRESSION), `category`,
+  status, `suppression` targets, `experiment` and `userConfirmedUnknownOverrides`. R10 §13.6.3's SUPPRESSION example
+  is a golden test.
 - Rule DSL: `all`, `any`, `not`, `gt`, `gte`, `lt`, `lte`, `eq`, `neq`, `between`, `in`, `local_time_in`, plus
   feature leaves with optional `args`; strict decoding, no polymorphic fallback; AI rules limited to depth 4,
   16 nodes, 8 children.
 - Three-valued evaluation; only TRUE fires; missing/stale/denied data is UNKNOWN; `onUnknown` overrides that
   increase delivery are rejected for AI proposals and need confirmation for user rules.
-- Decision key `v1|<jitaiId>|<triggerKind>|<engineDay>|<slot>` with a UNIQUE index; two-phase record (DECIDED ->
-  DELIVERING with 2-minute lease -> DELIVERED; crash recovery via `getActiveNotifications()` tag lookup; uncertain
-  deliveries are never re-posted and count toward caps).
-- Safety gates in fixed order: disabled, paused, expired, snoozed, quiet hours/DND, cooldown, per-rule daily/weekly
-  caps, global daily cap (default 6) and minimum gap (default 30 min), arbitration (one delivery per pass, highest
-  priority). AI-created limits are stricter (cooldown >= 60 min, maxPerDay 1-3, expiry 1-90 days).
+- The validator is a pure function of (definition, catalog version). It runs at approval and again for stored rules
+  after an app upgrade; a stored rule that fails becomes PAUSED with a notice. Beyond R10 §11:
+  - a rule or proposal that references an unavailable feature (`location_class`) or the `LOCATION_CLASS_CHANGED`
+    trigger is rejected with a capability-unavailable error;
+  - error: every `since` argument must equal or precede the active-window start of the same window instance, or each
+    `daily_at` time must fall within 12 h after the `since` time;
+  - warning: `local_time` with `gt`/`gte`, an evening literal and no midnight-crossing window ("after 10 PM" is FALSE
+    after midnight), suggesting `local_time_in`;
+  - E025 stays: a window with start == end is invalid;
+  - warning: the event triggers `USER_PRESENT`, `SCREEN_INTERACTIVE`, `POWER_CONNECTED` and `POWER_DISCONNECTED` are
+    best effort, reliable only while notification access keeps the app running;
+  - warning: a template that uses placeholders or app labels (the posted text stays generic, §11.5);
+  - renaming a catalog id needs an alias table.
 - Creation modes: manual builder; NL (prompt contract `jitai-nl-v1` -> proposal JSON -> validator -> deterministic
   rendering -> user activation); AI-discovered (local discovery pipeline proposes; AI optional for wording; always
-  requires approval; autonomous mode does not exist in v1).
-- Scheduling: one unique periodic `jitai-tick` (15-60 min by profile) with `setNextScheduleTimeOverride` to skip
-  inactive windows; event-driven `jitai-eval-events` (KEEP; expedited on 31+, plain one-time on 29-30) enqueued by
-  ingestion of trigger-relevant events; `daily_at` one-time unique work; no exact alarms.
+  requires approval; autonomous mode does not exist in v1). AI-created limits are stricter (cooldown >= 60 min,
+  maxPerDay 1-3, expiry 1-90 days; R10 §9.2).
+
+### 11.2 Evaluation, gates and arbitration
+
+- Only current definitions (`jitai_definition`: enabled, ACTIVE, not expired) are candidates, so an old version can
+  never fire after an edit.
+- Safety gates in R10 §9.1's order: G01 NOT_EFFECTIVE, G02 EXPIRED, G03 SNOOZED, G04 GLOBAL_PAUSE, G05
+  NOTIFICATIONS_BLOCKED, G06 QUIET_HOURS (except `ALLOW_WHEN_INTERACTIVE` while the phone is in use), G07 DND, G08
+  SUPPRESSED_BY_RULE, G09 COOLDOWN, G10 DAILY_CAP, G11 WEEKLY_CAP, G12 GLOBAL_MIN_GAP, G13 GLOBAL_DAILY_CAP, G14
+  GLOBAL_WEEKLY_CAP, G15 CHANNEL_CAP (VOICE 2, VIDEO 1, IMAGE 3 per engine day), G16 LOST_ARBITRATION. Defaults:
+  global daily cap 6, global weekly cap 30, minimum gap 30 min (R10 §9.2).
+- G05 prerequisite: notifications enabled AND the channel's importance is not NONE AND notifications are not paused,
+  checked at decision and again at claim. A blocked decision is SUPPRESSED(NOTIFICATIONS_BLOCKED) and does not count
+  toward global caps; the in-app card fallback is CARD_PENDING (§11.5).
+- DND suppresses under G07, except that scheduled slots defer within `maxLatenessMinutes`.
+- SUPPRESSION rules (`kind = SUPPRESSION`, targeting categories or JITAI ids) block their targets under G08.
+- Arbitration covers every decision point the serialized evaluator gathers (§11.4): priority, then the older last
+  delivery, then `createdAt`, then id. For scheduled triggers, LOST_ARBITRATION and GLOBAL_MIN_GAP defer within
+  `maxLatenessMinutes` instead of consuming the slot. DECIDED and DELIVERING rows count toward caps.
+
+### 11.3 Decision points, keys and triggers
+
+- Event triggers come from R10 §7.2's closed set, emitted by collectors and sync rather than derived from stored event
+  types: ACTIVITY_STATE_CHANGED, HEALTH_SYNC_COMPLETED, SLEEP_SESSION_AVAILABLE, NOTIFICATION_POSTED,
+  POWER_CONNECTED, POWER_DISCONNECTED, SCREEN_INTERACTIVE, USER_PRESENT. LOCATION_CLASS_CHANGED does not exist in v1.
+- A trigger event carries its event time. An event older than `maxEventAgeMinutes` (default 10, set per event type)
+  when it is evaluated is not delivered, so events that usage polling, sync replay or backfill insert late never fire
+  a nudge out of context.
+- Event dispatch reads `change_seq > watermark` (§5.6): inserts and semantic updates both move `change_seq`;
+  unchanged re-fetches do not.
+- Decision keys follow R10 §8.2 per trigger: events `v1|<jitaiId>|E|<floor(epochSecond / 900)>` (a UTC 15-minute
+  bucket); intervals `v1|<jitaiId>|I|<window-instance start date>|<slot>`; daily_at
+  `v1|<jitaiId>|D|<local date>|<HH:mm>`; snooze re-evaluation `v1|<jitaiId>|R|<first 16 hex of SHA-256 of the
+  original key>`. Each decision also stores zone id, local date-time, trigger type, engine day, elapsed time and boot
+  count. The delivery deadline is anchored at the nominal decision time (slot start or event time).
+- An event pass resolves the daily features of dirty days on demand (through `FeatureResolver`) before it builds the
+  snapshot, so an evaluation right after a sleep ingest sees the new value.
+- `daily_at` staleness retry (R10 §8.2): a result that is UNKNOWN only because a remote feature is stale requests a
+  sync of that stream and re-evaluates the slot at +10 and +20 minutes, within `maxLatenessMinutes`.
+
+### 11.4 Serialized evaluation and commit
+
+- Every due decision point (daily_at, interval, event, snooze follow-up) goes through one serialized evaluator, which
+  gathers all points due within a 2-minute coalescing window and arbitrates across them (§11.2).
+- The commit runs in the decision-commit runner (§5.6): a process-wide mutex plus one IMMEDIATE transaction that
+  re-reads the gate counts (cooldowns, caps, global gap), inserts the decision and advances the evaluation watermark.
+  The unique decision key is the final guard.
+- Elapsed time between two recorded events follows R10 §8.6: the elapsed-realtime difference within one boot,
+  otherwise the wall-clock difference clamped at 0. Cooldowns and gaps use this rule.
+- Every snapshot value and trace leaf carries its `DataCategory`. A pure scrub function replaces a deleted category's
+  values with a deleted marker; the category delete calls it (§5.5).
+- Eval-log traces are written only when the result changes.
+
+### 11.5 Delivery, content and recovery
+
+- States: R10 §8.3's NOT_TRIGGERED, NOT_AVAILABLE, UNKNOWN, MISSED (scheduled triggers only), SUPPRESSED(gate),
+  NOT_RANDOMIZED, DECIDED, DELIVERING, DELIVERED, DELIVERY_UNCERTAIN, FAILED(reason), EXPIRED and CANCELLED, plus
+  CARD_PENDING: an in-app card waiting to be shown, which expires after `notificationTimeoutMinutes` and is excluded
+  from global caps and from `consecutive_ignored` until it is displayed.
+- Rendering (text, image, TTS) happens while the row is still DECIDED; the claim wraps only the post. The claim is one
+  transaction that re-evaluates G01-G08 and writes CANCELLED or SUPPRESSED instead of DELIVERING when one fails. A
+  cancellation before the post reverts DELIVERING to DECIDED in `NonCancellable`. The 2-minute lease is measured in
+  elapsed time plus boot count.
+- Rendering produces two texts: the in-app text (placeholders, app labels) and the posted text. The posted text is
+  generic unless the user turned on "detailed notifications" (off by default); the renderer marks placeholder-derived
+  parts. Posts are local-only unless the user opted in (§12).
+- Crash recovery follows R10 §8.5: tag lookup through `getActiveNotifications()`; an uncertain delivery is never
+  re-posted and counts toward caps. Crash points after commit, after claim, during render and after the post each
+  recover with no double delivery and no lost cap.
+- `ai_text` content draws from `ai_text_pool`: items are keyed by content hash, generated under a standing consent
+  (§9.1), contain no number (§9.5), expire within 24 h and are purged on rule edit, consent change, retention and
+  deletion. AI text always has a local template fallback.
+
+### 11.6 Snooze, responses and backoff
+
+- Snooze actions come from the rule's `SnoozePolicy` options; snooze state (wall time, elapsed time and boot count)
+  lives in `jitai_runtime`. daily_at rules default to `RE_EVALUATE_AFTER`, with one R-keyed follow-up per original
+  decision (a SNOOZE timer row). "Not now" snoozes until the window ends. UNTIL_TOMORROW = max(next engine-day
+  rollover, quiet-hours end, next window start).
+- The response enum equals the feature catalog's `last_response` enum; the first response wins (§5.2).
+- Backoff counts only IGNORED, and DISMISSED without a positive proximal outcome. Nothing backs off or auto-pauses
+  while the G05 delivery prerequisite is not met.
+
+### 11.7 Scheduling
+
+- The planner outputs timer rows (`jitai_timer`: due time, kind SLOT | PREFETCH | OUTCOME | SNOOZE | BACKSTOP, JITAI
+  id, version, slot). One unique one-time work, `jitai-timer`, targets the earliest due time and re-arms itself
+  (§13). There are no per-rule or per-time works and no exact alarms.
+- Editing, disabling, deleting or expiring a definition deletes its timer rows in the same transaction as the change.
+- A firing timer verifies that the definition exists, is enabled and has the same version, that the time is one of
+  the rule's times and that it is within lateness; otherwise it re-plans.
+- A pure `replan(reason = CLOCK | TIMEZONE | OFFSET | BOOT | PACKAGE_REPLACED, now, zone)` rebuilds every timer row
+  from the current definitions; the reconciler calls it (§13).
+- Interval slots follow min(everyMinutes) of the active interval rules (at least 15 minutes), independent of the
+  collection profile.
+- Ingesting a trigger-relevant event sets the dirty flag and enqueues `jitai-eval-events`. While any event or
+  interval rule is enabled, a BACKSTOP row exists that drains the change watermark, so an event that arrives during a
+  run is never lost.
+- PREFETCH rows run the single-stream sync (§7.3) 10-15 minutes before a scheduled rule reads wearable metrics;
+  OUTCOME rows compute proximal outcomes (R10 §8.7); SNOOZE rows are the R-keyed follow-ups.
 
 ## 12. Interventions
 
-- Notification (full): channels per intervention class, actions (Open, Snooze 1 h, Not now, Stop this JITAI),
-  content intent deep link to the JITAI history entry, `tag = decisionKey` for idempotency, delete intent records
-  dismissal, POST_NOTIFICATIONS denied -> in-app card fallback + Permission Center state.
+- Notification (full): one channel per intervention category (R10 §9.7), actions (Open, the rule's snooze options,
+  Not now, Stop this JITAI), `tag = decisionKey` for idempotency, `setOnlyAlertOnce(true)`, delete intent records
+  dismissal. The content intent targets a non-exported entry activity that deep-links to the JITAI history entry, and
+  action buttons target a non-exported receiver; outcomes are recorded only through these, and each must present the
+  decision's random `delivery_nonce`.
+- Lock screen, watch and other surfaces: the posted text is generic unless detailed notifications are on, so by
+  default it carries no snapshot value, placeholder or app label. Notifications use `VISIBILITY_PRIVATE` with a
+  neutral public version ("Agentle has a suggestion") and a matching channel `lockscreenVisibility`; notification
+  images draw no metric unless detailed notifications are on; posts are local-only (`setLocalOnly(true)`, no wearable
+  bridging) unless the user opted in.
+- Notifications blocked (permission denied, channel importance NONE or notifications paused): the decision is
+  SUPPRESSED(NOTIFICATIONS_BLOCKED), outside global caps, an in-app card waits in CARD_PENDING (§11.5), and the
+  Permission Center shows the blocked state.
 - In-app card: dashboard card for pending interventions.
 - Image: no v1 provider can generate images (SIWC is text-only; no verified on-device generator), so
   `imageGeneration = false` everywhere and `generateImage()` returns `UnsupportedFeature`. Image interventions use
-  bundled pictures or `TemplateRenderer` cards drawn locally (Canvas: background, icon, text, the user's metric),
-  cached as media artifacts [R09].
-- Voice: the worker synthesizes a WAV with `TextToSpeech.synthesizeToFile` and posts a notification with a Listen
-  action; playback (ExoPlayer, `USAGE_MEDIA`/`CONTENT_TYPE_SPEECH`, audio focus, becoming-noisy handling) happens only
-  on a visible screen, because background playback and focus requests fail on targetSdk 35+/Android 17. Handles TTS
-  engine missing, init failure/timeout, muted stream, Bluetooth output, user cancel; on failure the delivery downgrades
-  to a plain notification (`TTS_UNAVAILABLE`). Network TTS voices off by default.
+  bundled pictures or `TemplateRenderer` cards drawn locally (Canvas: background, icon, text, the user's metric only
+  when detailed notifications are on), cached as media artifacts [R09].
+- Voice: the WAV is synthesized with `TextToSpeech.synthesizeToFile` while the decision is still DECIDED (§11.5), then
+  a notification with a Listen action is posted; playback (ExoPlayer, `USAGE_MEDIA`/`CONTENT_TYPE_SPEECH`, audio
+  focus, becoming-noisy handling) happens only on a visible screen, because background playback and focus requests
+  fail on targetSdk 35+/Android 17. This replaces R10 §8.5 step 4's background `speak()`. Handles TTS engine missing,
+  init failure/timeout, muted stream, Bluetooth output, user cancel; on failure the delivery downgrades to a plain
+  notification (`TTS_UNAVAILABLE`). Network TTS voices off by default.
 - Video: Media3 1.11.1 Transformer composes PNG slides + the TTS WAV into an H.264/AAC MP4 (720x1280, 30 fps,
   1.5 Mbit/s + 64 kbit/s, at most 90 s, platform diagnostics off), foreground and user-initiated only, written to
   `.tmp` then renamed, cancellable; JITAI VIDEO deliveries use bundled clips or a previously composed file. Encoder
@@ -749,13 +895,31 @@ Per [R10] with these fixed decisions:
 
 ## 13. Background scheduling
 
-`WorkScheduler` is the only place that enqueues work. Unique names: `collect-usage` (periodic), `collect-device`
-(periodic), `sync-googlehealth` (periodic daily + on demand), `features-refresh` (periodic, after sync chains),
-`jitai-tick` (periodic), `jitai-eval-events` (one-time KEEP), `jitai-at-<id>-<HHmm>`, `retention` (daily),
-`media-cleanup` (daily), `insights-weekly`. Policies: KEEP on reconcile, UPDATE on profile change, never REPLACE for
-periodic work. `ScheduleReconciler` runs on process start, `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, `TIME_SET`,
-`TIMEZONE_CHANGED`: re-registers PendingIntents (activity transitions), re-pins daily work, records gaps with
-`ApplicationExitInfo`. Collection profiles (Low/Balanced/High) set cadences; battery saver for 30 min drops to Low.
+`WorkScheduler` is the only place that enqueues work. Unique names:
+- `collect-usage` (periodic), `collect-device` (periodic);
+- `sync-googlehealth` (periodic, cadence by profile below) and `sync-googlehealth-now` (one-time, KEEP; expedited on
+  31+), which runs the single-stream sync for staleness retries and on demand;
+- `features-refresh` (periodic, after sync chains);
+- `jitai-timer` (one-time, re-armed to the earliest `jitai_timer` row: slots, prefetches, outcomes, snooze
+  follow-ups and the backstop; §11.7);
+- `jitai-eval-events` (one-time KEEP; expedited on 31+, plain one-time on 29-30), enqueued when a trigger-relevant
+  event is ingested;
+- `retention` (daily), `media-cleanup` (daily), `insights-weekly`.
+
+Policies: periodic work uses KEEP on reconcile and UPDATE on profile change, never REPLACE; `jitai-timer` is re-armed
+after every replan. Collection profiles (Low/Balanced/High) set cadences [R02 §2.3]: `sync-googlehealth` runs every
+6 h on unmetered networks (Low), every hour (Balanced, the default) or every 30 minutes (High), with a network
+constraint; battery saver for 30 min drops to Low.
+
+`ScheduleReconciler` runs on process start, `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, `TIME_SET` and
+`TIMEZONE_CHANGED`. It calls `clampFutureCursors(now)` (which also runs before each sync), calls the JITAI
+`replan(reason)` and re-arms `jitai-timer`, re-registers PendingIntents (activity transitions), and records gaps with
+`ApplicationExitInfo` (API 30+). The receivers that trigger it are not exported, dispatch through an action
+allow-list, and debounce the trigger except on `BOOT_COMPLETED` and `MY_PACKAGE_REPLACED`. After an app update,
+stored definitions are re-validated against the new catalog; rules that fail become PAUSED with a notice.
+
+The app runs in one process (§1 rule 10); the session, stream-sync and decision-commit mutexes and `SingleFlight`
+assume it.
 
 ## 14. Security and privacy
 
