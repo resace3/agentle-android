@@ -1,3 +1,5 @@
+import java.time.Duration
+
 plugins {
     id("agentle.android.feature")
 }
@@ -18,6 +20,6 @@ dependencies {
 // A hung Robolectric/Roborazzi test fails this module's test task within 20 minutes, and the log names each test as it
 // starts, so the last "STARTED" line points at the hang.
 tasks.withType<Test>().configureEach {
-    timeout.set(java.time.Duration.ofMinutes(20))
+    timeout.set(Duration.ofMinutes(20))
     testLogging { events("started", "failed") }
 }
