@@ -3,6 +3,7 @@ package dev.agentle.interventions.card
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Logger
 import dev.agentle.core.common.Outcome
+import dev.agentle.core.common.flatMap
 import dev.agentle.core.common.getOrNull
 import dev.agentle.core.common.map
 import dev.agentle.core.common.onFailure
@@ -19,6 +20,7 @@ import dev.agentle.interventions.response.InterventionResponses
 import dev.agentle.interventions.storage.MediaLibrary
 import dev.agentle.interventions.storage.MediaRef
 import dev.agentle.jitai.dsl.model.SnoozeOption
+import dev.agentle.jitai.engine.delivery.PendingCard
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -102,18 +104,23 @@ class InterventionCards(
     suspend fun onDisplayed(decisionKey: String): Outcome<CardDisplay> {
         val local = store.get(decisionKey).getOrNull()
         if (local?.displayedAt != null) {
-            if (!local.isExpired(clock.now())) return Outcome.success(CardDisplay.SHOWN)
-            drop(local)
-            return Outcome.success(CardDisplay.GONE)
+            val shown = !local.isExpired(clock.now())
+            if (!shown) drop(local)
+            return Outcome.success(if (shown) CardDisplay.SHOWN else CardDisplay.GONE)
         }
-        val listed = when (val cards = decisions.pendingCards()) {
-            is Outcome.Failure -> return cards
-            is Outcome.Success -> cards.value.firstOrNull { it.decisionKey == decisionKey }
+        return decisions.pendingCards().flatMap { cards ->
+            val listed = cards.firstOrNull { it.decisionKey == decisionKey }?.takeIf { clock.now() < it.expiresAt }
+            if (listed == null) {
+                local?.let { drop(it) }
+                Outcome.success(CardDisplay.GONE)
+            } else {
+                markDisplayed(listed, local)
+            }
         }
-        if (listed == null || clock.now() >= listed.expiresAt) {
-            local?.let { drop(it) }
-            return Outcome.success(CardDisplay.GONE)
-        }
+    }
+
+    private suspend fun markDisplayed(listed: PendingCard, local: InterventionCard?): Outcome<CardDisplay> {
+        val decisionKey = listed.decisionKey
         return decisions.markDisplayed(decisionKey).map { display ->
             when (display) {
                 CardDisplay.SHOWN -> store.put(InterventionCard.of(listed, local).copy(displayedAt = clock.now()))

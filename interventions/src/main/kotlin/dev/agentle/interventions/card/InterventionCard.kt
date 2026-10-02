@@ -49,21 +49,20 @@ data class InterventionCard(
         /** The local record `DeliveryPort.keepAsCard` stores: the media only; never shown until the engine lists the card. */
         fun kept(prepared: PreparedDelivery, now: Instant): InterventionCard = from(prepared.intervention, now, now, prepared.mediaRef)
 
-        private fun from(intervention: RenderedIntervention, createdAt: Instant, expiresAt: Instant, mediaRef: String?) =
-            InterventionCard(
-                decisionKey = intervention.decisionKey,
-                jitaiId = intervention.jitaiId,
-                jitaiName = intervention.jitaiName,
-                category = intervention.category,
-                channel = intervention.channel,
-                title = intervention.title,
-                body = intervention.body,
-                nonce = intervention.nonce,
-                snoozeOptions = intervention.snoozeOptions,
-                createdAt = createdAt,
-                expiresAt = expiresAt,
-                mediaRef = mediaRef,
-            )
+        private fun from(intervention: RenderedIntervention, createdAt: Instant, expiresAt: Instant, mediaRef: String?) = InterventionCard(
+            decisionKey = intervention.decisionKey,
+            jitaiId = intervention.jitaiId,
+            jitaiName = intervention.jitaiName,
+            category = intervention.category,
+            channel = intervention.channel,
+            title = intervention.title,
+            body = intervention.body,
+            nonce = intervention.nonce,
+            snoozeOptions = intervention.snoozeOptions,
+            createdAt = createdAt,
+            expiresAt = expiresAt,
+            mediaRef = mediaRef,
+        )
     }
 }
 

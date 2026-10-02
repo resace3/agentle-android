@@ -73,6 +73,7 @@ interface InterventionsEntryPoint {
  */
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("AbstractClassCanBeInterface")
 abstract class InterventionsModule {
     @BindsOptionalOf
     abstract fun optionalClock(): AgentleClock
@@ -191,6 +192,7 @@ abstract class InterventionsModule {
 
         @Provides
         @Singleton
+        @Suppress("LongParameterList")
         fun port(
             notifier: InterventionNotifier,
             access: NotificationStateReader,

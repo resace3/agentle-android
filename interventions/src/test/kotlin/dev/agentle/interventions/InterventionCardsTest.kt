@@ -38,7 +38,15 @@ class InterventionCardsTest {
     private val store = InMemoryInterventionCardStore()
     private val engineCard = Fixtures.intervention().copy(title = "Engine title")
     private var listed = listOf(
-        PendingCard(engineCard.decisionKey, "jitai-1", engineCard.category, engineCard.channel, engineCard, clock.now(), clock.now() + 2.hours),
+        PendingCard(
+            engineCard.decisionKey,
+            "jitai-1",
+            engineCard.category,
+            engineCard.channel,
+            engineCard,
+            clock.now(),
+            clock.now() + 2.hours,
+        ),
     )
     private var displayCalls = 0
     private val decisions = object : CardDecisions {

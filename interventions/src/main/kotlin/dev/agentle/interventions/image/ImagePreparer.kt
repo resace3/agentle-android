@@ -122,7 +122,7 @@ data class ImageRequest(val description: String, val size: CardSize)
  * pictures instead.
  */
 class ProviderImageGeneration(private val capabilities: () -> AiCapabilities) {
-    @Suppress("UnusedParameter")
+    @Suppress("UnusedParameter", "RedundantSuspendModifier")
     suspend fun generate(request: ImageRequest): Outcome<File> {
         val detail = if (capabilities().isAvailable(
                 AiCapability.IMAGE_GENERATION,

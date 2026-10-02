@@ -135,9 +135,6 @@ class NotificationDeliveryTest {
             it.importance = NotificationManager.IMPORTANCE_NONE
             manager.createNotificationChannel(it)
         }
-        shadowOf(manager).createNotificationChannel(
-            manager.getNotificationChannel(channels.channelId(category)).apply { importance = NotificationManager.IMPORTANCE_NONE },
-        )
         assertThat(reader.read().prerequisite(category).channelImportanceNone).isTrue()
     }
 
