@@ -14,6 +14,7 @@ import dev.agentle.jitai.dsl.rule.RuleLiteral
 import dev.agentle.jitai.engine.F0
 import kotlinx.datetime.DayOfWeek
 import org.junit.jupiter.api.Test
+import java.util.Locale
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -69,7 +70,7 @@ class RuleEvaluatorPropertyTest {
     @Test
     fun `an applied override only ever replaces an UNKNOWN leaf`() {
         val random = Random(SEED + 2)
-        repeat(ITERATIONS) {
+        repeat(ITERATIONS) { _ ->
             val gen = Gen(random, overrides = true)
             val condition = gen.condition(depth = 1)
             val trace = evaluator.evaluate(condition, gen.snapshot(condition), RootKind.INTERVENTION, OverridePolicy(true))
@@ -169,12 +170,18 @@ class RuleEvaluatorPropertyTest {
             }
         }
 
-        private fun time(): String = if (random.nextInt(20) == 0) "24:61" else "%02d:%02d".format(random.nextInt(24), random.nextInt(60))
+        private fun time(): String = if (random.nextInt(20) ==
+            0
+        ) {
+            "24:61"
+        } else {
+            "%02d:%02d".format(Locale.ROOT, random.nextInt(24), random.nextInt(60))
+        }
 
         fun snapshot(condition: Condition): FeatureSnapshot {
             val at = BASE + random.nextLong(0, 48 * 60).minutes
             val zone = if (random.nextInt(30) == 0) "Mars/Olympus" else listOf(F0.BERLIN.id, F0.NEW_YORK.id, "Asia/Kolkata").random(random)
-            val values = RuleRefs.of(condition).mapNotNull { ref -> value(ref, at)?.let { ref to it } }.toMap()
+            val values = RuleRefs.of(condition, null).mapNotNull { ref -> value(ref, at)?.let { ref to it } }.toMap()
             return FeatureSnapshot.of(at, zone, values)
         }
 

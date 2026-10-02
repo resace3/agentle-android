@@ -17,6 +17,7 @@ import dev.agentle.jitai.dsl.model.JitaiStatus
 import dev.agentle.jitai.dsl.model.OutcomeMetric
 import dev.agentle.jitai.dsl.model.OutcomeMetricRef
 import dev.agentle.jitai.engine.content.RenderedIntervention
+import dev.agentle.jitai.engine.eval.RuleRefs
 import dev.agentle.jitai.engine.outcome.OutcomeDataPort
 import dev.agentle.jitai.engine.outcome.OutcomeResult
 import dev.agentle.jitai.engine.ports.AiTextPoolPort
@@ -44,6 +45,7 @@ import kotlinx.coroutines.yield
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.TimeZone
 import java.util.Collections
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
 import kotlin.time.Instant
@@ -283,16 +285,16 @@ public class FakeSettingsPort(
 /**
  * A [FeatureResolver] backed by a table of values. Calendar features are computed from the instant and the current
  * zone (R10 §5.4 A); any other unset reference is `Missing(NO_DATA)` (absence is never zero). Values may depend on the
- * evaluation instant through [provide]. [resolutions] records every call, to check that a pass resolves once. Safe on
- * real threads.
+ * evaluation instant through [provide]. [resolutions] records every call, to check that a pass resolves once. Like the
+ * realtime resolver, an unbound `{jitai: self}` is `Missing(INVALID_VALUE)` (REALTIME-FEATURES-R1-2). Safe on real
+ * threads.
  */
 public class FakeFeatureResolver(
     private val zone: () -> TimeZone,
     rolloverMinute: Int = EngineDays.DEFAULT_ROLLOVER_MINUTE,
     weekend: Set<DayOfWeek> = CalendarFeatures.DEFAULT_WEEKEND,
 ) : FeatureResolver {
-    private val values = ConcurrentHashMap<String, FeatureValue>()
-    private val providers = ConcurrentHashMap<String, (Instant) -> FeatureValue>()
+    private val entries = ConcurrentHashMap<String, (Instant) -> FeatureValue>()
     private val calls: MutableList<Set<FeatureRef>> = Collections.synchronizedList(mutableListOf())
 
     @Volatile
@@ -312,20 +314,17 @@ public class FakeFeatureResolver(
     public val resolutions: List<Set<FeatureRef>> get() = synchronized(calls) { calls.toList() }
 
     public fun set(ref: FeatureRef, value: FeatureValue) {
-        providers.remove(ref.key)
-        values[ref.key] = value
+        entries[ref.key] = { value }
     }
 
     public fun set(featureId: String, value: FeatureValue): Unit = set(FeatureRef(featureId), value)
 
     public fun provide(ref: FeatureRef, provider: (Instant) -> FeatureValue) {
-        values.remove(ref.key)
-        providers[ref.key] = provider
+        entries[ref.key] = provider
     }
 
     public fun clear(ref: FeatureRef) {
-        values.remove(ref.key)
-        providers.remove(ref.key)
+        entries -= ref.key
     }
 
     override suspend fun resolve(refs: Set<FeatureRef>, at: Instant): FeatureSnapshot {
@@ -335,13 +334,16 @@ public class FakeFeatureResolver(
         onResolve?.invoke()
         val currentZone = zone()
         val resolved = refs.associateWith { ref ->
-            values[ref.key]
-                ?: providers[ref.key]?.invoke(at)
+            unboundSelf(ref)
+                ?: entries[ref.key]?.invoke(at)
                 ?: CalendarFeatures.value(ref.featureId, at, currentZone, rolloverMinute, weekend)
                 ?: FeatureValue.Missing(MissingReason.NO_DATA)
         }
         return FeatureSnapshot.of(at, currentZone.id, resolved)
     }
+
+    private fun unboundSelf(ref: FeatureRef): FeatureValue? =
+        if (ref.args[RuleRefs.JITAI_ARG] == RuleRefs.SELF) FeatureValue.Missing(MissingReason.INVALID_VALUE) else null
 }
 
 /**
@@ -499,7 +501,7 @@ public class SeededNonceSource(seed: Long = 7L) : NonceSource {
     private val random = Random(seed)
 
     override fun nextNonce(): String =
-        synchronized(random) { (1..NONCE_BYTES).joinToString("") { "%02x".format(random.nextInt(BYTE_VALUES)) } }
+        synchronized(random) { (1..NONCE_BYTES).joinToString("") { "%02x".format(Locale.ROOT, random.nextInt(BYTE_VALUES)) } }
 
     private companion object {
         const val NONCE_BYTES = 16

@@ -17,6 +17,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.MethodSource
+import java.util.Locale
 
 /** R10 §8.2 decision keys, §8.3 state machine and reason codes, §6.7 trace encoding. */
 class DecisionModelTest {
@@ -64,7 +65,7 @@ class DecisionModelTest {
 
     @Test
     fun `the gates are G01-G16 in evaluation order`() {
-        assertThat(ReasonCode.GATES.map { it.gateId }).isEqualTo((1..16).map { "G%02d".format(it) })
+        assertThat(ReasonCode.GATES.map { it.gateId }).isEqualTo((1..16).map { "G%02d".format(Locale.ROOT, it) })
         assertThat(ReasonCode.STATE_CHANGED.isGate).isFalse()
     }
 
@@ -143,8 +144,9 @@ class DecisionModelTest {
             if (stageOf(text) != "summary") assertThat(text.toByteArray().size).isAtMost(max)
         }
         val branch = TraceCodec.decode(outputs.first { stageOf(it.second) == "branch" }.second)!!
-        assertThat(branch.conditions!!.nodes.map { it.path }).containsExactly("", "/of/3").inOrder()
-        assertThat(branch.conditions!!.truncated).isTrue()
+        val conditions = checkNotNull(branch.conditions)
+        assertThat(conditions.nodes.map { it.path }).containsExactly("", "/of/3").inOrder()
+        assertThat(conditions.truncated).isTrue()
         val gates = TraceCodec.decode(outputs.first { stageOf(it.second) == "gates" }.second)!!
         assertThat(gates.suppressedBy).containsExactly("S1")
         val summary = outputs.last().second

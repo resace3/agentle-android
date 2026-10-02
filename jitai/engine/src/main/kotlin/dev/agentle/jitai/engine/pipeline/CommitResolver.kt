@@ -58,12 +58,28 @@ public data class LiveState(
 }
 
 /**
+ * What a pass commits besides its evaluated points.
+ *
+ * @property missed scheduled points resolved as MISSED without an evaluation.
+ * @property retries `daily_at` staleness retries: their timer rows move, no decision row is written.
+ * @property evalLog evaluation-log entries the pass made before the commit (event points that are not eligible).
+ * @property runtime runtime-state changes applied inside the commit (debounce bookkeeping).
+ * @property watermark the event watermark move; the commit is rejected when another pass moved it first.
+ * @property timerDeletes timer rows the pass handled or found stale (fired prefetches, rows to re-plan).
+ */
+public data class PassWrites(
+    val missed: List<MissedPoint> = emptyList(),
+    val retries: List<StalenessRetry> = emptyList(),
+    val evalLog: List<EvalLogEntry> = emptyList(),
+    val runtime: List<RuntimeUpdate> = emptyList(),
+    val watermark: WatermarkAdvance? = null,
+    val timerDeletes: Set<String> = emptySet(),
+)
+
+/**
  * Everything one serialized commit needs (R10 §8.4). [evaluations] were made outside the transaction against one
  * snapshot; the gates are evaluated inside it against the counts as they are now.
  *
- * @property retries `daily_at` staleness retries: their timer rows move, no decision row is written.
- * @property timerDeletes timer rows the pass handled or found stale (fired prefetches, rows to re-plan).
- * @property timerPuts timer rows the pass rescheduled (pending outcomes).
  * @property plan when set, the commit ends with a re-plan of the whole timer table ([TimerReconciler]).
  */
 public class CommitRequest(
@@ -74,13 +90,7 @@ public class CommitRequest(
     public val salt: ByteArray? = null,
     public val snapshot: FeatureSnapshot? = null,
     public val evaluations: List<CandidateEvaluation> = emptyList(),
-    public val missed: List<MissedPoint> = emptyList(),
-    public val retries: List<StalenessRetry> = emptyList(),
-    public val evalLog: List<EvalLogEntry> = emptyList(),
-    public val runtime: List<RuntimeUpdate> = emptyList(),
-    public val watermark: WatermarkAdvance? = null,
-    public val timerDeletes: Set<String> = emptySet(),
-    public val timerPuts: List<TimerRow> = emptyList(),
+    public val writes: PassWrites = PassWrites(),
     public val plan: PlanContext? = null,
 )
 
@@ -115,14 +125,14 @@ public sealed interface CommitResult {
  */
 public class CommitResolver(private val nonces: NonceSource) {
     public suspend fun commit(tx: DecisionTransaction, request: CommitRequest): CommitResult {
-        request.watermark?.let { if (tx.currentWatermark() != it.expected) return CommitResult.Stale }
+        request.writes.watermark?.let { if (tx.currentWatermark() != it.expected) return CommitResult.Stale }
         val batch = Batch(tx, request)
         batch.resolve()
         val written = batch.insert()
         val log = batch.appendLog()
-        request.runtime.forEach { update -> tx.putRuntime(update.transform(tx.runtime(update.jitaiId))) }
+        request.writes.runtime.forEach { update -> tx.putRuntime(update.transform(tx.runtime(update.jitaiId))) }
         batch.applyTimers(written)
-        request.watermark?.let { tx.advanceWatermark(it.to) }
+        request.writes.watermark?.let { tx.advanceWatermark(it.to) }
         val plan = request.plan?.let { TimerReconciler.reconcile(tx, it) }
         return CommitResult.Committed(written, log, batch.deferred, plan)
     }
@@ -136,17 +146,19 @@ public class CommitResolver(private val nonces: NonceSource) {
         private val now = request.now
         private val rows = mutableListOf<DecisionRecord>()
         private val rowTimers = mutableListOf<String>()
-        private val log = request.evalLog.map { PendingLog(it, null) }.toMutableList()
+        private val log = request.writes.evalLog.map { PendingLog(it, null) }.toMutableList()
         private val seen = mutableSetOf<String>()
-        private val timerDeletes = request.timerDeletes.toMutableSet()
-        private val timerPuts = request.timerPuts.toMutableList()
+        private val timerDeletes = request.writes.timerDeletes.toMutableSet()
+        private val timerPuts = mutableListOf<TimerRow>()
         private val definitions = mutableMapOf<String, JitaiDefinition>()
         private var existing: Set<String> = emptySet()
         private var recent: List<DecisionRecord> = emptyList()
         val deferred = mutableListOf<Deferral>()
 
         suspend fun resolve() {
-            val keys = request.evaluations.map { it.point.key } + request.missed.map { it.key } + request.retries.map { it.point.key }
+            val keys =
+                request.evaluations.map { it.point.key } + request.writes.missed.map { it.key } +
+                    request.writes.retries.map { it.point.key }
             existing = if (keys.isEmpty()) emptySet() else tx.existingKeys(keys)
             val today = EngineDays.of(now.wall, request.zone, request.settings.rolloverMinute)
             recent = if (request.evaluations.isEmpty()) emptyList() else tx.countedInEngineDays(GateEvaluator.recentDays(today))
@@ -167,13 +179,13 @@ public class CommitResolver(private val nonces: NonceSource) {
                 }
             }
             arbitrate(contenders)
-            request.missed.forEach { missed ->
+            request.writes.missed.forEach { missed ->
                 if (claim(missed.key, missed.timer)) {
                     definitions[missed.definition.id] = missed.definition
                     add(missedRow(missed), missed.timer)
                 }
             }
-            request.retries.forEach(::retry)
+            request.writes.retries.forEach(::retry)
         }
 
         suspend fun insert(): List<DecisionRecord> =

@@ -311,7 +311,7 @@ class RuleEvaluatorTest {
         assertThat(RuleRefs.of(rule)).containsExactly(FeatureRef(STEPS), FeatureRef(SCREEN), FeatureRef(LOCATION))
         assertThat(RuleRefs.placeholderLeaf(rule, LOCATION)).isEqualTo(Q)
         assertThat(RuleRefs.placeholderLeaf(rule, "battery_pct")).isNull()
-        assertThat(RuleRefs.of(null as Condition?)).isEmpty()
+        assertThat(RuleRefs.of(null, "R")).isEmpty()
     }
 
     @Test

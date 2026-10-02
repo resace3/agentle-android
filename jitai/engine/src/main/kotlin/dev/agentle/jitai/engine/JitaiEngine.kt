@@ -47,6 +47,7 @@ import dev.agentle.jitai.engine.pipeline.MissedPoint
 import dev.agentle.jitai.engine.pipeline.PassEvaluator
 import dev.agentle.jitai.engine.pipeline.PassKind
 import dev.agentle.jitai.engine.pipeline.PassReport
+import dev.agentle.jitai.engine.pipeline.PassWrites
 import dev.agentle.jitai.engine.pipeline.PlanContext
 import dev.agentle.jitai.engine.pipeline.RecoveryReport
 import dev.agentle.jitai.engine.pipeline.RuntimeUpdate
@@ -313,7 +314,7 @@ public class JitaiEngine(
         return Context(clock.now(), clock.zone(), settings, notifications, definitions)
     }
 
-    private suspend fun Context.later(): Context = at(clock.now(), clock.zone())
+    private fun Context.later(): Context = at(clock.now(), clock.zone())
 
     private suspend fun generation(): String = ports.store.engineState().getOrThrow().dbGeneration
 
@@ -458,9 +459,7 @@ public class JitaiEngine(
             kind = PassKind.TIMER,
             context = context,
             prepared = Prepared(prepared.generation, prepared.snapshot, evaluations),
-            missed = missed,
-            retries = retries,
-            deletes = deletes,
+            writes = PassWrites(missed = missed, retries = retries, timerDeletes = deletes),
         ) ?: PassReport(PassKind.TIMER, context.now.wall)
     }
 
@@ -571,9 +570,11 @@ public class JitaiEngine(
             kind = PassKind.EVENTS,
             context = context,
             prepared = prepare(context, points, emptyList()),
-            evalLog = log,
-            runtime = updates,
-            watermark = WatermarkAdvance(state.watermark, maxOf(target, state.watermark)),
+            writes = PassWrites(
+                evalLog = log,
+                runtime = updates,
+                watermark = WatermarkAdvance(state.watermark, maxOf(target, state.watermark)),
+            ),
         ) ?: return null
         val expired = expire(context)
         return EventPass(report.copy(expired = expired), more = batch.size >= EVENT_BATCH)
@@ -611,17 +612,7 @@ public class JitaiEngine(
     }
 
     /** Commit, then deliver the DECIDED rows. Null when an event pass lost the watermark race. */
-    private suspend fun commitAndDeliver(
-        kind: PassKind,
-        context: Context,
-        prepared: Prepared,
-        missed: List<MissedPoint> = emptyList(),
-        retries: List<StalenessRetry> = emptyList(),
-        evalLog: List<EvalLogEntry> = emptyList(),
-        runtime: List<RuntimeUpdate> = emptyList(),
-        watermark: WatermarkAdvance? = null,
-        deletes: Set<String> = emptySet(),
-    ): PassReport? {
+    private suspend fun commitAndDeliver(kind: PassKind, context: Context, prepared: Prepared, writes: PassWrites): PassReport? {
         val randomized = prepared.evaluations.any { it.eligible && MicroRandomization.probability(it.point.definition.experiment) != null }
         val request = CommitRequest(
             now = context.now,
@@ -631,12 +622,7 @@ public class JitaiEngine(
             salt = if (randomized) ports.settings.installSalt().getOrThrow() else null,
             snapshot = prepared.snapshot,
             evaluations = prepared.evaluations,
-            missed = missed,
-            retries = retries,
-            evalLog = evalLog,
-            runtime = runtime,
-            watermark = watermark,
-            timerDeletes = deletes,
+            writes = writes,
             plan = context.plan(ReplanReason.EVALUATION),
         )
         val committed = when (val result = ports.store.commit(prepared.generation) { tx -> resolver.commit(tx, request) }.getOrThrow()) {
@@ -652,7 +638,9 @@ public class JitaiEngine(
             evalLog = committed.evalLog,
             deliveries = deliveries,
             deferred = committed.deferred,
-            syncRequests = retries.map { SyncRequest(it.point.definition.id, it.point.key, it.syncFeatures, SyncReason.STALENESS_RETRY) },
+            syncRequests = writes.retries.map {
+                SyncRequest(it.point.definition.id, it.point.key, it.syncFeatures, SyncReason.STALENESS_RETRY)
+            },
             nextDueAt = committed.plan?.nextDueAt,
         )
     }

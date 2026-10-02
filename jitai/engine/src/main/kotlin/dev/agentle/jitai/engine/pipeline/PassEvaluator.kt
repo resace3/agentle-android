@@ -74,7 +74,7 @@ public object PassEvaluator {
             refs += RuleRefs.of(point.definition)
             point.impliedState?.let { refs += it.ref }
         }
-        suppressions.forEach { refs += RuleRefs.of(it.conditions) }
+        suppressions.forEach { refs += RuleRefs.of(it.conditions, it.id) }
         refs += INTERACTIVE
         return refs
     }
@@ -86,7 +86,7 @@ public object PassEvaluator {
     public fun liveRefs(implied: ImpliedState?, suppressions: List<JitaiDefinition>): Set<FeatureRef> {
         val refs = linkedSetOf(INTERACTIVE)
         implied?.let { refs += it.ref }
-        suppressions.forEach { refs += RuleRefs.of(it.conditions) }
+        suppressions.forEach { refs += RuleRefs.of(it.conditions, it.id) }
         return refs
     }
 
@@ -101,7 +101,7 @@ public object PassEvaluator {
         evaluator: RuleEvaluator,
     ): List<JitaiDefinition> = suppressions.filter { rule ->
         Effectiveness.windowOpen(rule, snapshot.at, zone) &&
-            evaluator.evaluate(rule.conditions, snapshot, RootKind.SUPPRESSION, OverridePolicy.of(rule)).result != Tri.FALSE
+            evaluator.evaluate(rule.conditions, snapshot, RootKind.SUPPRESSION, OverridePolicy.of(rule), rule.id).result != Tri.FALSE
     }
 
     /** Ids of the [blocking] rules that target [definition] by id or category. */
@@ -119,9 +119,9 @@ public object PassEvaluator {
     ): CandidateEvaluation {
         val definition = point.definition
         val policy = OverridePolicy.of(definition)
-        val conditions = evaluator.evaluate(definition.conditions, snapshot, RootKind.INTERVENTION, policy)
+        val conditions = evaluator.evaluate(definition.conditions, snapshot, RootKind.INTERVENTION, policy, definition.id)
         val context = if (conditions.result == Tri.TRUE) {
-            evaluator.evaluate(definition.contextRequirements, snapshot, RootKind.INTERVENTION, policy)
+            evaluator.evaluate(definition.contextRequirements, snapshot, RootKind.INTERVENTION, policy, definition.id)
         } else {
             null
         }
@@ -162,8 +162,9 @@ public object PassEvaluator {
                 is Freshness.SourceLag, Freshness.DailyValue -> true
                 else -> false
             }
-            val state = node.value?.state
-            remote && (state == ValueState.STALE || (state == ValueState.MISSING && node.value?.reason in RETRYABLE_MISSING))
+            val value = node.value
+            remote && value != null &&
+                (value.state == ValueState.STALE || (value.state == ValueState.MISSING && value.reason in RETRYABLE_MISSING))
         }
         return if (retryable) unknownLeaves.mapNotNull { it.feature }.toSortedSet() else null
     }

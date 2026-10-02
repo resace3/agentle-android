@@ -66,6 +66,7 @@ internal object GateFixtures {
         delivered = stamp.takeIf { state == DecisionState.DELIVERED },
     )
 
+    @Suppress("LongParameterList") // A fixture builder: every parameter has a default and call sites name what they set.
     fun input(
         now: MonotonicStamp,
         definition: JitaiDefinition = Rules.R1,
@@ -106,6 +107,7 @@ class SafetyGatesTest {
 
     private fun stamp(local: String, elapsed: Long, boot: Int? = 41) = MonotonicStamp(F0.local(local), elapsed, boot)
 
+    @Suppress("LongParameterList") // A fixture builder: every parameter has a default and call sites name what they set.
     private fun input(
         now: MonotonicStamp,
         definition: JitaiDefinition = r1,
@@ -418,6 +420,7 @@ class SafetyGatesTest {
         "AI_DISCOVERED, , , , 40, 60, 1, 1, 40",
         "USER_MANUAL, 20000, 0, 0, -5, 10080, 1, 1, 0",
     )
+    @Suppress("LongParameterList") // One CSV row: four inputs and four expectations.
     fun `effective limits clamp to the origin's range, AI stricter`(
         createdBy: CreatedBy,
         cooldown: Int?,

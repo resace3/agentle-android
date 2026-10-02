@@ -62,21 +62,32 @@ public data class OverridePolicy(val allowDeliveryIncreasing: Boolean) {
  * UNKNOWN with a [TraceNote], which never fires an intervention.
  */
 public class RuleEvaluator(private val catalog: (String) -> FeatureDefinition? = { RealtimeFeatureCatalog[it] }) {
-    /** Evaluates [condition] (null = TRUE with an empty trace). */
+    /**
+     * Evaluates [condition] (null = TRUE with an empty trace). [selfId] is the id of the rule that contains [condition]:
+     * leaves with `{jitai: self}` read the snapshot entry bound to it ([RuleRefs.bindSelf]); the trace keeps the args
+     * as written.
+     */
     public fun evaluate(
         condition: Condition?,
         snapshot: FeatureSnapshot,
         kind: RootKind = RootKind.INTERVENTION,
         policy: OverridePolicy = OverridePolicy.STRICT,
+        selfId: String? = null,
     ): TreeTrace {
         if (condition == null) return TreeTrace(Tri.TRUE, emptyList())
-        val context = Context(snapshot, kind, policy, zoneOf(snapshot.zoneId))
+        val context = Context(snapshot, kind, policy, zoneOf(snapshot.zoneId), selfId)
         val nodes = mutableListOf<TraceNode>()
         val result = node(condition, path = "", positive = true, depth = 1, context = context, out = nodes)
         return TreeTrace(result, nodes)
     }
 
-    private class Context(val snapshot: FeatureSnapshot, val kind: RootKind, val policy: OverridePolicy, val zone: TimeZone?) {
+    private class Context(
+        val snapshot: FeatureSnapshot,
+        val kind: RootKind,
+        val policy: OverridePolicy,
+        val zone: TimeZone?,
+        val selfId: String?,
+    ) {
         val local = zone?.let { snapshot.at.toLocalDateTime(it) }
         val localMinute: Int? = local?.let { it.hour * MINUTES_PER_HOUR + it.minute }
     }
@@ -173,7 +184,7 @@ public class RuleEvaluator(private val catalog: (String) -> FeatureDefinition? =
     }
 
     private fun valued(definition: FeatureDefinition, leaf: Condition.FeatureLeaf, literals: List<TypedLiteral>, context: Context): Raw {
-        val value = context.snapshot[leaf.ref] ?: return Raw(value = TraceValue.NOT_RESOLVED)
+        val value = context.snapshot[RuleRefs.ref(leaf, context.selfId)] ?: return Raw(value = TraceValue.NOT_RESOLVED)
         val traced = TraceValue.of(value)
         return when (value) {
             is FeatureValue.Known -> OperatorSemantics.holds(leaf.operator, value.value, literals)

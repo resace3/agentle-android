@@ -123,6 +123,7 @@ object Leaves {
 
 /** The rules of R10 §12 (ids written as `R1` etc.). */
 object Rules {
+    @Suppress("LongParameterList") // A fixture builder: every parameter has a default and call sites name what they set.
     fun rule(
         id: String,
         trigger: Trigger?,

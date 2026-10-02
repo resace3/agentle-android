@@ -9,6 +9,7 @@ import dev.agentle.jitai.dsl.model.JitaiEventType
 import dev.agentle.jitai.engine.content.RenderedIntervention
 import dev.agentle.jitai.engine.time.MonotonicStamp
 import java.security.SecureRandom
+import java.util.Locale
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
@@ -332,7 +333,7 @@ public class SecureNonceSource(private val random: SecureRandom = SecureRandom()
     override fun nextNonce(): String {
         val bytes = ByteArray(NONCE_BYTES)
         random.nextBytes(bytes)
-        return bytes.joinToString("") { "%02x".format(it) }
+        return bytes.joinToString("") { "%02x".format(Locale.ROOT, it) }
     }
 
     private companion object {

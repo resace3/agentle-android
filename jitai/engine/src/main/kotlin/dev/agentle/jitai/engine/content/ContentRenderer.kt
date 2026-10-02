@@ -309,7 +309,7 @@ public class ContentRenderer(private val formatter: PlaceholderFormatter = Defau
     public fun fill(text: String, definition: JitaiDefinition, snapshot: FeatureSnapshot?): String = PLACEHOLDER.replace(text) { match ->
         val featureId = match.groupValues[1]
         val leaf = RuleRefs.placeholderLeaf(definition, featureId)
-        val value = if (leaf == null || snapshot == null) null else snapshot[leaf.ref]
+        val value = if (leaf == null || snapshot == null) null else snapshot[RuleRefs.ref(leaf, definition.id)]
         formatter.format(featureId, value, definition.provenance?.appLabels.orEmpty())
     }
 
