@@ -124,14 +124,17 @@ internal fun everyCatalogRef(jitaiId: String = "11111111-1111-4111-8111-11111111
  */
 internal const val HOSTILE_JVM_ZONE = "Pacific/Kiritimati"
 
-/** Runs [block] with the JVM default time zone set to [zoneId], then restores it. */
+/**
+ * Runs [block] with the JVM default time zone set to [zoneId], then restores the JVM's startup default:
+ * `setDefault(null)` makes the next lookup re-read `user.timezone`, so the test never reads the default zone itself
+ * (the one-clock rule forbids `TimeZone.getDefault` in tests too).
+ */
 internal inline fun <T> withJvmDefaultZone(zoneId: String, block: () -> T): T {
-    val saved = java.util.TimeZone.getDefault()
     java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zoneId))
     try {
         return block()
     } finally {
-        java.util.TimeZone.setDefault(saved)
+        java.util.TimeZone.setDefault(null)
     }
 }
 

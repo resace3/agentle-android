@@ -180,7 +180,7 @@ class RealtimeFeatureEngineTest {
             inputs.usage, inputs.notifications, inputs.activity, inputs.steps, inputs.sleep, inputs.dailySummaries, inputs.heartRate,
             inputs.sourceCoverage, inputs.collectorCoverage, inputs.history, inputs.live,
             snapshots = object : SnapshotReads {
-                override suspend fun <T> read(block: suspend () -> T): T = throw IllegalStateException("database is locked")
+                override suspend fun <T> read(block: suspend () -> T): T = error("database is locked")
             },
         )
         val engine = RealtimeFeatureEngine(failing, f.clock)

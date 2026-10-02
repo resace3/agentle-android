@@ -54,7 +54,7 @@ public data class PortRead(val port: String, val insideSnapshot: Boolean)
  * technical failure), answers `Unavailable(`[unavailable]`)` (a data condition, for ports that answer an
  * [InputAnswer]), or throws [throwing] (a port bug the engine must survive). Every read is recorded in the [ReadLog].
  */
-public abstract class InMemoryPort internal constructor(private val log: ReadLog) {
+public sealed class InMemoryPort(private val log: ReadLog) {
     public var unavailable: MissingReason? = null
 
     public var failure: AppError? = null

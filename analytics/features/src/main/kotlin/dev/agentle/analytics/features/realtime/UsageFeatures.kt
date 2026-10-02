@@ -111,7 +111,7 @@ internal object UsageFeatures {
             pass.foregroundApp().orMissing { live ->
                 val livePackage = live?.takeIf { it !in foreground() }
                 val stillOpen = livePackage != null && UsageAlgebra.openAtEnd(UsageAlgebra.foregroundWithoutEvents(inside, window), window)
-                pass.known(if (stillOpen) FeatureScalar.PackageValue(livePackage.orEmpty()) else FeatureScalar.NoPackage)
+                pass.known(if (stillOpen) FeatureScalar.PackageValue(livePackage) else FeatureScalar.NoPackage)
             }
         }
 
