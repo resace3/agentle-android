@@ -33,6 +33,7 @@ import kotlin.time.Instant
 
 /** The insight list (spec §22 "Insights"). */
 @HiltViewModel
+@Suppress("UnusedPrivateProperty") // Detekt misses the use inside flatMapLatest.
 internal class InsightListViewModel @Inject constructor(private val port: InsightsPort) : ViewModel() {
     private val reload = MutableStateFlow(0)
 

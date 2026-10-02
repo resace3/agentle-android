@@ -68,7 +68,7 @@ class InsightsJourneyTest {
         val clickable = compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Role).or(isToggleable()))
         clickable.fetchSemanticsNodes().forEach { node ->
             val density = node.layoutInfo.density.density
-            val label = node.config.getOrNull(SemanticsProperties.Text)?.joinToString() ?: node.config.toString()
+            val label = node.config.getOrElseNullable(SemanticsProperties.Text) { null }?.joinToString() ?: node.config.toString()
             assertWithMessage(label).that(node.size.width / density).isAtLeast(47.5f)
             assertWithMessage(label).that(node.size.height / density).isAtLeast(47.5f)
         }
