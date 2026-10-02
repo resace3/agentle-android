@@ -319,8 +319,19 @@ public interface DeliveryPort {
     /** Whether a notification with [tag] is active (`getActiveNotifications()`), for crash recovery. */
     public suspend fun isActive(tag: String): Outcome<Boolean>
 
-    /** Releases prepared media that will not be posted (the claim was lost or refused). */
+    /** Releases prepared media that will not be posted (the claim was lost or refused, or the post was blocked). */
     public suspend fun discard(prepared: PreparedDelivery)
+
+    /**
+     * The delivery became an in-app card (CARD_PENDING, jitai-correctness-13), at the claim or after a post that returned
+     * [PostResult.Blocked]: keep [prepared]'s media for the card instead of releasing it. Called exactly when the row
+     * moved to CARD_PENDING; [discard] stays the call for every delivery that will not be shown. The card's content comes
+     * back after a restart through `JitaiEngine.pendingCards()`. The default releases the media like [discard].
+     */
+    public suspend fun keepAsCard(prepared: PreparedDelivery): Outcome<Unit> {
+        discard(prepared)
+        return Outcome.success(Unit)
+    }
 }
 
 /** Random per-delivery nonces (red team oauth-security-12). Tests inject a seeded source. */

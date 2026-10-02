@@ -130,6 +130,7 @@ public class FakeDeliveryPort(private val death: ProcessDeath = ProcessDeath()) 
     private val postLog = mutableListOf<RenderedIntervention>()
     private val prepareLog = mutableListOf<RenderedIntervention>()
     private val discardLog = mutableListOf<RenderedIntervention>()
+    private val cardLog = mutableListOf<RenderedIntervention>()
     private val prerequisites = ConcurrentHashMap<JitaiCategory, DeliveryPrerequisite>()
     private var alertCount = 0
 
@@ -178,6 +179,9 @@ public class FakeDeliveryPort(private val death: ProcessDeath = ProcessDeath()) 
     public val prepared: List<RenderedIntervention> get() = synchronized(lock) { prepareLog.toList() }
 
     public val discarded: List<RenderedIntervention> get() = synchronized(lock) { discardLog.toList() }
+
+    /** Deliveries whose prepared media was kept for an in-app card ([keepAsCard]), in order. */
+    public val keptAsCards: List<RenderedIntervention> get() = synchronized(lock) { cardLog.toList() }
 
     /** Alerts the user noticed: a post of a tag that was not active. */
     public val alerts: Int get() = synchronized(lock) { alertCount }
@@ -247,6 +251,12 @@ public class FakeDeliveryPort(private val death: ProcessDeath = ProcessDeath()) 
     override suspend fun discard(prepared: PreparedDelivery) {
         death.check()
         synchronized(lock) { discardLog += prepared.intervention }
+    }
+
+    override suspend fun keepAsCard(prepared: PreparedDelivery): Outcome<Unit> {
+        death.check()
+        synchronized(lock) { cardLog += prepared.intervention }
+        return Outcome.success(Unit)
     }
 }
 
