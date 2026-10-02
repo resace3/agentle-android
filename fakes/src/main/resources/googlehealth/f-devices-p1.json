@@ -1,0 +1,15 @@
+{
+  "pairedDevices": [
+    {
+      "name": "users/1234567890/pairedDevices/2718281828",
+      "deviceVersion": "Charge 6",
+      "deviceType": "TRACKER",
+      "batteryStatus": "High",
+      "batteryLevel": 82,
+      "lastSyncTime": "2026-10-01T11:58:03Z",
+      "macAddress": "A0:B1:C2:D3:E4:F5",
+      "features": ["STEPS", "HEART_RATE", "SLEEP", "SMART_SLEEP", "SPO2", "ACTIVE_ZONE_MINUTES", "CONNECTED_GPS"]
+    }
+  ],
+  "nextPageToken": "pd-2"
+}
