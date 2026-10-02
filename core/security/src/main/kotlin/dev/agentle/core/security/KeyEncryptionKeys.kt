@@ -2,16 +2,18 @@ package dev.agentle.core.security
 
 import android.security.keystore.KeyPermanentlyInvalidatedException
 import com.google.crypto.tink.Aead
-import com.google.crypto.tink.KeyTemplates
-import com.google.crypto.tink.KeysetHandle
-import com.google.crypto.tink.RegistryConfiguration
-import com.google.crypto.tink.aead.AeadConfig
 import com.google.crypto.tink.integration.android.AndroidKeystore
+import java.io.File
 import java.security.GeneralSecurityException
 import java.security.InvalidKeyException
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 import javax.crypto.AEADBadTagException
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 /**
  * Android Keystore key-encryption keys (docs/ARCHITECTURE.md §5.4, docs/research/04 §3.1-3.2). The alias carries a
@@ -58,13 +60,16 @@ class AndroidKeystoreKekProvider : KeyEncryptionKeyProvider {
 }
 
 /**
- * KEKs as plain Tink AES-256-GCM (raw output) keysets held in memory, for Robolectric and JVM tests: there is no
- * AndroidKeyStore provider there (docs/research/04 §4, "JCE fake"). Never bind it in production: keys vanish with the
- * process. [failNext] injects Keystore failures into the next [aead] calls.
+ * In-memory KEKs for Robolectric and JVM tests, where there is no AndroidKeyStore provider (docs/research/04 §4, "JCE
+ * fake"). Each key is a JCE AES-256-GCM key behind Tink's [Aead] interface with the same wire format and failure types
+ * as Tink's Keystore AEAD: `IV(12) || ciphertext || tag(16)`, [AEADBadTagException] on a tag mismatch and
+ * [GeneralSecurityException] on a short ciphertext. Never bind it in production: keys vanish with the process.
+ * [failNext] injects Keystore failures into the next [aead] calls.
  */
 class InMemoryKekProvider : KeyEncryptionKeyProvider {
-    private val keys = ConcurrentHashMap<KekAlias, Aead>()
+    private val keys = ConcurrentHashMap<KekAlias, SecretKey>()
     private val pendingFailures = ConcurrentLinkedQueue<() -> Throwable>()
+    private val random = SecureRandom()
 
     /** The next [count] calls of [aead] throw what [failure] creates. */
     fun failNext(count: Int = 1, failure: () -> Throwable) {
@@ -74,18 +79,44 @@ class InMemoryKekProvider : KeyEncryptionKeyProvider {
     override fun hasKey(alias: KekAlias): Boolean = keys.containsKey(alias)
 
     override fun createKey(alias: KekAlias) {
-        AeadConfig.register()
-        val handle = KeysetHandle.generateNew(KeyTemplates.get("AES256_GCM_RAW"))
-        keys[alias] = handle.getPrimitive(RegistryConfiguration.get(), Aead::class.java)
+        val generator = KeyGenerator.getInstance("AES")
+        generator.init(AES_KEY_BITS, random)
+        keys[alias] = generator.generateKey()
     }
 
     override fun aead(alias: KekAlias): Aead {
         pendingFailures.poll()?.let { throw it() }
-        return keys[alias] ?: throw InvalidKeyException("no key for alias")
+        val key = keys[alias] ?: throw InvalidKeyException("no key for alias")
+        return JceAesGcmAead(key, random)
     }
 
     override fun deleteKey(alias: KekAlias) {
         keys.remove(alias)
+    }
+
+    private class JceAesGcmAead(private val key: SecretKey, private val random: SecureRandom) : Aead {
+        override fun encrypt(plaintext: ByteArray, associatedData: ByteArray?): ByteArray {
+            val iv = ByteArray(IV_BYTES).also(random::nextBytes)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, iv))
+            associatedData?.let(cipher::updateAAD)
+            return iv + cipher.doFinal(plaintext)
+        }
+
+        override fun decrypt(ciphertext: ByteArray, associatedData: ByteArray?): ByteArray {
+            if (ciphertext.size < IV_BYTES + TAG_BITS / Byte.SIZE_BITS) throw GeneralSecurityException("ciphertext too short")
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, ciphertext, 0, IV_BYTES))
+            associatedData?.let(cipher::updateAAD)
+            return cipher.doFinal(ciphertext, IV_BYTES, ciphertext.size - IV_BYTES)
+        }
+    }
+
+    private companion object {
+        const val TRANSFORMATION = "AES/GCM/NoPadding"
+        const val AES_KEY_BITS = 256
+        const val IV_BYTES = 12
+        const val TAG_BITS = 128
     }
 }
 
@@ -95,18 +126,36 @@ enum class FailureKind { PERMANENT, TRANSIENT }
 /**
  * Classification of Keystore and unwrap failures (red team lifecycle-battery-08). Permanent:
  * [KeyPermanentlyInvalidatedException] and [AEADBadTagException] anywhere in the cause chain. Everything else
- * (KeyStoreException, ProviderException, I/O) is transient. Missing aliases and "file is not a database" are
+ * (`KeyStoreException`, `ProviderException`, I/O) is transient. Missing aliases and "file is not a database" are
  * classified by the callers that can see them.
  */
 object KeystoreFailures {
-    fun classify(error: Throwable): FailureKind =
-        if (causes(error).any { it is KeyPermanentlyInvalidatedException || it is AEADBadTagException }) {
-            FailureKind.PERMANENT
-        } else {
-            FailureKind.TRANSIENT
+    fun classify(error: Throwable): FailureKind = reasonOf(error).kind
+
+    fun reasonOf(error: Throwable): UnlockFailureReason {
+        val chain = causes(error).toList()
+        return when {
+            chain.any { it is KeyPermanentlyInvalidatedException } -> UnlockFailureReason.KEY_INVALIDATED
+            chain.any { it is AEADBadTagException } -> UnlockFailureReason.WRAPPED_KEY_REJECTED
+            else -> UnlockFailureReason.KEYSTORE_ERROR
         }
+    }
 
     internal fun causes(error: Throwable): Sequence<Throwable> = generateSequence(error) { it.cause }.take(MAX_CAUSE_DEPTH)
 
     private const val MAX_CAUSE_DEPTH = 8
+}
+
+/** Moves files aside instead of deleting them, for the user-confirmed local data reset. */
+object Quarantine {
+    /**
+     * Renames [file] (if it exists) into `quarantineDir/<tag>/`. Returns true if [file] no longer exists. A rename within
+     * the app's data directory is atomic and keeps the bytes, so nothing is lost if the reset was a mistake.
+     */
+    fun move(file: File, quarantineDir: File, tag: String): Boolean {
+        if (!file.exists()) return true
+        val target = File(File(quarantineDir, tag), file.name)
+        target.parentFile?.mkdirs()
+        return file.renameTo(target) || !file.exists()
+    }
 }

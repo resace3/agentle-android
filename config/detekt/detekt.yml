@@ -13,6 +13,12 @@ style:
     max: 4
   ThrowsCount:
     max: 4
+  ForbiddenImport:
+    active: true
+    forbiddenImports:
+      # Keysets in SharedPreferences are never used; secrets are sealed by AndroidKeystore.getAead (round 2 correction 7).
+      - value: 'com.google.crypto.tink.integration.android.AndroidKeysetManager'
+        reason: 'Use AndroidKeystore.generateNewAes256GcmKey/getAead through :core:security SecretVault'
   ForbiddenMethodCall:
     active: true
     # One time source: AgentleClock (docs/ARCHITECTURE.md rule 8). Exempt: :core:time and the app clock binding.

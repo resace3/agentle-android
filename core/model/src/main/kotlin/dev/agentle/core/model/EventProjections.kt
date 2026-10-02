@@ -62,6 +62,7 @@ public object EventProjections {
      * The main numeric value, or null. Units: durations in ms, steps/floors as counts, meters, kcal, bpm, kg, percent,
      * minutes asleep for sleep sessions, 1.0/0.0 for activity ENTER/EXIT transitions, bytes for media sizes.
      */
+    @Suppress("CyclomaticComplexMethod") // One flat, exhaustive mapping: a new payload type must be decided here.
     public fun valueOf(payload: EventPayload): Double? = when (payload) {
         is AppUsagePayload -> payload.durationMs?.toDouble()
 
