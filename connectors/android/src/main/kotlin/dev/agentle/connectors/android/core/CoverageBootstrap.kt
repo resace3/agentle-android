@@ -53,21 +53,29 @@ public class CoverageBootstrap(private val coverage: SafeCoverage, private val e
         /** Maps `ApplicationExitInfo.REASON_*` to a coverage end cause. */
         public fun causeOf(reason: Int): CoverageEndCause = when (reason) {
             ApplicationExitInfo.REASON_EXIT_SELF -> CoverageEndCause.PROCESS_EXITED
+
             ApplicationExitInfo.REASON_LOW_MEMORY -> CoverageEndCause.PROCESS_LOW_MEMORY
+
             ApplicationExitInfo.REASON_CRASH, ApplicationExitInfo.REASON_CRASH_NATIVE, ApplicationExitInfo.REASON_INITIALIZATION_FAILURE ->
                 CoverageEndCause.PROCESS_CRASHED
+
             ApplicationExitInfo.REASON_ANR -> CoverageEndCause.PROCESS_ANR
+
             ApplicationExitInfo.REASON_USER_REQUESTED, ApplicationExitInfo.REASON_USER_STOPPED -> CoverageEndCause.PROCESS_KILLED_BY_USER
+
             ApplicationExitInfo.REASON_PERMISSION_CHANGE -> CoverageEndCause.PROCESS_PERMISSION_CHANGE
+
             ApplicationExitInfo.REASON_PACKAGE_UPDATED,
             ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE,
             -> CoverageEndCause.PROCESS_PACKAGE_UPDATED
+
             ApplicationExitInfo.REASON_SIGNALED,
             ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE,
             ApplicationExitInfo.REASON_DEPENDENCY_DIED,
             ApplicationExitInfo.REASON_OTHER,
             ApplicationExitInfo.REASON_FREEZER,
             -> CoverageEndCause.PROCESS_KILLED_BY_SYSTEM
+
             else -> CoverageEndCause.UNKNOWN
         }
     }

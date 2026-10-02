@@ -43,7 +43,20 @@ public data class CollectionSettings(
      * unless enabled, red team lifecycle-battery-19). Opt-in connectors are off until listed here.
      */
     val enabledOptInConnectors: Set<String> = emptySet(),
+    /**
+     * Whether calendar event titles may be stored. Off by default (red team privacy-ai-16); attendee identities,
+     * descriptions and locations are never read.
+     */
+    val calendarTitles: Boolean = false,
 )
+
+/**
+ * Purges notification titles and text already stored for a package (red team privacy-ai-16): called when a package
+ * became the default SMS app or dialer. ANDROID-DATA implements it; it must be idempotent.
+ */
+public fun interface NotificationContentPurger {
+    public suspend fun purgeContent(packageName: String)
+}
 
 /** Read and update [CollectionSettings]. */
 public interface CollectionSettingsStore {

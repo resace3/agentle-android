@@ -77,21 +77,36 @@ public class SettingsIntentFactory(
 
     private fun candidate(target: SettingsTarget): Intent? = when (target) {
         SettingsTarget.APP_DETAILS -> appDetails()
+
         SettingsTarget.USAGE_ACCESS -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+
         SettingsTarget.NOTIFICATION_LISTENER -> NotificationListenerResolver.listenerSettingsIntent(platform.sdkInt, listenerComponent)
+
         SettingsTarget.APP_NOTIFICATIONS ->
             Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+
         SettingsTarget.BATTERY_OPTIMIZATION -> Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+
         SettingsTarget.UNUSED_APP_RESTRICTIONS -> unusedRestrictionsIntent()
+
         SettingsTarget.LOCATION_SOURCE -> Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+
         SettingsTarget.BLUETOOTH -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+
         SettingsTarget.WIFI -> Intent(Settings.ACTION_WIFI_SETTINGS)
+
         SettingsTarget.AIRPLANE_MODE -> Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS)
+
         SettingsTarget.DATE -> Intent(Settings.ACTION_DATE_SETTINGS)
+
         SettingsTarget.LOCALE -> Intent(Settings.ACTION_LOCALE_SETTINGS)
+
         SettingsTarget.SOUND -> Intent(Settings.ACTION_SOUND_SETTINGS)
+
         SettingsTarget.HEALTH_CONNECT -> Intent(HealthConnectClient.ACTION_HEALTH_CONNECT_SETTINGS)
+
         SettingsTarget.DATA_USAGE -> Intent(Settings.ACTION_DATA_USAGE_SETTINGS)
+
         SettingsTarget.STORAGE -> Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS)
     }
 

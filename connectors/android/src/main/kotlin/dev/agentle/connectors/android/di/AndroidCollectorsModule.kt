@@ -24,6 +24,7 @@ import dev.agentle.connectors.api.CoverageRecorder
 import dev.agentle.connectors.api.CurrentPlaceProvider
 import dev.agentle.connectors.api.EventSink
 import dev.agentle.connectors.api.LiveCollectionControl
+import dev.agentle.connectors.api.NotificationContentPurger
 import dev.agentle.connectors.api.NotificationDeliveryGate
 import dev.agentle.connectors.api.PermissionRequestStore
 import dev.agentle.connectors.api.SystemChangeListener
@@ -69,6 +70,9 @@ public interface AndroidCollectorsOptionalPorts {
 
     @BindsOptionalOf
     public fun activeJitai(): ActiveJitaiSignal
+
+    @BindsOptionalOf
+    public fun notificationPurger(): NotificationContentPurger
 }
 
 /** Provides the collectors graph and the ports it implements (docs/ARCHITECTURE.md §6.1-6.3). */
@@ -90,6 +94,7 @@ public object AndroidCollectorsModule {
         permissionRequests: Optional<PermissionRequestStore>,
         systemChanges: Optional<SystemChangeListener>,
         activeJitai: Optional<ActiveJitaiSignal>,
+        notificationPurger: Optional<NotificationContentPurger>,
     ): AndroidCollectorsGraph {
         AndroidCollectors.installed()?.let { return it }
         val ports = CollectorPorts(
@@ -103,6 +108,7 @@ public object AndroidCollectorsModule {
             permissionRequests = permissionRequests.orElse(null),
             systemChanges = systemChanges.orElse(null),
             activeJitai = activeJitai.orElse(null),
+            notificationPurger = notificationPurger.orElse(null),
         )
         return AndroidCollectorsGraph(context, ports).also(AndroidCollectors::install)
     }

@@ -30,7 +30,10 @@ public class NotificationSnapshot(
     override fun toString(): String = "NotificationSnapshot(package=$packageName, ongoing=$ongoing)"
 
     public companion object {
-        /** Reads [sbn], keeping title and text only when [includeText]; never throws (unreadable text is no text). */
+        /**
+         * Reads [sbn], keeping title and text only when [includeText] and neither looks like a one-time code
+         * ([OneTimeCodeFilter], red team privacy-ai-16); never throws (unreadable text is no text).
+         */
         @Suppress("TooGenericExceptionCaught")
         public fun of(sbn: StatusBarNotification, includeText: Boolean): NotificationSnapshot {
             val notification: Notification? = sbn.notification
@@ -50,6 +53,8 @@ public class NotificationSnapshot(
             } catch (ignored: RuntimeException) {
                 null
             }
+            val keep = includeText && !OneTimeCodeFilter.matches(title) && !OneTimeCodeFilter.matches(text) &&
+                !OneTimeCodeFilter.matches(listOfNotNull(title, text).joinToString(" "))
             return NotificationSnapshot(
                 key = sbn.key,
                 packageName = sbn.packageName,
@@ -61,8 +66,8 @@ public class NotificationSnapshot(
                 foregroundService = flags and Notification.FLAG_FOREGROUND_SERVICE != 0,
                 localOnly = flags and Notification.FLAG_LOCAL_ONLY != 0,
                 hasText = !title.isNullOrBlank() || !text.isNullOrBlank(),
-                title = if (includeText) title else null,
-                text = if (includeText) text else null,
+                title = if (keep) title else null,
+                text = if (keep) text else null,
             )
         }
     }
@@ -98,7 +103,11 @@ public data class ActiveState(val active: Map<String, ActiveEntry> = emptyMap(),
     }
 }
 
-/** The default SMS app and the default dialer: never captured unless the user allowed it (docs/research/01 §3.34). */
+/**
+ * The default SMS app and the default dialer: their content is never captured (docs/research/01 §3.34, red team
+ * privacy-ai-16). Re-resolved at each collection. `RoleManager.getRoleHolders` is a system API, so the public
+ * `Telephony.Sms.getDefaultSmsPackage` and `TelecomManager.getDefaultDialerPackage` are used on every API level.
+ */
 public fun interface DefaultHandlers {
     public fun packages(): Set<String>
 }

@@ -35,6 +35,7 @@ public class NotificationsConnector(
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.NOTIFICATION_EVENTS_METADATA)
 
     override suspend fun collect(trigger: SyncTrigger, statuses: Map<String, CapabilityStatus>): CollectOutcome {
+        collector.refreshHandlers()
         val result = collector.flush()
         return CollectOutcome(committed = StateStream.committedRows(result), error = (result as? WriteResult.Unavailable)?.error)
     }

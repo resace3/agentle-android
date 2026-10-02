@@ -186,10 +186,12 @@ public class LiveWriter(private val runtime: CollectorRuntime, private val flush
                     channel.lastHeartbeat = elapsed
                     runtime.coverage.heartbeat(channel.coverageIds, now)
                 }
+
                 is WriteResult.Unavailable -> if (!channel.gapOpen) {
                     channel.gapOpen = true
                     runtime.coverage.close(channel.coverageIds, now, CoverageEndCause.DATABASE_UNAVAILABLE)
                 }
+
                 WriteResult.Rejected, WriteResult.StaleEpoch -> Unit
             }
         }

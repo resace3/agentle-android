@@ -8,9 +8,13 @@ import dev.agentle.connectors.android.core.CoverageIds
 import dev.agentle.connectors.android.core.LiveCursor
 import dev.agentle.connectors.android.core.LiveEventBuffer
 import dev.agentle.connectors.android.core.cursorSafely
+import dev.agentle.connectors.android.core.epochSafely
+import dev.agentle.connectors.android.core.writeSafely
 import dev.agentle.connectors.api.CollectionSettings
 import dev.agentle.connectors.api.CoverageEndCause
+import dev.agentle.connectors.api.NotificationContentPurger
 import dev.agentle.connectors.api.SyncCursor
+import dev.agentle.connectors.api.WriteBatch
 import dev.agentle.connectors.api.WriteResult
 import dev.agentle.core.model.EventType
 import dev.agentle.core.model.NotificationPayload
@@ -19,6 +23,8 @@ import dev.agentle.core.model.Sensitivity
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -48,7 +54,12 @@ public class NotificationCollector(
     private val handlers: DefaultHandlers,
     private val sdkInt: Int = Build.VERSION.SDK_INT,
     flushDelay: Duration = 2.seconds,
+    private val purger: NotificationContentPurger? = null,
 ) : LiveCursor {
+    private val handlersLock = Mutex()
+
+    @Volatile private var knownHandlers: Set<String>? = null
+
     private val ownPackage: String = runtime.context.packageName
     private val buffer =
         LiveEventBuffer(AndroidConnectorIds.NOTIFICATIONS, CoverageIds.NOTIFICATIONS, runtime, cursor = this, flushDelay = flushDelay)
@@ -162,6 +173,7 @@ public class NotificationCollector(
         val current = currentSettings()
         if (!collecting(current) || !keep(snapshot)) return
         ensureLoaded()
+        val defaults = refreshHandlers()
         val keyHash = runtime.hasher.shortHash(snapshot.key)
         val previous = synchronized(active) { active[keyHash] }
         val entry = previous?.copy(
@@ -173,7 +185,7 @@ public class NotificationCollector(
             groupSummary = snapshot.groupSummary,
         ) ?: newEntry(snapshot)
         // The row goes first: a crash before the cursor moves re-creates the same key on reconnect (it converges).
-        buffer.submit(listOf(postedEvent(snapshot, keyHash, entry, current)), cursorChanged = true)
+        buffer.submit(listOf(postedEvent(snapshot, keyHash, entry, current, defaults)), cursorChanged = true)
         synchronized(active) {
             active[keyHash] = entry
             trim()
@@ -201,7 +213,8 @@ public class NotificationCollector(
         val gone = known.keys.filter { it !in now }
         gone.forEach { key -> events += removedEvent(key, known.getValue(key), REASON_UNKNOWN, at) }
         val added = now.filterKeys { it !in known }.mapValues { (_, snapshot) -> newEntry(snapshot) }
-        added.forEach { (key, entry) -> events += postedEvent(now.getValue(key), key, entry, current) }
+        val defaults = if (added.isEmpty()) emptySet() else refreshHandlers()
+        added.forEach { (key, entry) -> events += postedEvent(now.getValue(key), key, entry, current, defaults) }
         if (events.isNotEmpty()) buffer.submit(events, cursorChanged = true)
         synchronized(active) {
             gone.forEach(active::remove)
@@ -247,9 +260,55 @@ public class NotificationCollector(
 
     private fun channelHash(snapshot: NotificationSnapshot): String? = snapshot.channelId?.let(runtime.hasher::shortHash)
 
-    private fun contentAllowed(packageName: String, current: CollectionSettings): Boolean {
-        if (packageName !in current.notificationContentPackages) return false
-        return current.notificationContentFromSmsAndDialer || packageName !in handlers.packages()
+    /** Opted-in packages only, and never the default SMS app or dialer (privacy-ai-16; the old opt-out is ignored). */
+    private fun contentAllowed(packageName: String, current: CollectionSettings, defaults: Set<String>): Boolean =
+        packageName in current.notificationContentPackages && packageName !in defaults
+
+    /**
+     * Re-resolves the default SMS app and dialer (each collection, red team privacy-ai-16). A package that became one
+     * since the last resolution has its stored notification content purged through [NotificationContentPurger]; the
+     * known set is kept in the `("android", "notification_defaults")` cursor so a change while the process was dead is
+     * found too. A failed purge is retried at the next resolution.
+     */
+    @Suppress("TooGenericExceptionCaught")
+    public suspend fun refreshHandlers(): Set<String> = handlersLock.withLock {
+        val now = try {
+            handlers.packages()
+        } catch (e: RuntimeException) {
+            runtime.logger.w(COMPONENT, "Default handlers unreadable", fields = mapOf("error" to e::class.simpleName))
+            return@withLock knownHandlers.orEmpty()
+        }
+        val known = knownHandlers ?: runtime.writer.cursorSafely(AndroidSources.CURSOR_CONNECTOR, DEFAULTS_STREAM)
+            ?.lastSuccessCursor?.split(',')?.filter { it.isNotEmpty() }?.toSet()
+        val purged = (now - known.orEmpty()).filter { purge(it) }.toSet()
+        val settled = now.intersect(known.orEmpty()) + purged
+        if (settled != known) persistDefaults(settled)
+        knownHandlers = settled
+        now
+    }
+
+    @Suppress("TooGenericExceptionCaught")
+    private suspend fun purge(packageName: String): Boolean {
+        val target = purger ?: return true
+        return try {
+            target.purgeContent(packageName)
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            runtime.logger.w(COMPONENT, "Content purge failed", fields = mapOf("error" to e::class.simpleName))
+            false
+        }
+    }
+
+    private suspend fun persistDefaults(packages: Set<String>) {
+        val epoch = runtime.writer.epochSafely() ?: return
+        val stored = runtime.writer.cursorSafely(AndroidSources.CURSOR_CONNECTOR, DEFAULTS_STREAM)
+        val cursor = (stored ?: SyncCursor(AndroidSources.CURSOR_CONNECTOR, DEFAULTS_STREAM)).copy(
+            lastSuccessCursor = packages.sorted().joinToString(","),
+            syncFinishedAt = runtime.clock.now(),
+        )
+        runtime.writer.writeSafely(WriteBatch(epoch = epoch, cursor = cursor))
     }
 
     private fun postedEvent(
@@ -257,8 +316,9 @@ public class NotificationCollector(
         keyHash: String,
         entry: ActiveEntry,
         current: CollectionSettings,
+        defaults: Set<String>,
     ): PersonalEvent {
-        val content = snapshot.hasText && contentAllowed(snapshot.packageName, current)
+        val content = snapshot.hasText && contentAllowed(snapshot.packageName, current, defaults)
         return runtime.events.create(
             type = EventType.NOTIFICATION_POSTED,
             source = AndroidSources.NOTIFICATIONS,
@@ -321,6 +381,7 @@ public class NotificationCollector(
 
     public companion object {
         public const val STREAM: String = "notifications"
+        public const val DEFAULTS_STREAM: String = "notification_defaults"
 
         /** A removal found by the reconnect diff: the platform reason is unknown (REASON_* constants start at 1). */
         public const val REASON_UNKNOWN: Int = 0

@@ -33,17 +33,29 @@ import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
-/** One `CalendarContract.Instances` row, reduced to what Agentle stores (no title, no attendees, no location). */
-public data class CalendarInstance(val eventId: Long, val beginMs: Long, val endMs: Long, val allDay: Boolean, val busy: Boolean)
+/**
+ * One `CalendarContract.Instances` row, reduced to what Agentle stores (red team privacy-ai-16): times, busy/free,
+ * all-day and the attendee count; the title only when the user opted in; never attendee identities, descriptions or
+ * locations.
+ */
+public data class CalendarInstance(
+    val eventId: Long,
+    val beginMs: Long,
+    val endMs: Long,
+    val allDay: Boolean,
+    val busy: Boolean,
+    val attendeeCount: Int? = null,
+    val title: String? = null,
+)
 
 /** `CalendarContract.Instances` behind a seam. Throws `SecurityException` without READ_CALENDAR. */
 public fun interface CalendarSource {
-    /** Visible, not cancelled instances overlapping `[beginMs, endMs)`. */
-    public fun instances(beginMs: Long, endMs: Long): List<CalendarInstance>
+    /** Visible, not cancelled instances overlapping `[beginMs, endMs)`; titles only when [includeTitles]. */
+    public fun instances(beginMs: Long, endMs: Long, includeTitles: Boolean): List<CalendarInstance>
 }
 
 public class ContentResolverCalendarSource(private val context: Context) : CalendarSource {
-    override fun instances(beginMs: Long, endMs: Long): List<CalendarInstance> {
+    override fun instances(beginMs: Long, endMs: Long, includeTitles: Boolean): List<CalendarInstance> {
         val uri = CalendarContract.Instances.CONTENT_URI.buildUpon().also {
             ContentUris.appendId(it, beginMs)
             ContentUris.appendId(it, endMs)
@@ -51,7 +63,7 @@ public class ContentResolverCalendarSource(private val context: Context) : Calen
         val out = ArrayList<CalendarInstance>()
         context.contentResolver.query(
             uri,
-            PROJECTION,
+            if (includeTitles) PROJECTION + CalendarContract.Instances.TITLE else PROJECTION,
             "${CalendarContract.Instances.VISIBLE} = 1",
             null,
             "${CalendarContract.Instances.BEGIN} ASC",
@@ -66,10 +78,29 @@ public class ContentResolverCalendarSource(private val context: Context) : Calen
                         endMs = cursor.getLong(COL_END),
                         allDay = cursor.getInt(COL_ALL_DAY) != 0,
                         busy = !declined && cursor.getInt(COL_AVAILABILITY) == CalendarContract.Events.AVAILABILITY_BUSY,
+                        title = if (includeTitles) cursor.getString(COL_TITLE) else null,
                     )
                 }
             }
-        return out
+        val counts = attendeeCounts(out.map { it.eventId }.distinct())
+        return out.map { it.copy(attendeeCount = counts[it.eventId] ?: 0) }
+    }
+
+    /** Attendee rows per event; only the `EVENT_ID` column is read (never names or addresses). */
+    private fun attendeeCounts(eventIds: List<Long>): Map<Long, Int> {
+        val counts = HashMap<Long, Int>()
+        eventIds.chunked(ID_CHUNK).forEach { chunk ->
+            context.contentResolver.query(
+                CalendarContract.Attendees.CONTENT_URI,
+                arrayOf(CalendarContract.Attendees.EVENT_ID),
+                "${CalendarContract.Attendees.EVENT_ID} IN (${chunk.joinToString(",") { "?" }})",
+                chunk.map { it.toString() }.toTypedArray(),
+                null,
+            )?.use { cursor ->
+                while (cursor.moveToNext()) counts.merge(cursor.getLong(0), 1, Int::plus)
+            }
+        }
+        return counts
     }
 
     private companion object {
@@ -89,6 +120,8 @@ public class ContentResolverCalendarSource(private val context: Context) : Calen
         const val COL_AVAILABILITY = 4
         const val COL_STATUS = 5
         const val COL_SELF_STATUS = 6
+        const val COL_TITLE = 7
+        const val ID_CHUNK = 200
     }
 }
 
@@ -97,7 +130,7 @@ public class ContentResolverCalendarSource(private val context: Context) : Calen
  * team testing-build-04: never the JVM default zone) and replaces that window, so moved or deleted instances disappear.
  * All-day instances are stored at local midnight of their date (the provider keeps them at UTC midnight). Rows are
  * CALENDAR_EVENT keyed `cal|<event_id>|<begin>` (red team database-sync-17) with only a salted hash of the event id,
- * all-day and busy flags in the payload: titles, attendees and locations are never read. More than 500 rows are split
+ * all-day, busy and attendee-count fields in the payload; titles only with `calendarTitles` (privacy-ai-16). More than 500 rows are split
  * into one window per local day.
  */
 public class CalendarConnector(runtime: CollectorRuntime, permissions: CapabilityStatusProvider, private val source: CalendarSource) :
@@ -120,8 +153,10 @@ public class CalendarConnector(runtime: CollectorRuntime, permissions: Capabilit
         val windowEnd = today.plus(DatePeriod(days = FUTURE_DAYS)).atStartOfDayIn(zone)
         if (windowStart >= windowEnd) return CollectOutcome.EMPTY
         // One extra day on both sides: all-day instances are stored at UTC midnight.
-        val instances = source.instances((windowStart - 1.days).toEpochMilliseconds(), (windowEnd + 1.days).toEpochMilliseconds())
-        val events = instances.map { event(it, zone) }.filter { it.startTime >= windowStart && it.startTime < windowEnd }
+        val titles = runtime.settings.current().calendarTitles
+        val instances =
+            source.instances((windowStart - 1.days).toEpochMilliseconds(), (windowEnd + 1.days).toEpochMilliseconds(), titles)
+        val events = instances.map { event(it, zone, titles) }.filter { it.startTime >= windowStart && it.startTime < windowEnd }
         val stored = runtime.writer.cursorSafely(AndroidSources.CURSOR_CONNECTOR, STREAM)
         val now = runtime.clock.now()
         val cursor = (stored ?: SyncCursor(AndroidSources.CURSOR_CONNECTOR, STREAM)).copy(
@@ -134,7 +169,7 @@ public class CalendarConnector(runtime: CollectorRuntime, permissions: Capabilit
         return CollectOutcome(fetched = instances.size, committed = writes.written, partial = writes.cursorRejected, error = writes.error)
     }
 
-    private fun event(instance: CalendarInstance, zone: TimeZone): PersonalEvent {
+    private fun event(instance: CalendarInstance, zone: TimeZone, titles: Boolean): PersonalEvent {
         val start = if (instance.allDay) localMidnight(instance.beginMs, zone) else Instant.fromEpochMilliseconds(instance.beginMs)
         val end = if (instance.allDay) localMidnight(instance.endMs, zone) else Instant.fromEpochMilliseconds(instance.endMs)
         return runtime.events.create(
@@ -146,6 +181,8 @@ public class CalendarConnector(runtime: CollectorRuntime, permissions: Capabilit
                 eventIdHash = runtime.hasher.shortHash(instance.eventId.toString()),
                 allDay = instance.allDay,
                 busy = instance.busy,
+                attendeeCount = instance.attendeeCount,
+                title = if (titles) instance.title else null,
             ),
             dedupKey = key(instance.eventId, instance.beginMs),
             zoneId = zone.id,

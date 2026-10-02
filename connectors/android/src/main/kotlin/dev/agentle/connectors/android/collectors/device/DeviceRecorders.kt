@@ -60,15 +60,24 @@ public class PowerRecorder(private val runtime: CollectorRuntime) {
      * A BATTERY_SAMPLE ([sample]) only when the level moved to another 5% bucket (red team lifecycle-battery-17): a
      * charge from 20% to 100% writes at most 17 samples however often the battery broadcast fires.
      */
-    public suspend fun recordLevel(snapshot: BatterySnapshot, power: PowerSnapshot?, at: Instant, via: LiveWriter.Channel? = null): WriteResult? =
-        level.record((snapshot.levelPercent / LEVEL_BUCKET_PERCENT).toString(), via = via) { sample(snapshot, power, at) }
+    public suspend fun recordLevel(
+        snapshot: BatterySnapshot,
+        power: PowerSnapshot?,
+        at: Instant,
+        via: LiveWriter.Channel? = null,
+    ): WriteResult? = level.record((snapshot.levelPercent / LEVEL_BUCKET_PERCENT).toString(), via = via) { sample(snapshot, power, at) }
 
     /**
      * Records the confirmed plugged state; a change writes CHARGING_STARTED or CHARGING_STOPPED keyed
      * `battery|charging_started|<eventMs>`. [recordFirst] is true only for a confirmed live broadcast (a sweep's first
      * observation is not a transition).
      */
-    public suspend fun recordPlugged(snapshot: BatterySnapshot, at: Instant, recordFirst: Boolean, via: LiveWriter.Channel? = null): WriteResult? {
+    public suspend fun recordPlugged(
+        snapshot: BatterySnapshot,
+        at: Instant,
+        recordFirst: Boolean,
+        via: LiveWriter.Channel? = null,
+    ): WriteResult? {
         val isPlugged = snapshot.plugType != PlugType.NONE
         return plugged.record(if (isPlugged) "1" else "0", recordFirst, via = via) { transition(isPlugged, snapshot, at, hint = false) }
     }
@@ -78,15 +87,16 @@ public class PowerRecorder(private val runtime: CollectorRuntime) {
         transition(connected, snapshot, at, hint = true)
 
     /** Power save, device idle and thermal status; a change writes POWER_STATE_CHANGED keyed `battery|power_state|<eventMs>`. */
-    public suspend fun recordPower(snapshot: PowerSnapshot, at: Instant, via: LiveWriter.Channel? = null): WriteResult? = power.record(snapshot.stateKey, via = via) {
-        runtime.events.create(
-            type = EventType.POWER_STATE_CHANGED,
-            source = AndroidSources.BATTERY,
-            start = at,
-            payload = PowerStatePayload(snapshot.powerSaveMode, snapshot.deviceIdle, snapshot.thermalStatus),
-            dedupKey = "battery|power_state|${at.toEpochMilliseconds()}",
-        )
-    }
+    public suspend fun recordPower(snapshot: PowerSnapshot, at: Instant, via: LiveWriter.Channel? = null): WriteResult? =
+        power.record(snapshot.stateKey, via = via) {
+            runtime.events.create(
+                type = EventType.POWER_STATE_CHANGED,
+                source = AndroidSources.BATTERY,
+                start = at,
+                payload = PowerStatePayload(snapshot.powerSaveMode, snapshot.deviceIdle, snapshot.thermalStatus),
+                dedupKey = "battery|power_state|${at.toEpochMilliseconds()}",
+            )
+        }
 
     public fun forget() {
         level.forget()
@@ -127,16 +137,20 @@ public class NetworkRecorder(private val runtime: CollectorRuntime) {
     private val airplane = StateStream(runtime, STREAM_AIRPLANE, listOf(CapabilityIds.AIRPLANE_MODE))
 
     /** CONNECTIVITY_CHANGED keyed `net|<eventMs>` when the coarse state (kind, metered, validated) changed. */
-    public suspend fun recordNetwork(snapshot: NetworkSnapshot, airplaneMode: Boolean?, at: Instant, via: LiveWriter.Channel? = null): WriteResult? =
-        connectivity.record(snapshot.stateKey, via = via) {
-            runtime.events.create(
-                type = EventType.CONNECTIVITY_CHANGED,
-                source = AndroidSources.NETWORK,
-                start = at,
-                payload = ConnectivityPayload(snapshot.kind, snapshot.metered, snapshot.validated, airplaneMode, snapshot.downstreamKbps),
-                dedupKey = "net|${at.toEpochMilliseconds()}",
-            )
-        }
+    public suspend fun recordNetwork(
+        snapshot: NetworkSnapshot,
+        airplaneMode: Boolean?,
+        at: Instant,
+        via: LiveWriter.Channel? = null,
+    ): WriteResult? = connectivity.record(snapshot.stateKey, via = via) {
+        runtime.events.create(
+            type = EventType.CONNECTIVITY_CHANGED,
+            source = AndroidSources.NETWORK,
+            start = at,
+            payload = ConnectivityPayload(snapshot.kind, snapshot.metered, snapshot.validated, airplaneMode, snapshot.downstreamKbps),
+            dedupKey = "net|${at.toEpochMilliseconds()}",
+        )
+    }
 
     /** AIRPLANE_MODE_CHANGED keyed `net|airplane|<eventMs>`; [network] is the default network at that moment. */
     public suspend fun recordAirplane(on: Boolean, network: NetworkKind, at: Instant, via: LiveWriter.Channel? = null): WriteResult? =
@@ -166,15 +180,16 @@ public class BluetoothRecorder(private val runtime: CollectorRuntime) {
     private val adapter = StateStream(runtime, STREAM_ADAPTER, listOf(CapabilityIds.BLUETOOTH_ADAPTER_STATE))
 
     /** BLUETOOTH_STATE_CHANGED keyed `bt|adapter|<eventMs>`. */
-    public suspend fun recordAdapter(on: Boolean, at: Instant, via: LiveWriter.Channel? = null): WriteResult? = adapter.record(if (on) "1" else "0", via = via) {
-        runtime.events.create(
-            type = EventType.BLUETOOTH_STATE_CHANGED,
-            source = AndroidSources.BLUETOOTH,
-            start = at,
-            payload = BluetoothPayload(adapterOn = on),
-            dedupKey = "bt|adapter|${at.toEpochMilliseconds()}",
-        )
-    }
+    public suspend fun recordAdapter(on: Boolean, at: Instant, via: LiveWriter.Channel? = null): WriteResult? =
+        adapter.record(if (on) "1" else "0", via = via) {
+            runtime.events.create(
+                type = EventType.BLUETOOTH_STATE_CHANGED,
+                source = AndroidSources.BLUETOOTH,
+                start = at,
+                payload = BluetoothPayload(adapterOn = on),
+                dedupKey = "bt|adapter|${at.toEpochMilliseconds()}",
+            )
+        }
 
     /** BLUETOOTH_CONNECTED / BLUETOOTH_DISCONNECTED keyed `bt|<connected|disconnected>|<deviceHash>|<eventMs>`. */
     public fun acl(connected: Boolean, deviceHash: String?, deviceClass: Int?, at: Instant): PersonalEvent = runtime.events.create(
@@ -203,15 +218,16 @@ public class AudioRecorder(private val runtime: CollectorRuntime) {
     private val audio = StateStream(runtime, STREAM_AUDIO, listOf(CapabilityIds.AUDIO_VOLUME_RINGER, CapabilityIds.AUDIO_OUTPUT_DEVICES))
 
     /** AUDIO_STATE keyed `audio|state|<eventMs>` when ringer, volume or route changed. */
-    public suspend fun recordState(snapshot: AudioSnapshot, at: Instant, via: LiveWriter.Channel? = null): WriteResult? = audio.record(snapshot.stateKey, via = via) {
-        runtime.events.create(
-            type = EventType.AUDIO_STATE,
-            source = AndroidSources.AUDIO,
-            start = at,
-            payload = AudioStatePayload(snapshot.ringerMode, snapshot.musicVolumePercent, snapshot.outputRoute),
-            dedupKey = "audio|state|${at.toEpochMilliseconds()}",
-        )
-    }
+    public suspend fun recordState(snapshot: AudioSnapshot, at: Instant, via: LiveWriter.Channel? = null): WriteResult? =
+        audio.record(snapshot.stateKey, via = via) {
+            runtime.events.create(
+                type = EventType.AUDIO_STATE,
+                source = AndroidSources.AUDIO,
+                start = at,
+                payload = AudioStatePayload(snapshot.ringerMode, snapshot.musicVolumePercent, snapshot.outputRoute),
+                dedupKey = "audio|state|${at.toEpochMilliseconds()}",
+            )
+        }
 
     /** HEADSET_CONNECTED / HEADSET_DISCONNECTED keyed `audio|headset_<connected|disconnected>|<route>|<eventMs>`. */
     public fun headset(connected: Boolean, route: String, at: Instant): PersonalEvent = runtime.events.create(
@@ -236,9 +252,10 @@ public class DeviceRecorder(private val runtime: CollectorRuntime) {
     private val standby = StateStream(runtime, STREAM_STANDBY, listOf(CapabilityIds.APP_STANDBY_BUCKET))
 
     /** DND_CHANGED keyed `dnd|<eventMs>`. */
-    public suspend fun recordDnd(filter: Int, at: Instant, via: LiveWriter.Channel? = null): WriteResult? = dnd.record(filter.toString(), via = via) {
-        runtime.events.create(EventType.DND_CHANGED, AndroidSources.DEVICE, at, DndPayload(filter), "dnd|${at.toEpochMilliseconds()}")
-    }
+    public suspend fun recordDnd(filter: Int, at: Instant, via: LiveWriter.Channel? = null): WriteResult? =
+        dnd.record(filter.toString(), via = via) {
+            runtime.events.create(EventType.DND_CHANGED, AndroidSources.DEVICE, at, DndPayload(filter), "dnd|${at.toEpochMilliseconds()}")
+        }
 
     /** NEXT_ALARM_CHANGED keyed `alarm|<eventMs>` (the alarm's app is never recorded). */
     public suspend fun recordNextAlarm(snapshot: NextAlarmSnapshot, at: Instant): WriteResult? =

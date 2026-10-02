@@ -32,7 +32,6 @@ import dev.agentle.connectors.android.collectors.healthconnect.ClientHealthConne
 import dev.agentle.connectors.android.collectors.healthconnect.HealthConnectConnector
 import dev.agentle.connectors.android.collectors.healthconnect.HealthConnectGateway
 import dev.agentle.connectors.android.collectors.live.AudioLiveSource
-import dev.agentle.connectors.android.core.LiveWriter
 import dev.agentle.connectors.android.collectors.live.BluetoothLiveSource
 import dev.agentle.connectors.android.collectors.live.CallStateLiveSource
 import dev.agentle.connectors.android.collectors.live.DndLiveSource
@@ -67,6 +66,7 @@ import dev.agentle.connectors.android.core.IdentifierHasher
 import dev.agentle.connectors.android.core.InstallSalt
 import dev.agentle.connectors.android.core.LiveController
 import dev.agentle.connectors.android.core.LiveSource
+import dev.agentle.connectors.android.core.LiveWriter
 import dev.agentle.connectors.android.core.PlatformExitInfoSource
 import dev.agentle.connectors.android.core.SafeCoverage
 import dev.agentle.connectors.android.core.SettingsSource
@@ -88,6 +88,7 @@ import dev.agentle.connectors.api.CollectorEventWriter
 import dev.agentle.connectors.api.CoverageRecorder
 import dev.agentle.connectors.api.EventSink
 import dev.agentle.connectors.api.LiveCollectionControl
+import dev.agentle.connectors.api.NotificationContentPurger
 import dev.agentle.connectors.api.PermissionRequestStore
 import dev.agentle.connectors.api.SystemChange
 import dev.agentle.connectors.api.SystemChangeListener
@@ -116,6 +117,7 @@ public data class CollectorPorts(
     val permissionRequests: PermissionRequestStore? = null,
     val systemChanges: SystemChangeListener? = null,
     val activeJitai: ActiveJitaiSignal? = null,
+    val notificationPurger: NotificationContentPurger? = null,
 )
 
 /** Enables or disables one of this app's components (delete-all disables the notification listener). */
@@ -242,7 +244,11 @@ public class AndroidCollectorsGraph(
 
     public val usage: UsageConnector = UsageConnector(runtime, permissionCenter, seams.usageEvents, seams.bootCounts, seams.appCategories)
     public val notifications: NotificationsConnector =
-        NotificationsConnector(runtime, permissionCenter, NotificationCollector(runtime, seams.defaultHandlers))
+        NotificationsConnector(
+            runtime,
+            permissionCenter,
+            NotificationCollector(runtime, seams.defaultHandlers, purger = ports.notificationPurger),
+        )
     public val battery: BatteryConnector = BatteryConnector(runtime, permissionCenter, seams.device, PowerRecorder(runtime))
     public val network: NetworkConnector = NetworkConnector(runtime, permissionCenter, seams.device, NetworkRecorder(runtime))
     public val bluetooth: BluetoothConnector =

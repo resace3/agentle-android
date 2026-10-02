@@ -26,9 +26,9 @@ import dev.agentle.connectors.android.core.AndroidConnectorIds
 import dev.agentle.connectors.android.core.AndroidSources
 import dev.agentle.connectors.android.core.CollectorRuntime
 import dev.agentle.connectors.android.core.CoverageIds
+import dev.agentle.connectors.android.core.LiveSource
 import dev.agentle.connectors.android.core.LiveWriter
 import dev.agentle.connectors.android.core.RateLimit
-import dev.agentle.connectors.android.core.LiveSource
 import dev.agentle.connectors.android.core.RuntimeReceiver
 import dev.agentle.connectors.android.permissions.Permissions
 import dev.agentle.connectors.android.permissions.PlatformState
@@ -320,6 +320,7 @@ public class NetworkLiveSource(
     public companion object {
         public const val SOURCE_ID: String = "android.network_live"
         public val AIRPLANE_ACTIONS: Set<String> = setOf(Intent.ACTION_AIRPLANE_MODE_CHANGED)
+
         /** Connectivity transitions are recorded once the network settled for 30 s (red team lifecycle-battery-17). */
         public val SETTLE: Duration = 30.seconds
     }
@@ -499,7 +500,8 @@ public class DndLiveSource(
  * the phone number argument is never read). The first callback is the current state (baseline, not a row); every later
  * change is a CALL_EVENT keyed `call|<state>|<eventMs>`.
  */
-public class CallStateLiveSource(private val runtime: CollectorRuntime, private val platform: PlatformState, live: LiveWriter) : LiveSource {
+public class CallStateLiveSource(private val runtime: CollectorRuntime, private val platform: PlatformState, live: LiveWriter) :
+    LiveSource {
     override val sourceId: String = SOURCE_ID
     override val connectorId: String = AndroidConnectorIds.CALL
     override val requiredCapabilityIds: List<String> = listOf(CapabilityIds.CALL_STATE)
