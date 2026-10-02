@@ -25,8 +25,7 @@ public interface DeviceSignals {
 }
 
 public class AndroidDeviceSignals(private val context: Context) : DeviceSignals {
-    override fun isPowerSaveMode(): Boolean =
-        context.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
+    override fun isPowerSaveMode(): Boolean = context.getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
 
     override fun standbyBucket(): Int? = context.getSystemService(UsageStatsManager::class.java)?.appStandbyBucket
 

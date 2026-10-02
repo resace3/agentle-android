@@ -12,10 +12,7 @@ import javax.inject.Inject
  * (enqueues the unique `reconcile` only when boot, version, zone or the 24 h self-heal say so), then it follows the
  * profile setting so a change UPDATEs the periodic works.
  */
-public class BackgroundStarter @Inject constructor(
-    private val scheduler: WorkScheduler,
-    private val settings: SchedulerSettings,
-) {
+public class BackgroundStarter @Inject constructor(private val scheduler: WorkScheduler, private val settings: SchedulerSettings) {
     public fun start(scope: CoroutineScope): Job = scope.launch {
         scheduler.onProcessStart()
         settings.profile.distinctUntilChanged().collect { scheduler.onProfileChanged(it) }

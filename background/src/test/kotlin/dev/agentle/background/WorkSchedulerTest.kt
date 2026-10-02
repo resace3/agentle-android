@@ -198,8 +198,12 @@ class WorkSchedulerTest {
     @Test
     fun `simulated 24h background budget per profile`() {
         val perRunSeconds = mapOf(
-            WorkNames.COLLECT_USAGE to 4.0, WorkNames.COLLECT_DEVICE to 1.0, WorkNames.SYNC_GOOGLEHEALTH to 5.0,
-            WorkNames.FEATURES_REFRESH to 30.0, WorkNames.RETENTION to 10.0, WorkNames.MEDIA_CLEANUP to 10.0,
+            WorkNames.COLLECT_USAGE to 4.0,
+            WorkNames.COLLECT_DEVICE to 1.0,
+            WorkNames.SYNC_GOOGLEHEALTH to 5.0,
+            WorkNames.FEATURES_REFRESH to 30.0,
+            WorkNames.RETENTION to 10.0,
+            WorkNames.MEDIA_CLEANUP to 10.0,
             WorkNames.INSIGHTS_WEEKLY to 60.0,
         )
         val jitai = mapOf(CollectionProfile.LOW to 24 + 12, CollectionProfile.BALANCED to 48 + 48, CollectionProfile.HIGH to 96 + 96)

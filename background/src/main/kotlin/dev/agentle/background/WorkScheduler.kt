@@ -13,6 +13,7 @@ import dev.agentle.core.time.AgentleClock
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 
 /**
@@ -150,7 +151,13 @@ public class WorkScheduler(
         val running = infos.any { it.state == WorkInfo.State.RUNNING }
         when {
             pending -> Unit
-            running -> gateway.enqueueOneTime(name, ExistingWorkPolicy.APPEND_OR_REPLACE, Requests.oneTime(name, expedited = true, network = network))
+
+            running -> gateway.enqueueOneTime(
+                name,
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                Requests.oneTime(name, expedited = true, network = network),
+            )
+
             else -> gateway.enqueueOneTime(name, ExistingWorkPolicy.KEEP, Requests.oneTime(name, expedited = true, network = network))
         }
     }
@@ -227,7 +234,11 @@ public class WorkScheduler(
         if (store.getLong(KEY_VERSION) != version) reasons += ReconcileReason.PACKAGE_REPLACED
         if (store.getString(KEY_ZONE) != zone) reasons += ReconcileReason.TIMEZONE
         val last = store.getLong(KEY_LAST_RECONCILE)
-        if (last == null || clock.now().toEpochMilliseconds() - last > SELF_HEAL.inWholeMilliseconds) reasons += ReconcileReason.PROCESS_START
+        if (last == null ||
+            clock.now().toEpochMilliseconds() - last > SELF_HEAL.inWholeMilliseconds
+        ) {
+            reasons += ReconcileReason.PROCESS_START
+        }
         if (reasons.isNotEmpty()) requestReconcile(reasons)
     }
 
@@ -259,6 +270,6 @@ public class WorkScheduler(
         const val KEY_LAST_RECONCILE = "record.last_reconcile"
         val DEGRADED = CollectionProfile.LOW.name
         val SAVER_DEBOUNCE = 30.minutes
-        val SELF_HEAL = 24 * 60.minutes
+        val SELF_HEAL = 24.hours
     }
 }

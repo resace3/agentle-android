@@ -45,8 +45,7 @@ public object BackgroundModule {
     public fun clock(): AgentleClock = SystemAgentleClock()
 
     @Provides @Singleton
-    public fun gateway(@ApplicationContext context: Context): WorkGateway =
-        WorkManagerGateway { WorkManager.getInstance(context) }
+    public fun gateway(@ApplicationContext context: Context): WorkGateway = WorkManagerGateway { WorkManager.getInstance(context) }
 
     @Provides @Singleton
     public fun store(@ApplicationContext context: Context): SchedulerStore = PrefsSchedulerStore(context)
@@ -65,7 +64,8 @@ public object BackgroundModule {
     ): WorkScheduler = WorkScheduler(gateway, store, deletion, runner, signals, clock)
 
     @Suppress("LongParameterList")
-    @Provides @Singleton
+    @Provides
+    @Singleton
     public fun jobs(
         scheduler: WorkScheduler,
         store: SchedulerStore,

@@ -98,7 +98,9 @@ public class BackgroundJobs(
 
     private suspend fun wearableGate(work: String): Outcome<Unit>? = when (wearable.connection()) {
         WearableConnection.CONNECTED -> null
+
         WearableConnection.NOT_CONNECTED -> SKIPPED
+
         WearableConnection.NEEDS_USER -> {
             reconnectNeeded()
             store.recordFailure(work, AppError.AuthenticationRequired("googlehealth").code)

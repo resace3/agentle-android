@@ -30,8 +30,12 @@ class ManifestAndSourceTest {
         assertThat(elements("service")).isEmpty()
         val actions = elements("action").map { it.getAttributeNS(ns, "name") }
         assertThat(actions).containsExactly(
-            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED, Intent.ACTION_TIME_CHANGED,
-            Intent.ACTION_TIMEZONE_CHANGED, Intent.ACTION_LOCALE_CHANGED, SystemEventReceiver.ACTION_TIMEZONE_OFFSET_CHANGED,
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_MY_PACKAGE_REPLACED,
+            Intent.ACTION_TIME_CHANGED,
+            Intent.ACTION_TIMEZONE_CHANGED,
+            Intent.ACTION_LOCALE_CHANGED,
+            SystemEventReceiver.ACTION_TIMEZONE_OFFSET_CHANGED,
         )
         actions.forEach { assertThat(SystemEventReceiver.reasonFor(it)).isNotNull() }
     }

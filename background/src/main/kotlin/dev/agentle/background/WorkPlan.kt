@@ -99,12 +99,11 @@ public object Cadences {
         )
     }
 
-    private fun byProfile(profile: CollectionProfile, low: Duration, balanced: Duration, high: Duration): Duration =
-        when (profile) {
-            CollectionProfile.LOW -> low
-            CollectionProfile.BALANCED -> balanced
-            CollectionProfile.HIGH -> high
-        }
+    private fun byProfile(profile: CollectionProfile, low: Duration, balanced: Duration, high: Duration): Duration = when (profile) {
+        CollectionProfile.LOW -> low
+        CollectionProfile.BALANCED -> balanced
+        CollectionProfile.HIGH -> high
+    }
 
     /** Delay that coalesces a burst of debounced broadcasts (several TIME_SETs) into one reconcile. */
     public val RECONCILE_DEBOUNCE: Duration = 30.seconds

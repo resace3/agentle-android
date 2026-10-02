@@ -144,4 +144,3 @@ public interface DeletionMarker {
 public interface AttentionNotifier {
     public suspend fun reconnectWearable()
 }
-

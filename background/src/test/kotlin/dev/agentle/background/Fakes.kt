@@ -60,7 +60,9 @@ class FakeGateway : WorkGateway {
         val existing = live(name)
         when (policy) {
             ExistingWorkPolicy.KEEP -> if (existing.isEmpty()) add(name, request, WorkInfo.State.ENQUEUED, replace = true)
+
             ExistingWorkPolicy.REPLACE -> add(name, request, WorkInfo.State.ENQUEUED, replace = true)
+
             else -> add(
                 name,
                 request,
@@ -105,9 +107,13 @@ class MemoryStore : SchedulerStore {
     private val longs = mutableMapOf<String, Long>()
     private val strings = mutableMapOf<String, String>()
     override val stats: StateFlow<Map<String, WorkStats>> = statsFlow
-    override fun addReconcileReasons(reasons: Set<ReconcileReason>) { this.reasons += reasons }
+    override fun addReconcileReasons(reasons: Set<ReconcileReason>) {
+        this.reasons += reasons
+    }
     override fun drainReconcileReasons(): Set<ReconcileReason> = reasons.toSet().also { reasons.clear() }
-    override fun addSyncStreams(streams: Set<String>) { this.streams += streams.ifEmpty { setOf("*") } }
+    override fun addSyncStreams(streams: Set<String>) {
+        this.streams += streams.ifEmpty { setOf("*") }
+    }
     override fun drainSyncStreams(): Set<String> = streams.toSet().also { streams.clear() }
     override fun recordSuccess(work: String, atEpochMs: Long) = update(work) {
         it.copy(runs = it.runs + 1, lastSuccessEpochMs = atEpochMs, consecutiveFailures = 0)
@@ -117,9 +123,13 @@ class MemoryStore : SchedulerStore {
     }
     override fun resetFailures(work: String) = update(work) { it.copy(consecutiveFailures = 0) }
     override fun getLong(key: String): Long? = longs[key]
-    override fun putLong(key: String, value: Long?) { if (value == null) longs.remove(key) else longs[key] = value }
+    override fun putLong(key: String, value: Long?) {
+        if (value == null) longs.remove(key) else longs[key] = value
+    }
     override fun getString(key: String): String? = strings[key]
-    override fun putString(key: String, value: String?) { if (value == null) strings.remove(key) else strings[key] = value }
+    override fun putString(key: String, value: String?) {
+        if (value == null) strings.remove(key) else strings[key] = value
+    }
     private fun update(work: String, f: (WorkStats) -> WorkStats) {
         statsFlow.value = statsFlow.value + (work to f(statsFlow.value[work] ?: WorkStats()))
     }
@@ -201,7 +211,9 @@ class FakeGaps : GapSink {
 
 class FakeNotifier : AttentionNotifier {
     var count = 0
-    override suspend fun reconnectWearable() { count++ }
+    override suspend fun reconnectWearable() {
+        count++
+    }
 }
 
 class FakeDeletion : DeletionMarker {
@@ -224,7 +236,9 @@ class Harness {
     val notifier = FakeNotifier()
     val deletion = FakeDeletion()
     val profile = MutableStateFlow(CollectionProfile.BALANCED)
-    val settings = object : SchedulerSettings { override val profile = this@Harness.profile }
+    val settings = object : SchedulerSettings {
+        override val profile = this@Harness.profile
+    }
     val scheduler = WorkScheduler(gateway, store, deletion, runner, signals, clock)
     val jobs = BackgroundJobs(
         scheduler, store, deletion, runner, wearable, collectors, features, maintenance, gaps, settings, notifier,

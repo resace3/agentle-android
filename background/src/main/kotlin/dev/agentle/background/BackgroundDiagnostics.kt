@@ -22,27 +22,25 @@ public data class BackgroundState(val workers: List<WorkerState>, val standbyBuc
 
 public object BackgroundDiagnostics {
     /** Pure merge, testable without WorkManager. Each request carries its unique name as a tag. */
-    public fun merge(infos: List<WorkInfo>, stats: Map<String, WorkStats>, bucket: Int?): BackgroundState =
-        BackgroundState(
-            workers = WorkNames.ALL.map { name ->
-                val s = stats[name] ?: WorkStats()
-                val mine = infos.filter { name in it.tags }
-                WorkerState(
-                    name = name,
-                    state = (mine.firstOrNull { !it.state.isFinished } ?: mine.lastOrNull())?.state,
-                    runs = s.runs,
-                    lastSuccessEpochMs = s.lastSuccessEpochMs,
-                    lastFailureCode = s.lastFailureCode,
-                    consecutiveFailures = s.consecutiveFailures,
-                    circuitOpen = s.consecutiveFailures >= BackgroundJobs.BREAKER_THRESHOLD,
-                )
-            },
-            standbyBucket = bucket,
-        )
+    public fun merge(infos: List<WorkInfo>, stats: Map<String, WorkStats>, bucket: Int?): BackgroundState = BackgroundState(
+        workers = WorkNames.ALL.map { name ->
+            val s = stats[name] ?: WorkStats()
+            val mine = infos.filter { name in it.tags }
+            WorkerState(
+                name = name,
+                state = (mine.firstOrNull { !it.state.isFinished } ?: mine.lastOrNull())?.state,
+                runs = s.runs,
+                lastSuccessEpochMs = s.lastSuccessEpochMs,
+                lastFailureCode = s.lastFailureCode,
+                consecutiveFailures = s.consecutiveFailures,
+                circuitOpen = s.consecutiveFailures >= BackgroundJobs.BREAKER_THRESHOLD,
+            )
+        },
+        standbyBucket = bucket,
+    )
 
-    public fun flow(workManager: WorkManager, store: SchedulerStore): Flow<BackgroundState> =
-        combine(
-            workManager.getWorkInfosFlow(WorkQuery.fromUniqueWorkNames(WorkNames.ALL)),
-            store.stats,
-        ) { infos, stats -> merge(infos, stats, store.getLong(BackgroundJobs.KEY_BUCKET)?.toInt()) }
+    public fun flow(workManager: WorkManager, store: SchedulerStore): Flow<BackgroundState> = combine(
+        workManager.getWorkInfosFlow(WorkQuery.fromUniqueWorkNames(WorkNames.ALL)),
+        store.stats,
+    ) { infos, stats -> merge(infos, stats, store.getLong(BackgroundJobs.KEY_BUCKET)?.toInt()) }
 }
