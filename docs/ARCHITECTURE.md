@@ -358,12 +358,25 @@ Disconnecting the wearable never deletes data.
 ```kotlin
 interface Connector {
   val metadata: StateFlow<ConnectorMetadata>   // id, name, connection, permission summary, last success/attempt,
-                                               // last error (AppError code), supported event types, sync state
+                                               // last error (AppError code), supported event types, sync state,
+                                               // stream permissions, coverage
   val capabilityIds: List<String>              // ids from the capability registry
-  suspend fun sync(trigger: SyncTrigger): SyncResult     // idempotent; commits data + cursor atomically
-  suspend fun setEnabled(enabled: Boolean)
+  val streamIds: Set<String>                   // streams that syncStream accepts
+  suspend fun sync(trigger: SyncTrigger): SyncResult                        // idempotent; data + cursor atomic
+  suspend fun syncStream(stream: String, trigger: SyncTrigger): SyncResult  // one stream now: staleness retry, prefetch
+  suspend fun setEnabled(enabled: Boolean)                                  // disabling never deletes data
+}
+
+interface EventSink {
+  suspend fun commit(events, cursor?, coverage?): CommitResult              // insert new keys, update changed payloads
+  suspend fun replaceWindow(source, windowStart, windowEnd, events, cursor?, coverage?, accountId?): CommitResult
+  suspend fun importFloor(source): Instant?                                 // every window start is clamped to it
 }
 ```
+
+`SyncCursor` carries the account id and a fetch generation (compare-and-set, §5.6); `StreamCoverage`
+(`coverageThrough`, account id, `deviceLastSync`) is stored in the same transaction as the data it covers;
+`SyncResult.Status` includes `ACCOUNT_CHANGED`. `replaceWindow` has diff semantics (§5.3).
 
 ### 6.2 Capability registry
 
@@ -378,31 +391,40 @@ Ten states: `ALLOWED`, `DENIED`, `DENIED_PERMANENTLY`, `REQUIRES_SETTINGS`, `RES
 `UNAVAILABLE`, `PARTIALLY_ALLOWED`, `FOREGROUND_ONLY`, `BACKGROUND_ALLOWED`, `UNSUPPORTED_ON_DEVICE`, plus a
 blocker list, resolved with the precedence in [R01 §5.1] by per-mechanism `CapabilityStateResolver`s using only
 public APIs (checkSelfPermission + rationale + "requested once" flag, `AppOpsManager.checkOpNoThrow` for usage
-access, `NotificationManagerCompat.getEnabledListenerPackages`, `AlarmManager.canScheduleExactAlarms`, Health
-Connect `PermissionController`, `LocationManager.isLocationEnabled`, `BluetoothAdapter.isEnabled`, ...). States are
-re-evaluated on `onResume`, on app-op/listener callbacks, and before every collection run. A missing permission
-yields a state, never an exception: every collector catches `SecurityException` and reports
-`PermissionDenied`.
+access, `NotificationManagerCompat.getEnabledListenerPackages`, `AlarmManager.canScheduleExactAlarms` (reported for
+information only: Agentle never schedules exact alarms), Health Connect `PermissionController`,
+`LocationManager.isLocationEnabled`, `BluetoothAdapter.isEnabled`, ...). States are re-evaluated on `onResume`, on
+app-op/listener callbacks, and before every collection run. A missing permission yields a state, never an exception:
+every collector catches `SecurityException` and reports `PermissionDenied`.
+
+Each resolver is split into context-free signals, which workers can read, and a UI-only refinement
+(`shouldShowRequestPermissionRationale` needs an Activity); background runs keep the last UI-derived `DENIED` vs
+`DENIED_PERMANENTLY` value. The notifications capability reports the app-level permission, any Agentle channel with
+importance `NONE` and `NotificationManager.areNotificationsPaused()`; a JITAI delivery counts as possible only when
+notifications are enabled, the channel is not blocked and notifications are not paused (§11.5). A hibernation
+capability reports `PackageManagerCompat.getUnusedAppRestrictionsStatus` and, while at least one JITAI is active,
+offers `IntentCompat.createManageUnusedAppRestrictionsIntent`. Screen, unlock and charging event sources are shown as
+best effort: they are reliable only while notification access keeps the process running.
 
 ### 6.4 Android collectors (v1 = registry entries marked IMPLEMENT)
 
 | Collector | Mechanism | Cadence |
 |---|---|---|
-| Usage events + foreground sessions + screen interactive/keyguard (28) | `UsageStatsManager.queryEvents` with a high-water mark and 10-minute overlap | WorkManager every 1-6 h by profile + on app start + before JITAI evaluation |
-| Notifications (metadata; content opt-in per app, default SMS/dialer excluded) | `NotificationListenerService` (bound by the system) | Real time |
-| Screen on/off, user present | Runtime receivers registered with `RECEIVER_EXPORTED` while the process lives; hints only, usage events are truth [R02] | Real time while alive |
-| Battery, charging, power save, thermal | Sticky `ACTION_BATTERY_CHANGED` read + runtime receivers + periodic sample | 15-60 min |
+| Usage events + foreground sessions + screen interactive/keyguard (28) | `UsageStatsManager.queryEvents` with a high-water mark stored as (wall ms, elapsed ms, boot count) and a 10-minute overlap; a mark later than now + 5 min is clamped to now - overlap and a coverage gap is recorded; never a query with begin >= end | WorkManager every 1-6 h by profile + on app start + before JITAI evaluation |
+| Notifications (metadata; content opt-in per app, default SMS/dialer excluded; Agentle's own notifications dropped before any write) | `NotificationListenerService` (bound by the system): one POSTED row per notification key with later updates folded in, REMOVED with its reason, flags recorded (ongoing, foreground service, group summary, local only); `default_filter_types` without ongoing on API 31+, filtering in code on 29-30; batched into the serialized writer, never one work request per notification | Real time |
+| Screen on/off, user present | Runtime receivers registered with `RECEIVER_EXPORTED` while the process lives; the live state is confirmed at receipt (`PowerManager.isInteractive()` and an unlocked keyguard), otherwise only a hint row is stored; the event carries its time; usage events are truth [R02] | Real time while alive (best effort) |
+| Battery, charging, power save, thermal | Sticky `ACTION_BATTERY_CHANGED` read + runtime receivers + periodic sample; `POWER_*` events only when `BatteryManager.isCharging()` matches; at most one sample row per 5 minutes | 15-60 min |
 | Connectivity, network type, Wi-Fi metadata, airplane mode | `ConnectivityManager.NetworkCallback` while alive + periodic snapshot | Change-driven + periodic |
-| Bluetooth adapter + connected devices (hashed addresses) | Manifest receiver for ACL events (exported, sender is Bluetooth UID) | Event-driven |
+| Bluetooth adapter + connected devices (hashed addresses) | Manifest receiver for ACL events, the only exported receiver; extras are hints, never trusted | Event-driven |
 | Audio: volume/ringer, output devices, headset | `AudioManager` snapshot + `AudioDeviceCallback` while alive | Periodic + change |
-| Time zone / time / locale changes, boot | Manifest receivers (`TIMEZONE_CHANGED`, `TIME_SET`, `LOCALE_CHANGED`, `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`) | Event-driven |
-| Location (foreground, coarse default) | Fused/`LocationManager` current location while app is visible; places classified locally (home/work/other) | Foreground only (background DEFER) |
+| Time zone / time / locale changes, boot | Manifest receivers with `exported="false"` (`TIMEZONE_CHANGED`, `TIME_SET`, `LOCALE_CHANGED`, `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`); each dispatches through an action allow-list and ignores everything else | Event-driven |
+| Location (foreground, coarse default) | Fused/`LocationManager` current location while app is visible; places classified locally (home/work/other) for display only: foreground fixes never create trigger events or dwell time, and `location_class` is unavailable to rules in v1 | Foreground only (background DEFER) |
 | Activity recognition | Activity Recognition Transition API via explicit mutable PendingIntent | Event-driven |
 | Steps | Recording API (Play services) when available; Health Connect on-device steps | Periodic |
 | Calendar | `CalendarContract.Instances` query (READ_CALENDAR) | Periodic |
-| Health Connect | `HealthConnectClient` read + changes tokens (steps, sleep, HR, RHR, exercise, weight) | Periodic; background read only with permission |
+| Health Connect | `HealthConnectClient` read + changes tokens (steps, sleep, HR, RHR, exercise, weight), stored even while Google Health is connected (fusion happens at query time, §10); rows keyed by `metadata.id`; a re-read after a changes-token expiry is clamped to the import floor | Periodic; background read only with permission |
 | DND state, next alarm, standby bucket, storage | System service snapshots | Periodic |
-| Call state | `TelephonyCallback` (READ_PHONE_STATE) while alive | Real time while alive |
+| Call state | `TelephonyCallback` on API 31+ (API 29-30 handled explicitly or reported unavailable); READ_PHONE_STATE requested only when the user enables the capability | Real time while alive |
 | Motion / ambient sensors | Debug-only sampling sessions started by the user | Explicit sessions |
 
 Sensing tiers [R03 §11]: Tier 0 is the default and needs no foreground service (activity transitions, canonical
@@ -410,85 +432,259 @@ steps from Health Connect on-device steps on API 34 with extension 20+ or the Re
 Tier 1 (debug flag in v1) samples sensors only while an Agentle screen is visible. Tier 2 is an opt-in
 "High-detail sensing" `health` foreground service with duty-cycled 10 s windows, user-started, at most 24 h per
 session, capped at 288 windows and 45 min of wake lock per day, internal/debug builds only until the Play
-foreground-service declaration is accepted. Sensing stores summaries, never raw streams; `TYPE_STEP_COUNTER` is
-never summed into step totals.
+foreground-service declaration is accepted. Tier 2 schedules its windows with `setAndAllowWhileIdle` only, never an
+exact alarm (not even the API 37 listener overload of `setExactAndAllowWhileIdle`). Sensing stores summaries, never
+raw streams; `TYPE_STEP_COUNTER` is never summed into step totals.
 
 Not available (documented with the reason): accessibility event stream, call log and SMS metadata (hard-restricted,
 Play-forbidden, default-handler only), background location (DEFER until a place-based feature needs it), nearby BT
 scanning (DEFER), contacts (DEFER), media sessions (DEFER), Wi-Fi network identity (needs location).
 
+### 6.5 Coverage recording
+
+Absence of records means "no data" only where a source was running or synced. Every collector records coverage
+intervals through the `CoverageRecorder` port (`collector_coverage`): it opens or closes an interval at process start,
+`onListenerConnected`/`onListenerDisconnected`, activity-transition registration, permission-state changes and every
+sweep heartbeat. At process start, an interval left open by a dead process is closed at its last heartbeat, with the
+cause from `ApplicationExitInfo` (API 30+) or `UNKNOWN`. While the database is unavailable (for example a transient
+Keystore failure), collectors skip the write and record a gap; they never crash and never retry in a tight loop.
+Connectors advance `source_coverage` in the same `EventSink` call as their data (§5.6); the wearable's last upload
+time (`deviceLastSync`) bounds it. Features intersect coverage with their window: an uncovered window gives
+Missing(COVERAGE_GAP) or Stale, never zero (§10).
+
 ## 7. Google Health API connector ("Fitbit")
 
-- Base `https://health.googleapis.com/v4/`, collection `users/me/dataTypes/{type}/dataPoints` with `list`,
-  `:reconcile`, `:rollUp`, `:dailyRollUp` [R05 §3-4]. v1 types: steps, distance, floors (rollups only), total
-  calories, heart rate, resting heart rate, sleep, exercise, weight/body fat (if authorized), paired devices.
-- Authorization (production): Google Identity Services `AuthorizationClient` (play-services-auth 22.0.0) with an
-  Android OAuth client: `authorize()` returns an access token; a 401 triggers one silent re-authorization; no refresh
-  token is stored on the device; disconnect calls `revokeAccess` and clears local grant state. Granted scopes are
-  checked after consent; missing scopes produce `PARTIALLY_ALLOWED` per data type. Live status: Google states it is
-  "not onboarding new projects"; the production path is implemented against the documented contract and is **not
-  live tested**.
-- Authorization (fake flavor and tests): `FakeGoogleHealthServer` implements an OAuth 2.0 authorization-code + PKCE
-  server (authorize, token, refresh, revoke) and the API subset; the fake authorizer drives it through `:core:oauth`,
-  so every OAuth scenario in the spec (cancel, invalid/expired code, invalid state, PKCE mismatch, issuance, expiry,
-  refresh success/failure, revoked, insufficient scope) is exercised by real client code.
-- Sync: per stream, re-read overlapping windows (48 h for samples/intervals, 7 days for sleep/exercise/daily),
-  page through `nextPageToken`, map + dedup, commit each window and its cursor in one transaction only after all
-  pages succeeded. Weekly 30-day deep re-sync; backfill 14 days hot then 30-day chunks to 90 days. Rate limit:
-  strict sliding windows (at most 4 requests in any second and 200 in any minute per user; a token bucket would
-  allow bursts above the cap); 429 and 5xx retried with exponential backoff and jitter as coroutine
-  delays (max 3), then the window is marked failed and retried next run. Malformed bodies (HTML 404/502, non-JSON
-  2xx, unknown fields, int64-as-string, invalid values) are tolerated per [R05 §4.1, §8.6]: skip and count the bad
-  point, never crash, never commit a half window.
-- Double counting with Health Connect: one canonical source per metric (wearable API when connected); Health Connect
-  records from `com.fitbit.FitbitMobile` are skipped while the API source is connected.
+Base `https://health.googleapis.com/v4/`, collection `users/me/dataTypes/{type}/dataPoints` with `list`,
+`:reconcile`, `:rollUp`, `:dailyRollUp` [R05 §3-4]. v1 types: steps, distance, floors (rollups only), total calories,
+heart rate (60-s `rollUp` windows by default; raw samples only behind an opt-in flag), resting heart rate, sleep,
+exercise, weight/body fat (if authorized), paired devices. The real API source sits behind a feature flag that is off
+by default until the live spike (R05 §7.9 step 1) passes; the fake flavor runs the same client against
+`FakeGoogleHealthServer`.
+
+### 7.1 Authorization
+
+Production authorization uses Google Identity Services `AuthorizationClient` (play-services-auth 22.0.0) with an
+Android OAuth client. No refresh token and no client secret is stored on the device, and there is no token broker.
+Whether an Android client can be granted the `googlehealth.*` scopes is UNVERIFIED and may block launch (§18). JVM
+code sees only the `GoogleHealthAuthorizer` port, modelled on `AuthorizationClient` and independent of the flow:
+- `token(interactive: Boolean)` returns `Token(value, grantedScopes)`, `NeedsResolution` (an opaque handle; JVM code
+  never starts UI), `Denied` or `Failure(statusCode)`. The port also has `invalidate(token)` (clear the cached token),
+  `grantedScopes()` and `revoke()`.
+- On a 401: invalidate, call `token(interactive = false)`, retry once, then report NEEDS_REAUTH.
+- A background sync that gets `NeedsResolution` persists NEEDS_REAUTH, returns a result that does not retry and never
+  starts an Activity; the resolution is launched only from the app.
+- Granted scopes are checked after consent; missing scopes produce `PARTIALLY_ALLOWED` per data type.
+- Disconnect calls `revoke()` (Play services `revokeAccess`) and clears local grant state.
+- The Play services adapter is an Android class behind the port; the fake flavor binds the scripted
+  `FakeGoogleAuthorizer` (§4).
+
+Live status: Google states it is "not onboarding new projects"; the production path is implemented against the
+documented contract and is **not live tested**.
+
+### 7.2 Account identity
+
+The connector calls `GET /v4/users/me/identity` on connect and before every sync, and `google_health_state` stores
+`healthUserId`. An account id (a hash of `healthUserId`) goes into every dedup key, `SyncCursor` and
+`StreamCoverage`. If the stored account differs from the one the API returns, syncing stops with `ACCOUNT_CHANGED`;
+a new account starts with fresh cursors. Features, insights and AI aggregates read only the active account's rows.
+What happens to the previous account's rows (delete or keep) is not decided; until it is, they stay stored and unread.
+
+### 7.3 Sync windows
+
+- A per-(connector, account, stream) mutex serializes the runs of a stream (periodic, on demand, deep re-sync,
+  backfill). A run passes the fetch generation it started from, so its cursor write is rejected if another run moved
+  the cursor (§5.6).
+- Windows are capped per stream (at most 6 h of raw samples, 24 h of intervals, 7 days of sessions) and walked forward
+  chunk by chunk. Each chunk is written with `replaceWindow` together with its cursor and coverage, and only when all
+  of its pages succeeded; if a page fails, nothing is committed for that chunk. No unbounded window is buffered, and
+  no window has start >= end.
+- Overlap re-read: 48 h for samples/intervals, 7 days for sleep/exercise/daily, bounded by the device's last sync
+  time from `pairedDevices` when known and skipped when the stream's previous sync started less than 15 minutes ago.
+  Weekly 30-day deep re-sync; backfill 14 days hot, then 30-day chunks to 90 days, never beyond retention.
+- Every window start (incremental, overlap, deep re-sync, backfill) is clamped to the stream's import floor
+  (`EventSink.importFloor`), so deleted or expired data is never fetched again. A stored cursor later than now + 5 min
+  becomes now - overlap.
+- Each record carries `upstreamId` (the data point name, when present), the upstream update time and a payload hash
+  built only from normalized, always-present fields; each batch is deduped by key, keeping the newest update time.
+- Rate limit: strict sliding windows (at most 4 requests in any second and 200 in any minute per user; a token bucket
+  would allow bursts above the cap); 429 and 5xx retried with exponential backoff and jitter as coroutine delays
+  (max 3), then the window is marked failed and retried next run. Malformed bodies (HTML 404/502, non-JSON 2xx,
+  unknown fields, int64-as-string, invalid values) are tolerated per [R05 §4.1, §8.6]: skip and count the bad point,
+  never crash, never commit a half window.
+- `syncStream(stream)` syncs one stream at once: staleness retries and a prefetch 10-15 minutes before a scheduled
+  rule reads wearable metrics (§11.7). The periodic cadence follows the collection profile (§13).
+
+### 7.4 Sources and fusion
+
+Every source is stored whatever else is connected: Health Connect data is kept while Google Health is connected, and
+no row is dropped because another source exists. Google Health keeps `Provenance.platform`, so the fusion can ignore
+points that came from Health Connect when Health Connect is the selected source. Fusion happens at query time (§10):
+per minute, the canonical source of `metric_source_policy` where it has coverage, else the next by priority; no query
+sums a metric across sources. Daily values that the API computes (daily roll-ups, daily resting heart rate) are
+civil-date values: they keep their `LocalDate` (`upstream_daily`) and are never mapped to the 04:00 engine day.
 
 ## 8. Sign in with ChatGPT
 
-Implements [R06 §2, §8] exactly:
+Implements [R06 §2, §8], with the decisions below.
+
+### 8.1 Sign-in attempt
+
+- `SignInCoordinator`, a singleton in `:ai:chatgpt`, owns at most one sign-in attempt, in the app scope, never in a
+  ViewModel. `signIn()` is single-flight: a repeat tap re-opens the current attempt's URL, and `cancel()` closes the
+  listener. `CONNECTING` is a UI-only flag derived from the live attempt; it is never persisted.
+- Only a non-secret attempt marker (createdAt, firstRegistration) is persisted, through `CredentialStore`. On a cold
+  start with a marker and no live attempt, sign-in returns `INTERRUPTED` and clears the marker; the UI tells the user
+  to remove a possible extra "Agentle" entry under ChatGPT Login connections.
 - `LoopbackCallbackServer` on `127.0.0.1:0`, `GET /auth/callback` only, exact Host/path, constant-time state compare,
   single settle, 10-minute timeout, returns a no-store "Return to Agentle" page with a package-scoped `intent://`.
 - Authorization request: PKCE S256, `state`, `nonce`, `resource=https://api.openai.com/v1`, scopes
   `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`, first-time
   `client_id=dynamic_agent_client` + `agent_name_hint=Agentle`, `ext_agent_host_id=urn:uuid:<per-install>`.
-  The issued `oaiapp_…` client id is persisted (encrypted) before the code is redeemed and reused afterwards.
-- Plain Custom Tab (never WebView, never Auth Tab); `ACTION_VIEW` fallback.
-- ID token verified with Nimbus JOSE+JWT (RS256, JWKS with refetch on unknown `kid`, iss/aud/azp/nonce/exp).
-- `SiwcSessionManager.withAccessToken {}`: Mutex single-flight refresh at <=60 s remaining or once after 401;
-  rotated tokens persisted before use; tokens cleared only on terminal error codes, never on network errors or 5xx.
+  The issued `oaiapp_…` client id is persisted (encrypted) before the code is redeemed and reused afterwards; while a
+  registration exists, Agentle never registers again.
+- Plain Custom Tab (never WebView, never Auth Tab); `ACTION_VIEW` fallback. When no browser resolves, sign-in returns
+  `NO_BROWSER`, never a crash.
+- Plan usage needs both `resource.invoke` and `chatgpt.tokens.use.direct` in the token response's granted scopes
+  [R06 §2.8]; otherwise the sign-in is kept and the state is `NOT_ELIGIBLE(PLAN_USAGE_NOT_GRANTED)`.
+
+### 8.2 Tokens, identity and refresh
+
+- ID token verified with Nimbus JOSE+JWT (RS256, JWKS with refetch on unknown `kid`): `iss`, `aud`, `azp`, `nonce`,
+  `exp`, `iat` and `sub`, with 5 s skew. The claims verifier takes its time from `AgentleClock` (a
+  `DefaultJWTClaimsVerifier` subclass overriding `currentTime()`); time-claim failures consistent with a wrong device
+  clock map to `DEVICE_CLOCK_WRONG`. Access-token expiry comes from `expires_in` against the monotonic clock at
+  receipt, never from `exp` against wall time.
+- Account: on re-authentication, and on ID tokens returned by a refresh, `sub` is compared with the stored value; a
+  mismatch gives `ACCOUNT_MISMATCH` and the new tokens are discarded. Consent grants carry the account (§9.1).
+- Tokens are always written into the same record as the client id that obtained them, and a callback may update only
+  the registration bound to its attempt's `state`. A monotonically increasing credential generation: sign-in
+  completion, refresh and disconnect take the one session Mutex, and each applies its result by compare-and-set on
+  the generation it started from.
+- `SiwcSessionManager.withAccessToken {}` refreshes at <= 60 s remaining or once after a 401. `SiwcSessionManager`
+  alone owns 401 -> one refresh -> one retry; `ResponsesClient` never wraps it again. `earliest_refresh_at` is
+  honoured with a retryable `REFRESH_NOT_READY`.
+- A refresh is one non-cancellable unit. The session manager owns an app-scoped `CoroutineScope(SupervisorJob() +
+  io)`; a refresh runs as `async { withContext(NonCancellable) { POST; write the raw response as pendingRotation;
+  verify the ID token if present; promote (write the tokens, clear the pending record) } }`, and callers await the
+  shared `Deferred`, so a cancelled caller abandons only its own wait. A stored `pendingRotation` always wins over the
+  old refresh token, at startup and before any refresh; a JWKS or discovery failure after rotation keeps it. With a
+  scope, `SingleFlight` runs the shared work detached from every caller.
+- Tokens are cleared only on terminal error codes, never on network errors, 5xx, captive portals (HTML with 200) or
+  TLS interception; those keep the tokens and the state shows unavailable.
+- `disconnect()` runs under the session Mutex: it cancels in-flight calls, revokes the refresh token, clears tokens
+  in the vault and in memory and marks `DISCONNECTED`, keeping the issued client id and host id unless the user asks
+  to forget the registration. A refresh already in flight never writes tokens afterwards (generation check). A failed
+  revocation is reported as "remote disconnection could not be confirmed", never swallowed.
+- Tokens, codes and verifiers are a `Secret` value class with a masked `toString()`.
+
+### 8.3 HTTP clients and ResponsesClient
+
+- Auth client (token, revoke, discovery, JWKS): `followRedirects(false)`, `followSslRedirects(false)`,
+  `retryOnConnectionFailure(false)`, connect 15 s, call 30 s, never wrapped in the retry policy. JWKS and discovery
+  are fetched through it (a custom `JWKSource`), and every discovered endpoint must share the issuer's origin.
+- API client: `retryOnConnectionFailure(false)`. SSE client: call timeout 180 s. Every client sets `allowedHosts`
+  (§1 rule 2), so none follows redirects.
 - `ResponsesClient`: `POST /v1/responses` with `store:false`, `stream:true`, array input, `instructions` (no system
   role), a request-field whitelist, success only on `response.completed`, `response.failed` mid-stream handled,
-  missing Content-Type tolerated. Models from `GET /v1/models` (`visibility=="list"`).
-- States: `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `NEEDS_REAUTH`, `NOT_ELIGIBLE(reason)`, `USAGE_LIMITED(until?)`,
-  `UNAVAILABLE`, `ERROR` mapped by `SiwcErrorMapper` from every documented error code.
+  missing Content-Type tolerated. A `beforeSend` hook receives the exact request body bytes just before they are
+  written and can abort the call with an `AppError`; `ChatGptAiProvider` uses it for the send-time consent check
+  (§9.3). Request bodies are never persisted. Models from `GET /v1/models` (`visibility=="list"`).
+
+### 8.4 States and errors
+
+- SIWC persists the states of [R06 §8.1] with a reason: `CONNECTED`, `DISCONNECTED`, `NOT_ELIGIBLE`,
+  `PLAN_USAGE_UNAVAILABLE`, `RATE_LIMITED`, `REAUTH_REQUIRED`, `SERVER_ERROR`, `NETWORK_UNAVAILABLE`. Reasons include
+  `PLAN_USAGE_NOT_GRANTED`, `LOCAL_CREDENTIALS_UNREADABLE` (the vault could not be read, §14), `ACCOUNT_MISMATCH`,
+  `REFRESH_NOT_READY` and `DEVICE_CLOCK_WRONG`. A sign-in attempt can also end `INTERRUPTED` or `NO_BROWSER` without
+  changing the state.
+- The UI and the AI layer read a coarse provider state: `DISCONNECTED`, `CONNECTING` (UI-only), `CONNECTED`,
+  `NEEDS_REAUTH` (from `REAUTH_REQUIRED`), `NOT_ELIGIBLE(reason)`, `USAGE_LIMITED(until?)`, `UNAVAILABLE`, `ERROR`,
+  mapped by `SiwcErrorMapper` from every documented error code.
 - Capabilities (introspectable `AiCapabilities`): `TEXT_REASONING=SUPPORTED`, `STRUCTURED_OUTPUT=PROMPTED_JSON`
   (json_schema is undocumented; probe once per model, otherwise plain-text JSON + local validation),
   `IMAGE_GENERATION=UNSUPPORTED` (local renderer instead), `VOICE_GENERATION=LOCAL_TTS`,
   `VIDEO_GENERATION=LOCAL_COMPOSITION`, `BACKGROUND_INFERENCE=USER_BUDGETED` (undocumented by OpenAI: background
-  generations only within a user-set daily budget and never start sign-in from the background).
+  generations only within a standing consent and its daily budget (§9.1), and never start sign-in from the
+  background).
 - Never: another product's client id, the private `chatgpt.com/backend-api`, an API-key fallback.
 - Required UI copy: "Continue with ChatGPT", first-run "You're using your ChatGPT plan", "Using ChatGPT plan"
   indicator, "Manage usage" link, "Usage limit reached" dialog.
 
 ## 9. AI layer
 
-- `AiProvider { capabilities; analyze(); generateStructured(schema); generateImage() }`. Implementations:
-  `ChatGptAiProvider` (prod), `FakeAiProvider` (deterministic, fake flavor + tests), `UnavailableAiProvider`
-  (disconnected: every call returns `AppError.AuthenticationRequired` without network).
-- `ContextSelectionEngine.build(purpose, userQuestion)`: purpose maps to a fixed allow-list of categories and a time
-  range; the user's AI category toggles intersect it; disabled categories are removed **and** a final gate re-checks
-  the envelope and throws `ConsentViolation` if any disabled category is present (fail closed). Aggregates by
-  default; raw events only for purposes that need them and only with per-request user confirmation. Third-party text
-  (notification text, calendar titles, contact, Wi-Fi and Bluetooth names) is never sent in v1 [R04 §3.8]; the
-  only free text is the user's own (questions, goals, logs) and app labels reduced to a safe character set
-  (letters, digits, spaces, `.-&'`, at most 40 characters). All of it is wrapped as quoted data with an explicit
-  "untrusted data" marker and never placed in `instructions`. `EgressGuard` is the only path to the OpenAI client:
-  it re-checks every block against `AiSharingPolicy` (deny by default per category), truncates items to 200
-  characters and 20 items, and fails closed.
+`AiProvider { capabilities; analyze(); generateStructured(schema); generateImage() }`, each call taking a sealed
+`AiRequestEnvelope`. Implementations: `ChatGptAiProvider` (prod; in the fake flavor it runs against
+`FakeChatGptServer`), `FakeAiProvider` (deterministic, unit tests), `UnavailableAiProvider` (disconnected: every call
+returns `AppError.AuthenticationRequired` without network).
+
+### 9.1 Consent
+
+- Consent is an allow-list: a dedicated store of `ConsentGrant(category, purpose, consentVersion, grantedAt,
+  accountSub)`. Data of a category may leave only under a current grant for that category and the request's purpose.
+  Absent, unknown, unreadable or corrupted state denies; every category defaults to off; `DataCategory.sensitiveByDefault`
+  never sets a default; no corruption handler, deletion action or backup restore can create a grant, and a restore
+  clears all grants. A grant applies only to the ChatGPT account (`sub`) it was given under.
+- A `consentVersion` bump (categories, purposes or recipient disclosure changed) requires fresh grants. The
+  disclosure names OpenAI and says that requests are linked to the user's ChatGPT account.
+- Deleting a category revokes its grants in the same flow (§5.5); consent changes cancel in-flight AI calls.
+- Background purposes (for example refilling a JITAI's `ai_text_pool`) need a `StandingConsent`: the user previews and
+  approves a template listing the exact fields and features, categories, time range, cadence and daily budget. A
+  background envelope must be a field-wise subset of it, or the send fails with `ConsentViolation`. Background
+  purposes are aggregates-only. Every background send is recorded and shown in a user-visible log.
+
+### 9.2 Categories and lineage
+
+- A normative table maps every capability id (`docs/research/capabilities.json`) and every catalog feature to data
+  categories (such as SCREEN_TIME_TOTALS, APP_IDENTITY, NOTIFICATION_COUNTS, NOTIFICATION_TEXT, CALENDAR_BUSY,
+  CALENDAR_TEXT, LOCATION_CLASS, ACTIVITY, STEPS, SLEEP, HEART, BODY, USER_TEXT, GOALS; reconciled additively with
+  `DataCategory` in `:core:model`) and to source families (`GH_API`, `HEALTH_CONNECT`, `ON_DEVICE`).
+- The lineage of a derived artifact (daily row, rolling window, insight, proposal evidence, snapshot value) is the
+  union of its inputs' categories and families; unknown lineage counts as every category. The gate requires every
+  category and every source family in the lineage to be allowed.
+- `GH_API` values are denied to AI in v1, because Google's terms for sending Health API data to a third party are
+  unresolved (§18).
+- Aggregates come only from the active Google Health account's rows and never sum a metric across sources.
+
+### 9.3 Building, sealing and sending
+
+- `ContextSelectionEngine.build(purpose, userQuestion)`: the purpose maps to a fixed allow-list of categories and a
+  time range; current grants intersect it. Aggregates by default; raw events only for purposes that need them and
+  only with per-request user confirmation, so never in the background.
+- The result is a sealed `AiRequestEnvelope` that only `:ai:context` can create (an internal constructor plus an
+  opt-in annotation, and a test that fails if another module builds request content). It carries the
+  `consentVersion` and the SHA-256 of the canonical serialized input.
+- Send-time check: in `ResponsesClient`'s `beforeSend` hook, `ChatGptAiProvider` verifies the consent version and the
+  hash against the exact body bytes about to be written, reading the consent store independently of the policy
+  object that built the envelope; a mismatch or a revoked grant aborts the call with `ConsentViolation`. Envelopes
+  are never persisted; a retry re-runs `ContextSelectionEngine`.
+- `EgressGuard` is the only path to the OpenAI client: it re-checks every block against the granted categories
+  (deny by default), truncates items to 200 characters and 20 items, and fails closed.
 - `AiRequestPreview` (purpose, categories, time range, raw events yes/no, aggregates yes/no, byte estimate) is shown
-  before user-initiated requests and stored as `ai_request` metadata; payloads are not stored or logged.
-- Output validation: parse as `JsonElement`, walk the schema, decode, then semantic checks (enums, max lengths,
+  before user-initiated requests and stored as `ai_request` metadata; payloads are not stored or logged. The audit
+  record's categories equal the categories present in the request body.
+
+### 9.4 Untrusted text
+
+- Every string the app did not write is `UntrustedText` (`:core:model`): app labels, package names, every
+  notification and calendar field, user goals and notes, NL requests, every AI output. The envelope serializer emits
+  it only as a JSON string value inside a data item, never in `instructions` and never by concatenation.
+- Third-party text (notification text, calendar titles, contact, Wi-Fi and Bluetooth names) is never sent in v1
+  [R04 §3.8]. The only free text sent is the user's own (questions, goals, logs) and app labels reduced to a safe
+  character set (letters, digits, spaces, `.-&'`, at most 40 characters); codes are preferred to names.
+- Stored AI output carries an `aiGenerated` taint and is left out of later contexts unless a purpose needs it. AI
+  output is rendered as plain text only.
+
+### 9.5 Output policy
+
+- Structured output: parse as `JsonElement`, walk the schema, decode, then semantic checks (enums, max lengths,
   operators, feature references, timestamps, delivery limits); failures are recorded as codes without content.
+- `AiTextPolicy` (`:ai:api`) applies to every AI-produced string in every schema, insight and media text included:
+  R10 §11.6 L1-L8 with the same ids, number provenance (every number appears in the envelope or the template), a
+  maximum length in sentences, and no medical imperatives. It runs before storage and again before display or
+  delivery; on failure the local template text is used and only the check id is recorded.
+- Pooled intervention text (`ai_text`, §11.5) may contain no digit and no number word ("three", "ten", "half",
+  "dozen" and so on): it is generated hours ahead, so a number in it would be stale or invented. Numbers come only
+  from template placeholders filled at delivery.
 
 ## 10. Feature and insight engines
 
