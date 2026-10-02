@@ -302,10 +302,66 @@ class UsageFeaturesTest {
         f.resumed(INSTAGRAM, "2026-10-01T22:10")
         f.usage("2026-10-01T22:30", UsageEventKind.DEVICE_SHUTDOWN)
         f.usage("2026-10-01T22:35", UsageEventKind.DEVICE_STARTUP)
+        f.screenOn("2026-10-01T22:35")
+
+        // Off while the device is down; the screen event at the startup leaves no unknown span.
+        assertThat(f.resolve(appSince())).isEqualTo(knownInt(20, f.now))
+        assertThat(f.value("screen_minutes_since", "since" to since22)).isEqualTo(knownInt(50, f.now))
+    }
+
+    @Test
+    fun `Q2 after a startup the screen is unknown until its first event, a gap for windows that overlap it`() = runTest {
+        val f = h()
+        f.screenOn("2026-10-01T22:05")
+        f.usage("2026-10-01T22:30", UsageEventKind.DEVICE_SHUTDOWN)
+        f.usage("2026-10-01T22:35", UsageEventKind.DEVICE_STARTUP)
         f.screenOn("2026-10-01T22:36")
 
-        assertThat(f.resolve(appSince())).isEqualTo(knownInt(20, f.now))
-        assertThat(f.value("screen_minutes_since", "since" to since22)).isEqualTo(knownInt(49, f.now))
+        assertThat(f.value("screen_minutes_since", "since" to since22)).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+        assertThat(f.resolve(appSince())).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+        // A window after the unknown span is known again.
+        f.advanceTo("2026-10-01T23:40")
+        assertThat(f.value("screen_minutes_last_60m")).isEqualTo(knownInt(60, f.now))
+    }
+
+    @Test
+    fun `Q2 a boot screen event never infers the time before the shutdown`() = runTest {
+        // Mirror case: the screen was on at W0 with no screen event before the shutdown.
+        val f = h()
+        f.usage("2026-10-01T22:20", UsageEventKind.DEVICE_SHUTDOWN)
+        f.usage("2026-10-01T22:21", UsageEventKind.DEVICE_STARTUP)
+        f.screenOn("2026-10-01T22:21")
+
+        assertThat(f.value("screen_minutes_since", "since" to since22)).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+    }
+
+    @Test
+    fun `Q2 probe J after a shutdown the live read gives the screen state at t`() = runTest {
+        val f = RealtimeFixture(start = "2026-10-01T22:30")
+        f.usage("2026-10-01T22:10", UsageEventKind.DEVICE_SHUTDOWN)
+        f.resumed(INSTAGRAM, "2026-10-01T22:16")
+        f.inputs.live.state = f.inputs.live.state.copy(interactive = true, foregroundApp = INSTAGRAM)
+
+        assertThat(f.value("foreground_app")).isEqualTo(FeatureValue.Known(FeatureScalar.PackageValue(INSTAGRAM), f.now))
+        assertThat(f.value("screen_minutes_last_60m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+        assertThat(f.value("app_minutes_last_60m", "package" to INSTAGRAM)).isEqualTo(missing(MissingReason.COVERAGE_GAP))
+
+        f.inputs.live.state = f.inputs.live.state.copy(interactive = false)
+        assertThat(f.value("foreground_app").knownScalar).isEqualTo(FeatureScalar.NoPackage)
+    }
+
+    @Test
+    fun `R1-5 foreground_app needs usage coverage at t only`() = runTest {
+        val f = RealtimeFixture(start = "2026-10-01T22:30")
+        f.inputs.collectorCoverage.clear(CollectorIds.USAGE_EVENTS)
+        f.inputs.collectorCoverage.healthySince(CollectorIds.USAGE_EVENTS, f.local("2026-10-01T22:20"))
+        f.screenOn("2026-10-01T22:21")
+        f.resumed(INSTAGRAM, "2026-10-01T22:25")
+        f.inputs.live.state = f.inputs.live.state.copy(foregroundApp = INSTAGRAM)
+
+        assertThat(f.value("foreground_app")).isEqualTo(FeatureValue.Known(FeatureScalar.PackageValue(INSTAGRAM), f.now))
+        // Minute features keep the whole-window check.
+        assertThat(f.value("screen_minutes_last_60m")).isEqualTo(missing(MissingReason.COVERAGE_GAP))
     }
 
     @Test
@@ -380,8 +436,8 @@ class UsageFeaturesTest {
     // ------------------------------------------------------------------ coverage (lifecycle-battery-01)
 
     @ParameterizedTest(name = "{0}")
-    @MethodSource("usageRefs")
-    fun `every usage feature is COVERAGE_GAP for a collector gap inside its window`(ref: FeatureRef) = runTest {
+    @MethodSource("windowedUsageRefs")
+    fun `every windowed usage feature is COVERAGE_GAP for a collector gap inside its window`(ref: FeatureRef) = runTest {
         val f = h()
         f.inputs.live.state = f.inputs.live.state.copy(interactive = false)
         f.inputs.collectorCoverage.clear(CollectorIds.USAGE_EVENTS)
@@ -479,7 +535,10 @@ class UsageFeaturesTest {
 
     companion object {
         @JvmStatic
-        fun usageRefs(): List<FeatureRef> = listOf(
+        fun usageRefs(): List<FeatureRef> = windowedUsageRefs() + FeatureRef("foreground_app")
+
+        @JvmStatic
+        fun windowedUsageRefs(): List<FeatureRef> = listOf(
             FeatureRef("screen_minutes_last_60m"),
             FeatureRef("screen_minutes_since", mapOf("since" to "22:00")),
             FeatureRef("app_minutes_last_60m", mapOf("package" to INSTAGRAM)),
@@ -487,7 +546,6 @@ class UsageFeaturesTest {
             FeatureRef("app_category_minutes_last_60m", mapOf("category" to "SOCIAL")),
             FeatureRef("app_category_minutes_since", mapOf("category" to "SOCIAL", "since" to "22:00")),
             FeatureRef("app_opens_last_60m", mapOf("package" to INSTAGRAM)),
-            FeatureRef("foreground_app"),
         )
     }
 }

@@ -5,6 +5,7 @@ import dev.agentle.analytics.features.FeatureRef
 import dev.agentle.analytics.features.FeatureScalar
 import dev.agentle.analytics.features.FeatureSnapshot
 import dev.agentle.analytics.features.FeatureValue
+import dev.agentle.analytics.features.MissingReason
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
 import kotlin.random.Random
@@ -37,7 +38,16 @@ class UsagePropertyTest {
         for (seed in 1..SEEDS) check(seed)
 
         val cases =
-            listOf("partial screen", "app minutes", "several opens", "category union", "foreground app", "live-only app", "shutdown")
+            listOf(
+                "partial screen",
+                "app minutes",
+                "several opens",
+                "category union",
+                "foreground app",
+                "live-only app",
+                "shutdown",
+                "reboot gap",
+            )
         for (case in cases) assertWithMessage(case).that(seen[case] ?: 0).isAtLeast(MIN_CASES)
     }
 
@@ -67,13 +77,32 @@ class UsagePropertyTest {
         note("category union", last60.categoryMinutes("SOCIAL") > social)
         note("foreground app", last60.foregroundApp() is FeatureScalar.PackageValue)
         note("live-only app", liveApp != null && liveApp !in last60.withEvents && last60.appMinutes(liveApp) > 0)
+        note("reboot gap", last60.screenUnknown)
         note("shutdown", events.any { it.kind == UsageEventKind.DEVICE_SHUTDOWN && it.at >= windows[0] })
 
-        assertMinutes(snapshot, FeatureRef("screen_minutes_last_60m"), last60.screenMinutes(), message)
-        assertMinutes(snapshot, FeatureRef("screen_minutes_since", mapOf("since" to since)), sinceWindow.screenMinutes(), message)
+        assertMinutes(snapshot, FeatureRef("screen_minutes_last_60m"), last60.screenMinutes(), message, last60.screenUnknown)
+        assertMinutes(
+            snapshot,
+            FeatureRef("screen_minutes_since", mapOf("since" to since)),
+            sinceWindow.screenMinutes(),
+            message,
+            sinceWindow.screenUnknown,
+        )
         for (p in packages) {
-            assertMinutes(snapshot, FeatureRef("app_minutes_last_60m", mapOf("package" to p)), last60.appMinutes(p), "$message $p")
-            assertMinutes(snapshot, sinceRef("app_minutes_since", since, "package" to p), sinceWindow.appMinutes(p), "$message $p")
+            assertMinutes(
+                snapshot,
+                FeatureRef("app_minutes_last_60m", mapOf("package" to p)),
+                last60.appMinutes(p),
+                "$message $p",
+                last60.screenUnknown,
+            )
+            assertMinutes(
+                snapshot,
+                sinceRef("app_minutes_since", since, "package" to p),
+                sinceWindow.appMinutes(p),
+                "$message $p",
+                sinceWindow.screenUnknown,
+            )
             assertMinutes(snapshot, FeatureRef("app_opens_last_60m", mapOf("package" to p)), last60.opens(p), "$message $p opens")
         }
         for ((oracle, ref) in listOf(last60 to null, sinceWindow to since)) {
@@ -84,7 +113,8 @@ class UsagePropertyTest {
                     sinceRef("app_category_minutes_since", ref, "category" to c)
                 }
                 val minutes = oracle.categoryMinutes(c)
-                assertMinutes(snapshot, categoryRef, minutes, "$message $c")
+                assertMinutes(snapshot, categoryRef, minutes, "$message $c", oracle.screenUnknown)
+                if (oracle.screenUnknown) continue
                 assertWithMessage("$message $c within the window").that(minutes).isAtMost(oracle.windowMinutes())
                 assertWithMessage("$message $c within the screen time").that(minutes).isAtMost(oracle.screenMinutes())
                 val members = packages.filter { (categoryOf[it] ?: "UNDEFINED") == c }
@@ -112,8 +142,12 @@ class UsagePropertyTest {
 
     private fun sinceRef(id: String, since: String, arg: Pair<String, String>) = FeatureRef(id, mapOf("since" to since, arg))
 
-    private fun assertMinutes(snapshot: FeatureSnapshot, ref: FeatureRef, expected: Long, message: String) {
+    private fun assertMinutes(snapshot: FeatureSnapshot, ref: FeatureRef, expected: Long, message: String, gap: Boolean = false) {
         val value = snapshot[ref]
+        if (gap) {
+            assertWithMessage("$message ${ref.key}").that(value).isEqualTo(FeatureValue.Missing(MissingReason.COVERAGE_GAP))
+            return
+        }
         assertWithMessage("$message ${ref.key}").that(value).isInstanceOf(FeatureValue.Known::class.java)
         assertWithMessage("$message ${ref.key}").that((value as FeatureValue.Known).value).isEqualTo(FeatureScalar.IntValue(expected))
     }
@@ -169,7 +203,10 @@ class UsagePropertyTest {
     ) {
         private val cells = ((t - w0).inWholeMilliseconds / CELL_MS).toInt()
         private val events = all.filter { it.at >= w0 && it.at < t }.sortedBy { it.at }
-        private val screen = screenCells(liveInteractive)
+        private val tri = screenTri(liveInteractive)
+        private val screen = BooleanArray(cells) { tri[it] == ON }
+        val screenUnknown = tri.any { it == UNKNOWN }
+        private val liveInteractive = liveInteractive
         val withEvents = events.filter { it.packageName != null }.map { it.packageName.orEmpty() }.toSet()
         private val foreground: Map<String, BooleanArray> = buildMap {
             for (p in withEvents) put(p, closeGaps(packageCells(p)))
@@ -195,7 +232,7 @@ class UsagePropertyTest {
 
         fun foregroundApp(): FeatureScalar {
             val last = cells - 1
-            if (!screen[last]) return FeatureScalar.NoPackage
+            if (!interactiveAtEnd()) return FeatureScalar.NoPackage
             val open = withEvents.filter { checkNotNull(foreground[it])[last] }
             val best = open.sortedWith(
                 compareByDescending<String> {
@@ -215,29 +252,67 @@ class UsagePropertyTest {
 
         private fun cellOf(at: Instant): Int = ((at - w0).inWholeMilliseconds / CELL_MS).toInt()
 
-        private fun screenCells(liveInteractive: Boolean): BooleanArray {
-            val first = events.firstOrNull {
-                it.kind == UsageEventKind.SCREEN_INTERACTIVE ||
-                    it.kind == UsageEventKind.SCREEN_NON_INTERACTIVE
+        /**
+         * The screen per cell: ON, OFF or UNKNOWN. The state at w0 comes from the first screen event before any reboot
+         * event, else the live state if the window has neither; otherwise unknown. Down (shutdown to startup) is off,
+         * after a startup unknown until a screen event; a shutdown with no startup before the next screen event (or t)
+         * is unknown, and so is an on stretch ended by a startup without a shutdown.
+         */
+        private fun screenTri(liveInteractive: Boolean): IntArray {
+            val firstScreen = events.indexOfFirst { it.kind in SCREEN }
+            val firstBoot = events.indexOfFirst { it.kind in BOOT }
+            var state = when {
+                firstScreen >= 0 && (firstBoot < 0 || firstScreen < firstBoot) ->
+                    if (events[firstScreen].kind == UsageEventKind.SCREEN_INTERACTIVE) OFF else ON
+
+                firstBoot < 0 -> if (liveInteractive) ON else OFF
+
+                else -> UNKNOWN
             }
-            val initial = if (first != null) first.kind != UsageEventKind.SCREEN_INTERACTIVE else liveInteractive
-            return replay(initial) { e ->
-                when (e.kind) {
-                    UsageEventKind.SCREEN_INTERACTIVE -> true
-                    UsageEventKind.SCREEN_NON_INTERACTIVE, UsageEventKind.DEVICE_SHUTDOWN -> false
-                    else -> null
+            val out = IntArray(cells)
+            var from = 0
+            fun fill(until: Int, value: Int) {
+                for (i in from until until) out[i] = value
+                from = until
+            }
+            for (e in events) {
+                val next = when (e.kind) {
+                    UsageEventKind.SCREEN_INTERACTIVE -> ON
+                    UsageEventKind.SCREEN_NON_INTERACTIVE -> OFF
+                    UsageEventKind.DEVICE_SHUTDOWN -> DOWN
+                    UsageEventKind.DEVICE_STARTUP -> UNKNOWN
+                    else -> continue
                 }
+                val past = when {
+                    e.kind == UsageEventKind.DEVICE_STARTUP && state == ON -> UNKNOWN
+                    e.kind == UsageEventKind.DEVICE_STARTUP && state == DOWN -> OFF
+                    state == DOWN -> UNKNOWN
+                    else -> state
+                }
+                fill(cellOf(e.at), past)
+                state = next
             }
+            fill(cells, if (state == DOWN) UNKNOWN else state)
+            return out
+        }
+
+        /** Interactive at t: the last cell when known, else the live read. */
+        fun interactiveAtEnd(): Boolean = when (tri[cells - 1]) {
+            ON -> true
+            OFF -> false
+            else -> liveInteractive
         }
 
         private fun packageCells(p: String): BooleanArray {
             val union = BooleanArray(cells)
             for (className in events.filter { it.packageName == p }.map { it.className }.distinct()) {
                 val stream = events.filter { it.packageName == p && it.className == className }
-                val initial = stream.first().kind != UsageEventKind.ACTIVITY_RESUMED
+                val firstBoot = events.firstOrNull { it.kind in BOOT }?.at
+                val before = stream.firstOrNull { firstBoot == null || it.at < firstBoot }
+                val initial = before != null && before.kind != UsageEventKind.ACTIVITY_RESUMED
                 val on = replay(initial) { e ->
                     when {
-                        e.kind == UsageEventKind.DEVICE_SHUTDOWN -> false
+                        e.kind in BOOT -> false
                         e.packageName != p || e.className != className -> null
                         else -> e.kind == UsageEventKind.ACTIVITY_RESUMED
                     }
@@ -248,7 +323,7 @@ class UsagePropertyTest {
         }
 
         /** The live foreground app without events: on from `w0` until a shutdown. */
-        private fun liveCells(): BooleanArray = replay(true) { e -> if (e.kind == UsageEventKind.DEVICE_SHUTDOWN) false else null }
+        private fun liveCells(): BooleanArray = replay(true) { e -> if (e.kind in BOOT) false else null }
 
         private fun replay(initial: Boolean, target: (UsageEvent) -> Boolean?): BooleanArray {
             val out = BooleanArray(cells)
@@ -284,6 +359,12 @@ class UsagePropertyTest {
         const val CELL_MS = 250L
         const val MERGE_CELLS = 8
         const val MS_PER_MINUTE = 60_000L
+        const val ON = 1
+        const val OFF = 0
+        const val UNKNOWN = 2
+        const val DOWN = 3
+        val SCREEN = setOf(UsageEventKind.SCREEN_INTERACTIVE, UsageEventKind.SCREEN_NON_INTERACTIVE)
+        val BOOT = setOf(UsageEventKind.DEVICE_SHUTDOWN, UsageEventKind.DEVICE_STARTUP)
         val CATEGORY = mapOf(INSTAGRAM to "SOCIAL", CHAT to "SOCIAL", MAPS to "MAPS")
     }
 }

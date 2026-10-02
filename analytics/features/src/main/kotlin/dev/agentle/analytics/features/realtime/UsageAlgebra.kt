@@ -11,6 +11,9 @@ import kotlin.time.Instant
  */
 internal data class Span(val start: Instant, val end: Instant, val opened: Boolean = false)
 
+/** The screen of a window: interactive spans, spans whose state is unknown (around a reboot), the state at `t`. */
+internal data class ScreenState(val interactive: List<Span>, val unknown: List<Span>, val atEnd: Boolean?)
+
 /**
  * The interval algebra of R10 §5.5 as pure functions:
  * 1. events in `[W0, t)`;
@@ -31,6 +34,7 @@ internal object UsageAlgebra {
     private data class Assertion(val at: Instant, val on: Boolean, val infers: Boolean)
 
     private val SCREEN_KINDS = setOf(UsageEventKind.SCREEN_INTERACTIVE, UsageEventKind.SCREEN_NON_INTERACTIVE)
+    private val BOUNDARY_KINDS = setOf(UsageEventKind.DEVICE_SHUTDOWN, UsageEventKind.DEVICE_STARTUP)
     private val ACTIVITY_KINDS =
         setOf(UsageEventKind.ACTIVITY_RESUMED, UsageEventKind.ACTIVITY_PAUSED, UsageEventKind.ACTIVITY_STOPPED)
 
@@ -40,21 +44,66 @@ internal object UsageAlgebra {
     /** True if the screen stream has an event in [inside], so its state at `W0` needs no live read. */
     fun hasScreenEvent(inside: List<UsageEvent>): Boolean = inside.any { it.kind in SCREEN_KINDS }
 
+    /** True if the window has a `DEVICE_SHUTDOWN` or `DEVICE_STARTUP`. */
+    fun hasBoundary(inside: List<UsageEvent>): Boolean = inside.any { it.kind in BOUNDARY_KINDS }
+
     /**
-     * Interactive intervals of the window. [liveInteractive] is the state at `t`, used only when the screen stream has
-     * no event in the window (then it must not be null).
+     * The screen of the window as three states (reviewer question 2). A reboot breaks the inference: the state at
+     * `W0` comes from the first screen event before any boundary, else (no screen event, no boundary) from
+     * [liveInteractive], else it is unknown. `[shutdown, startup)` is off (the device is down); after a startup the
+     * state is unknown until the next screen event, and so is the time after a shutdown with no startup logged. A
+     * startup without a logged shutdown makes the open interactive span before it unknown (the device died at an
+     * unknown instant). [ScreenState.atEnd] is the state at `t` when the events know it.
      */
-    fun screen(inside: List<UsageEvent>, window: ClosedOpenRange, liveInteractive: Boolean?): List<Span> {
-        val assertions = inside.mapNotNull { e ->
-            when (e.kind) {
-                UsageEventKind.SCREEN_INTERACTIVE -> Assertion(e.at, on = true, infers = true)
-                UsageEventKind.SCREEN_NON_INTERACTIVE -> Assertion(e.at, on = false, infers = true)
-                UsageEventKind.DEVICE_SHUTDOWN -> Assertion(e.at, on = false, infers = false)
-                else -> null
-            }
+    fun screenState(inside: List<UsageEvent>, window: ClosedOpenRange, liveInteractive: Boolean?): ScreenState {
+        val firstScreen = inside.indexOfFirst { it.kind in SCREEN_KINDS }
+        val firstBoundary = inside.indexOfFirst { it.kind in BOUNDARY_KINDS }
+        var state = when {
+            firstScreen >= 0 && (firstBoundary < 0 || firstScreen < firstBoundary) ->
+                if (inside[firstScreen].kind == UsageEventKind.SCREEN_INTERACTIVE) Tri.OFF else Tri.ON
+
+            firstBoundary < 0 -> if (liveInteractive == true) Tri.ON else Tri.OFF
+
+            else -> Tri.UNKNOWN
         }
-        return walk(assertions, window, liveState = liveInteractive ?: false)
+        var since = window.start
+        val on = mutableListOf<Span>()
+        val unknown = mutableListOf<Span>()
+        fun close(at: Instant, spanState: Tri) {
+            if (at > since) {
+                if (spanState == Tri.ON) on += Span(since, at)
+                if (spanState == Tri.UNKNOWN || spanState == Tri.DOWN) unknown += Span(since, at)
+            }
+            since = at
+        }
+        for (e in inside) {
+            val next = when (e.kind) {
+                UsageEventKind.SCREEN_INTERACTIVE -> Tri.ON
+                UsageEventKind.SCREEN_NON_INTERACTIVE -> Tri.OFF
+                UsageEventKind.DEVICE_SHUTDOWN -> Tri.DOWN
+                UsageEventKind.DEVICE_STARTUP -> Tri.UNKNOWN
+                else -> continue
+            }
+            if (next == state && next != Tri.UNKNOWN) continue
+            val closedAs = when {
+                e.kind == UsageEventKind.DEVICE_STARTUP && state == Tri.ON -> Tri.UNKNOWN
+                e.kind == UsageEventKind.DEVICE_STARTUP && state == Tri.DOWN -> Tri.OFF
+                e.kind == UsageEventKind.DEVICE_SHUTDOWN && state == Tri.DOWN -> Tri.UNKNOWN
+                else -> state
+            }
+            close(e.at, closedAs)
+            state = next
+        }
+        close(window.end, state)
+        val atEnd = when (state) {
+            Tri.ON -> true
+            Tri.OFF -> false
+            else -> null
+        }
+        return ScreenState(on, unknown, atEnd)
     }
+
+    private enum class Tri { ON, OFF, UNKNOWN, DOWN }
 
     /** Merged foreground intervals of every package that has an activity event in the window. */
     fun foreground(inside: List<UsageEvent>, window: ClosedOpenRange): Map<String, List<Span>> {
@@ -107,8 +156,9 @@ internal object UsageAlgebra {
     /** True if one of [spans] is still open at the window end (the evaluation instant). */
     fun openAtEnd(spans: List<Span>, window: ClosedOpenRange): Boolean = spans.any { it.end == window.end && it.start < it.end }
 
+    /** Shutdowns and startups: a reboot ends every activity (a startup implies an unlogged shutdown before it). */
     private fun shutdowns(inside: List<UsageEvent>): List<Assertion> =
-        inside.filter { it.kind == UsageEventKind.DEVICE_SHUTDOWN }.map { Assertion(it.at, on = false, infers = false) }
+        inside.filter { it.kind in BOUNDARY_KINDS }.map { Assertion(it.at, on = false, infers = false) }
 
     /** Sorts by start (an already-on piece before an opened one at the same instant) and merges gaps up to [gap]. */
     private fun mergeSorted(spans: List<Span>, gap: Duration): List<Span> {
@@ -130,7 +180,8 @@ internal object UsageAlgebra {
      * assertion, or [liveState] when there is none.
      */
     private fun walk(assertions: List<Assertion>, window: ClosedOpenRange, liveState: Boolean): List<Span> {
-        val first = assertions.firstOrNull { it.infers }
+        // Inference never crosses a reboot: only events before the first boundary tell the state at W0.
+        val first = assertions.takeWhile { it.infers }.firstOrNull()
         var on = if (first != null) !first.on else liveState
         var openedAt = window.start
         var opened = false

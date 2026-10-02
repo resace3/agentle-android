@@ -23,6 +23,14 @@ internal object UsageFeatures {
             ClosedOpenRange(pass.at - LAST_60, pass.at)
         }
         return pass.usageEvents(window).orMissing { events ->
+            if (featureId == "foreground_app") {
+                // An "at t" feature needs coverage at t only: the window is clipped to the covered stretch (R1-5).
+                return pass.coveredSince(collectorId, window).orMissing { from ->
+                    val clipped = ClosedOpenRange(from, pass.at)
+                    val inside = pass.memo("usage-inside" to clipped) { UsageAlgebra.inWindow(events, clipped) }
+                    WindowUsage(pass, inside, clipped).foregroundApp()
+                }
+            }
             val gap = pass.collectorGap(collectorId, window)
             if (gap != null) return FeatureValue.Missing(gap)
             val inside = pass.memo("usage-inside" to window) { UsageAlgebra.inWindow(events, window) }
@@ -43,16 +51,31 @@ internal object UsageFeatures {
 
     /** The intervals of one window, memoized in the pass so several refs over the same window share them. */
     private class WindowUsage(private val pass: FeaturePass, private val inside: List<UsageEvent>, private val window: ClosedOpenRange) {
-        /** Interactive intervals; a live read of `isInteractive()` only when the screen has no event in the window. */
-        suspend fun screen(): Read<List<Span>> = pass.memo("usage-screen" to window) {
-            if (UsageAlgebra.hasScreenEvent(inside)) {
-                Read.Ok(UsageAlgebra.screen(inside, window, liveInteractive = null))
+        /** The three-state screen; a live read of `isInteractive()` only when the window has no screen event or reboot. */
+        suspend fun screenState(): Read<ScreenState> = pass.memo("usage-screen" to window) {
+            if (UsageAlgebra.hasScreenEvent(inside) || UsageAlgebra.hasBoundary(inside)) {
+                Read.Ok(UsageAlgebra.screenState(inside, window, liveInteractive = null))
             } else {
                 when (val live = pass.interactive()) {
                     is Read.Fail -> live
-                    is Read.Ok -> Read.Ok(UsageAlgebra.screen(inside, window, live.value))
+                    is Read.Ok -> Read.Ok(UsageAlgebra.screenState(inside, window, live.value))
                 }
             }
+        }
+
+        /**
+         * Interactive intervals for minute features; `COVERAGE_GAP` when the screen state is unknown somewhere in the
+         * window (after a reboot, before the first screen event): never inferred as "not interactive".
+         */
+        suspend fun screen(): Read<List<Span>> = when (val state = screenState()) {
+            is Read.Fail -> state
+            is Read.Ok -> if (state.value.unknown.isEmpty()) Read.Ok(state.value.interactive) else Read.Fail(MissingReason.COVERAGE_GAP)
+        }
+
+        /** Interactive at `t`: from the events when they know it, else the live read. */
+        suspend fun interactiveAtEnd(): Read<Boolean> = when (val state = screenState()) {
+            is Read.Fail -> state
+            is Read.Ok -> state.value.atEnd?.let { Read.Ok(it) } ?: pass.interactive()
         }
 
         /** Merged foreground intervals of the packages with an activity event in the window. */
@@ -98,8 +121,8 @@ internal object UsageFeatures {
          * An app resumed inside the window wins over one known only from the live read; ties go to the latest resume,
          * then the package name (design).
          */
-        suspend fun foregroundApp(): FeatureValue = screen().orMissing { screen ->
-            if (!UsageAlgebra.openAtEnd(screen, window)) return@orMissing pass.known(FeatureScalar.NoPackage)
+        suspend fun foregroundApp(): FeatureValue = interactiveAtEnd().orMissing { interactive ->
+            if (!interactive) return@orMissing pass.known(FeatureScalar.NoPackage)
             val open = foreground().filterValues { UsageAlgebra.openAtEnd(it, window) }
             val best = open.entries.sortedWith(
                 compareByDescending<Map.Entry<String, List<Span>>> { e ->
