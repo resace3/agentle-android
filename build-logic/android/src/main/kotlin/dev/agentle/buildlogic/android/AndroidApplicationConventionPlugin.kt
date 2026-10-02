@@ -5,6 +5,7 @@ import com.android.build.api.variant.ApplicationAndroidComponentsExtension
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
 import org.gradle.api.artifacts.result.ResolvedComponentResult
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
@@ -48,7 +49,7 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
 
         val verify = tasks.register("verifyNoFakesInProd") {
             group = "verification"
-            description = "Fails if :fakes (fake servers, canned tokens) is on any prod runtime classpath."
+            description = "Fails if test support (:fakes, :core:testing) or a test-only library is on a prod runtime classpath."
         }
         afterEvaluate {
             // Shipping variants only: test classpaths (prodDebugUnitTestRuntimeClasspath, ...AndroidTest...) may use fakes.
@@ -60,10 +61,10 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
             }
             verify.configure {
                 doLast {
-                    val offenders = roots.flatMap { (name, root) ->
-                        projectDependencies(root.get()).filter { it == ":fakes" }.map { "$name -> $it" }
+                    val offenders = roots.flatMap { (name, root) -> testOnlyDependencies(root.get()).map { "$name: $it" } }
+                    if (offenders.isNotEmpty()) {
+                        throw GradleException("Test-only dependencies on prod runtime classpaths:\n" + offenders.joinToString("\n") { "  - $it" })
                     }
-                    if (offenders.isNotEmpty()) throw GradleException("Fakes on prod classpaths: $offenders")
                 }
             }
         }
@@ -71,15 +72,46 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
     }
 }
 
-private fun projectDependencies(root: ResolvedComponentResult): Set<String> {
-    val seen = mutableSetOf<ResolvedComponentResult>()
-    val paths = mutableSetOf<String>()
+/** Test support projects and test-only libraries (group:module prefixes) that must never ship (red team testing-build-13). */
+private val testOnlyProjects = setOf(":fakes", ":core:testing")
+private val testOnlyCoordinates = listOf(
+    "com.squareup.okhttp3:mockwebserver",
+    "org.jetbrains.kotlinx:kotlinx-coroutines-test",
+    "app.cash.turbine:",
+    "org.robolectric:",
+    "junit:",
+    "org.junit",
+    "androidx.test",
+)
+
+/** Every forbidden component reachable from [root], with the dependency chain that brings it in. */
+private fun testOnlyDependencies(root: ResolvedComponentResult): List<String> {
+    val parent = mutableMapOf<ResolvedComponentResult, ResolvedComponentResult?>(root to null)
     val queue = ArrayDeque(listOf(root))
+    val hits = mutableListOf<String>()
     while (queue.isNotEmpty()) {
         val component = queue.removeFirst()
-        if (!seen.add(component)) continue
-        (component.id as? ProjectComponentIdentifier)?.let { paths += it.projectPath }
-        component.dependencies.filterIsInstance<ResolvedDependencyResult>().forEach { queue += it.selected }
+        val forbidden = when (val id = component.id) {
+            is ProjectComponentIdentifier -> id.projectPath in testOnlyProjects
+            is ModuleComponentIdentifier -> testOnlyCoordinates.any { "${id.group}:${id.module}".startsWith(it) }
+            else -> false
+        }
+        if (forbidden) {
+            hits += generateSequence(component) { parent[it] }.toList().reversed().joinToString(" -> ") { componentName(it) }
+            continue
+        }
+        component.dependencies.filterIsInstance<ResolvedDependencyResult>().forEach {
+            if (it.selected !in parent) {
+                parent[it.selected] = component
+                queue += it.selected
+            }
+        }
     }
-    return paths
+    return hits
+}
+
+private fun componentName(component: ResolvedComponentResult): String = when (val id = component.id) {
+    is ProjectComponentIdentifier -> id.projectPath
+    is ModuleComponentIdentifier -> "${id.group}:${id.module}:${id.version}"
+    else -> id.displayName
 }
