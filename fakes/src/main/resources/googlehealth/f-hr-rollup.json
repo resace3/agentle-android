@@ -1,0 +1,14 @@
+{
+  "rollupDataPoints": [
+    {
+      "startTime": "2026-09-30T12:00:00Z",
+      "endTime": "2026-09-30T12:01:00Z",
+      "heartRate": {"beatsPerMinuteMin": 68, "beatsPerMinuteAvg": 71.4, "beatsPerMinuteMax": 76}
+    },
+    {
+      "startTime": "2026-09-30T12:01:00Z",
+      "endTime": "2026-09-30T12:02:00Z",
+      "heartRate": {"beatsPerMinuteMin": 72, "beatsPerMinuteAvg": 73, "beatsPerMinuteMax": 74}
+    }
+  ]
+}

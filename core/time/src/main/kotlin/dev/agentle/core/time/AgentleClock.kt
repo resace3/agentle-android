@@ -17,6 +17,7 @@ import kotlin.time.Instant
  * - [zone]: the user's current time zone; a function because it changes at runtime (travel, manual change).
  * - [elapsed]: monotonic time since an arbitrary origin (Android: `SystemClock.elapsedRealtimeNanos()`), used for
  *   timeouts, leases and rate limits so that a user changing the wall clock cannot break them.
+ * - [sleeper]: waits on the same time base as [elapsed]; code never pairs this clock with a raw `delay`.
  */
 public interface AgentleClock {
     public val wall: Clock
@@ -24,6 +25,13 @@ public interface AgentleClock {
     public fun zone(): TimeZone
 
     public fun elapsed(): Duration
+
+    /**
+     * Waits so that [elapsed] advances by the slept duration. The default, [Sleeper.Delay], fits clocks whose
+     * [elapsed] follows the coroutine's time: real time in production, virtual time for a test clock driven by the
+     * test dispatcher's scheduler. A clock with its own notion of time overrides it.
+     */
+    public val sleeper: Sleeper get() = Sleeper.Delay
 
     public fun now(): Instant = wall.now()
 

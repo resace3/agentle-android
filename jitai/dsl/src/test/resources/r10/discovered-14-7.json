@@ -1,0 +1,61 @@
+{
+  "proposalId": "b1f7c3a0-5d2e-4f61-9c8a-2e4d6f8a1b3c",
+  "patternId": "H04:+",
+  "hypothesisId": "H04",
+  "exposure": "E_screen45",
+  "outcome": "O_late",
+  "createdAt": "2026-10-05T18:00:00Z",
+  "tier": "MODERATE",
+  "approvalRequired": true,
+  "whyProposed": {
+    "text": "On 17 of 24 nights (71%) when your screen time between 10 PM and midnight was 45 minutes or more, you went to bed at least 30 minutes later than your usual bedtime. On the other 36 nights this happened 9 times (25%). The pattern showed up on work nights and on weekend nights. This is a pattern in your own data, not proof: something else, such as a busy day, may explain both.",
+    "evidence": {
+      "analysisWindow": { "firstNight": "2026-08-06", "lastNight": "2026-10-04" },
+      "nightsComplete": 60,
+      "exposed": { "nights": 24, "withOutcome": 17 },
+      "unexposed": { "nights": 36, "withOutcome": 9 },
+      "rateExposed": 0.708,
+      "rateUnexposed": 0.250,
+      "riskDifference": 0.458,
+      "riskDifferenceCi95": [0.202, 0.640],
+      "lift": 2.83,
+      "riskDifferenceMh": 0.460,
+      "pExactStratified": 0.00103,
+      "qBenjaminiHochberg": 0.0185,
+      "familySize": 18,
+      "strata": [
+        { "nightType": "WORK_NIGHT", "exposed": { "nights": 14, "withOutcome": 10 }, "unexposed": { "nights": 28, "withOutcome": 7 } },
+        { "nightType": "WEEKEND_NIGHT", "exposed": { "nights": 10, "withOutcome": 7 }, "unexposed": { "nights": 8, "withOutcome": 2 } }
+      ],
+      "checks": { "strataSign": true, "splitHalf": true },
+      "consecutiveRuns": 2,
+      "method": "exact-stratified-permutation-v1"
+    }
+  },
+  "jitai": {
+    "name": "Wind down after late screen time",
+    "description": "On nights when I use my phone for 45 minutes or more after 10 PM, remind me to start winding down.",
+    "kind": "INTERVENTION",
+    "category": "SLEEP_WIND_DOWN",
+    "trigger": { "type": "interval", "everyMinutes": 30 },
+    "activeWindow": { "start": "22:00", "end": "01:00", "days": null },
+    "conditions": { "type": "gte", "feature": "screen_minutes_since", "args": { "since": "22:00" }, "value": 45, "onUnknown": null },
+    "contextRequirements": { "type": "eq", "feature": "device_interactive", "args": {}, "value": true, "onUnknown": null },
+    "delivery": { "channel": "NOTIFICATION", "quietHoursPolicy": "ALLOW_WHEN_INTERACTIVE", "notificationTimeoutMinutes": 60 },
+    "content": { "type": "template", "title": "Winding down?", "body": "{{screen_minutes_since}} minutes of screen time since 10 PM. Want to start winding down now?" },
+    "cooldownMinutes": 120,
+    "maxPerDay": 1,
+    "maxPerWeek": 7,
+    "priority": 40,
+    "snooze": { "mode": "SUPPRESS_ONLY", "options": ["MINUTES_30", "UNTIL_TOMORROW"] },
+    "expiresInDays": 28,
+    "outcome": {
+      "proximal": { "metric": "SCREEN_MINUTES_AFTER", "args": {}, "windowMinutes": 30 },
+      "distal": { "metric": "BEDTIME_NEXT", "args": {}, "windowMinutes": null }
+    },
+    "suppression": null
+  },
+  "expectedOutcome": "Fewer screen minutes in the 30 minutes after a reminder, and an earlier bedtime on reminder nights. The trial measures both; nothing is promised.",
+  "dataRequired": ["Usage access (screen time)", "Sleep from your connected tracker"],
+  "trial": { "days": 28, "experimentOffer": { "mode": "MICRO_RANDOMIZED", "deliverProbability": 0.5, "requiresConsent": true } }
+}

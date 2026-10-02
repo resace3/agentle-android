@@ -1,0 +1,4 @@
+{
+  "dataSource": {"recordingMethod": "PASSIVELY_MEASURED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+  "heartRate": {"sampleTime": {"physicalTime": "2026-09-30T12:03:05Z", "utcOffset": "-14400s"}, "beatsPerMinute": "77"}
+}

@@ -23,7 +23,8 @@ val androidModuleDirs: List<File> = rootDir.walkTopDown()
 detekt {
     buildUponDefaultConfig.set(true)
     parallel.set(true)
-    config.setFrom(file("config/detekt/detekt.yml"))
+    // detekt-android-tests.yml: no JUnit Jupiter imports in Android sources (their tests run on JUnit 4).
+    config.setFrom(file("config/detekt/detekt.yml"), file("config/detekt/detekt-android-tests.yml"))
     source.setFrom(
         androidModuleDirs.flatMap { dir -> listOf("main", "test", "androidTest").map { File(dir, "src/$it/kotlin") } }
             .filter { it.exists() },

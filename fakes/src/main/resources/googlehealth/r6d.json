@@ -1,0 +1,19 @@
+{
+  "dataPoints": [
+    {
+      "dataPointName": "users/1234567890/dataTypes/weight/dataPoints/6685309773198399001",
+      "weight": {
+        "sampleTime": {
+          "physicalTime": "2026-09-30T11:15:22.500000Z",
+          "utcOffset": "-14400s",
+          "civilTime": {
+            "date": {"year": 2026, "month": 9, "day": 30},
+            "time": {"hours": 7, "minutes": 15, "seconds": 22, "nanos": 500000000}
+          }
+        },
+        "weightGrams": 72450
+      }
+    }
+  ],
+  "nextPageToken": ""
+}
