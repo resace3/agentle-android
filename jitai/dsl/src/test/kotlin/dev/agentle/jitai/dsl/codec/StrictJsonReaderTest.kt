@@ -111,7 +111,7 @@ internal class StrictJsonReaderTest {
             row("truncated true", "tru", syntax(0)),
             row("truncated null", "[nul]", syntax(1)),
             row("comment", "{} // note", Result.TrailingText),
-            row("byte order mark", "﻿{}", syntax(0)),
+            row("byte order mark", "\uFEFF{}", syntax(0)),
         )
 
         @JvmStatic
