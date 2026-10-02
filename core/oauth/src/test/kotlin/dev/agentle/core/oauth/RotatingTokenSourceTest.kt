@@ -7,7 +7,10 @@ import dev.agentle.core.network.HttpClientConfig
 import dev.agentle.core.network.HttpClientFactory
 import dev.agentle.core.network.withAccessToken
 import dev.agentle.core.testing.TestAgentleClock
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -65,8 +68,13 @@ class RotatingTokenSourceTest {
         server.start(InetAddress.getByName("127.0.0.1"), 0)
     }
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     @AfterEach
-    fun stop() = server.close()
+    fun stop() {
+        scope.cancel()
+        server.close()
+    }
 
     private fun json(code: Int, body: String) =
         MockResponse.Builder().code(code).setHeader("Content-Type", "application/json").body(body).build()
@@ -78,6 +86,7 @@ class RotatingTokenSourceTest {
         store = store,
         clock = clock,
         provider = "fake",
+        scope = scope,
         extraParameters = listOf("resource" to "r"),
     )
 
@@ -173,20 +182,22 @@ class RotatingTokenSourceTest {
     }
 
     @Test
-    fun `a caller cancelled mid-refresh still persists the rotated refresh token`() = runTest {
+    fun `a caller cancelled after the server rotated only abandons its own wait and RT2 is used next (oauth-security-02)`() = runTest {
         val received = CountDownLatch(1)
         val release = CountDownLatch(1)
         gate = received to release
         val store = InMemoryTokenSetStore(tokens(0.seconds))
         val source = source(store)
-        val caller = launch(Dispatchers.Default) { source.accessToken() }
+        val owner = launch(Dispatchers.Default) { source.accessToken() }
         withContext(Dispatchers.IO) { received.await(10, TimeUnit.SECONDS) }
-        caller.cancel()
+        owner.cancelAndJoin()
         release.countDown()
-        caller.cancelAndJoin()
-        assertThat(store.load()!!.refreshToken).isEqualTo(Secret("rt_2"))
-        gate = null
         assertThat(source.accessToken()).isEqualTo(Outcome.Success("at_2"))
+        assertThat(store.load()!!.refreshToken).isEqualTo(Secret("rt_2"))
         assertThat(refreshes.get()).isEqualTo(1)
+        mode = "ok"
+        clock.advanceBy(2.minutes + 60.minutes)
+        assertThat(source.accessToken()).isEqualTo(Outcome.Success("at_3"))
+        assertThat(usedRefreshTokens).containsExactly("rt_1", "rt_2")
     }
 }

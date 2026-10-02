@@ -1,6 +1,10 @@
 package dev.agentle.core.oauth
 
+import dev.agentle.core.common.Logger
 import dev.agentle.core.network.CleartextNotPermittedException
+import dev.agentle.core.network.EgressNotAllowedException
+import dev.agentle.core.network.HttpClientConfig
+import dev.agentle.core.network.HttpClientFactory
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -34,6 +38,29 @@ public object OAuthHttpClients {
         .connectTimeout(CONNECT_TIMEOUT.toJavaDuration())
         .callTimeout(CALL_TIMEOUT.toJavaDuration())
         .build()
+
+    /**
+     * The dedicated authorization-server client (red team oauth-security-09): token, revocation, discovery and JWKS
+     * calls only; restricted to [allowedHosts] (the egress allow-list of `HttpClientConfig`), no redirects, no silent
+     * retries, connect 15 s, call 30 s. Never wrap its calls in a `RetryPolicy`: a replayed refresh trips reuse
+     * detection.
+     */
+    public fun authClient(
+        userAgent: String,
+        allowedHosts: Set<String>,
+        allowCleartextLoopback: Boolean = false,
+        logger: Logger = Logger.NONE,
+    ): OkHttpClient {
+        require(allowedHosts.isNotEmpty()) { "an authorization-server client needs an egress allow-list" }
+        val config = HttpClientConfig(
+            userAgent = userAgent,
+            connectTimeout = CONNECT_TIMEOUT,
+            callTimeout = CALL_TIMEOUT,
+            allowCleartextLoopback = allowCleartextLoopback,
+            allowedHosts = allowedHosts,
+        )
+        return tokenEndpointClient(HttpClientFactory.create(config, logger))
+    }
 }
 
 /** Executes the call without blocking a thread; cancelling the coroutine cancels the call. */
@@ -68,5 +95,12 @@ public fun transportFailureKind(e: IOException): String = when (e) {
     else -> "io:${e::class.simpleName ?: "unknown"}"
 }
 
-/** True if OkHttp refused the request locally (cleartext outside the fake flavor). */
-public fun isLocallyBlocked(e: IOException): Boolean = e is CleartextNotPermittedException
+/**
+ * Why the request was refused on the device before it left it (`cleartext` outside the fake flavor, `egress` for a
+ * host outside the client's allow-list), or null for a real transport failure.
+ */
+public fun blockedReason(e: IOException): String? = when (e) {
+    is CleartextNotPermittedException -> "cleartext"
+    is EgressNotAllowedException -> "egress"
+    else -> null
+}

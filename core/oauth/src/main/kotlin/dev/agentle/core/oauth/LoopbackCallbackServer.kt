@@ -170,8 +170,10 @@ public class LoopbackCallbackServer private constructor(
 
     @Volatile private var closed = false
 
+    private val acceptThread = Thread(::acceptLoop, "agentle-oauth-loopback").apply { isDaemon = true }
+
     private fun startAccepting() {
-        Thread(::acceptLoop, "agentle-oauth-loopback").apply { isDaemon = true }.start()
+        acceptThread.start()
     }
 
     /** Suspends until the attempt settles. Cancelling the caller closes the listener and releases the port. */
@@ -191,6 +193,15 @@ public class LoopbackCallbackServer private constructor(
         }
         runCatching { serverSocket.close() }
         sockets.forEach { socket -> runCatching { socket.close() } }
+        // The accept thread can still be inside poll(), which keeps the listening socket alive until it returns;
+        // wait (bounded) for it to let go, so the port is free once close() returns.
+        if (Thread.currentThread() !== acceptThread) {
+            try {
+                acceptThread.join(CLOSE_JOIN_MILLIS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }
         logger.d(COMPONENT, "listener closed")
     }
 
@@ -351,6 +362,7 @@ public class LoopbackCallbackServer private constructor(
         private const val BACKLOG = 16
         private const val DRAIN_CHUNK = 4096
         private const val MAX_DRAIN_BYTES = 64 * 1024
+        private const val CLOSE_JOIN_MILLIS = 2_000L
         private val ERROR_CODE = Regex("^[A-Za-z0-9_.-]{1,64}$")
         private val LOOPBACK_ADDRESS: InetAddress = InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1))
 

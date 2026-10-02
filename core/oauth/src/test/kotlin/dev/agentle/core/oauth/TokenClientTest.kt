@@ -217,6 +217,53 @@ class TokenClientTest {
     }
 
     @Test
+    fun `a raw refresh returns the untouched 2xx body as a secret for checkpointing`() = runTest {
+        server.enqueue(json(200, """{"access_token":"at_2","token_type":"Bearer","expires_in":"soon","refresh_token":"rt_2"}"""))
+        val raw = (client.refreshRaw(server.url("/t"), "c", Secret("rt_1")) as OAuthResult.Success).value
+        assertThat(raw.body.value).contains("rt_2")
+        assertThat(raw.toString()).doesNotContain("rt_2")
+        assertThat(raw.parse(TokenResponseRules.REFRESH)).isEqualTo(OAuthResult.Failure(OAuthFailure.InvalidResponse("expires_in", 200)))
+        server.enqueue(json(400, """{"error":"invalid_grant"}"""))
+        val failure = (client.refreshRaw(server.url("/t"), "c", Secret("rt_2")) as OAuthResult.Failure).failure
+        assertThat((failure as OAuthFailure.ErrorResponse).error).isEqualTo("invalid_grant")
+    }
+
+    @Test
+    fun `documents are fetched with GET, bounded and never through redirects`() = runTest {
+        server.enqueue(json(200, """{"issuer":"x"}"""))
+        assertThat(client.fetchDocument(server.url("/.well-known/openid-configuration"), "discovery")).isEqualTo(
+            OAuthResult.Success("""{"issuer":"x"}"""),
+        )
+        assertThat(server.takeRequest().method).isEqualTo("GET")
+        server.enqueue(json(404, """{"detail":"Not Found"}"""))
+        assertThat((client.fetchDocument(server.url("/jwks"), "jwks") as OAuthResult.Failure).failure).isEqualTo(
+            OAuthFailure.HttpStatus(404, BodyShape.DETAIL),
+        )
+        server.enqueue(MockResponse.Builder().code(302).setHeader("Location", server.url("/other").toString()).build())
+        assertThat(
+            (client.fetchDocument(server.url("/jwks"), "jwks") as OAuthResult.Failure).failure,
+        ).isEqualTo(OAuthFailure.Redirected(302))
+        server.enqueue(json(200, "[" + "1,".repeat(200_000) + "1]"))
+        assertThat((client.fetchDocument(server.url("/jwks"), "jwks") as OAuthResult.Failure).failure).isEqualTo(
+            OAuthFailure.InvalidResponse("body_too_large", 200),
+        )
+    }
+
+    @Test
+    fun `the auth client profile refuses hosts outside its allow-list before connecting (oauth-security-09)`() = runTest {
+        val restricted =
+            TokenClient(OAuthHttpClients.authClient("Agentle/test", setOf("auth.example.test"), allowCleartextLoopback = true), clock)
+        val failure = (restricted.refresh(server.url("/t"), "c", Secret("rt")) as OAuthResult.Failure).failure
+        assertThat(failure).isEqualTo(OAuthFailure.Blocked("egress"))
+        assertThat(server.requestCount).isEqualTo(0)
+        val allowed =
+            TokenClient(OAuthHttpClients.authClient("Agentle/test", setOf(server.url("/").host), allowCleartextLoopback = true), clock)
+        server.enqueue(json(200, """{"access_token":"at_2","token_type":"bearer","expires_in":60}"""))
+        assertThat(allowed.refresh(server.url("/t"), "c", Secret("rt"))).isInstanceOf(OAuthResult.Success::class.java)
+        org.junit.jupiter.api.assertThrows<IllegalArgumentException> { OAuthHttpClients.authClient("Agentle/test", emptySet()) }
+    }
+
+    @Test
     fun `no token, code or verifier reaches the logs`() = runTest {
         server.enqueue(json(200, okBody))
         exchange()

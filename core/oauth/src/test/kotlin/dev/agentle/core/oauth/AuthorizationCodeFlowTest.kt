@@ -4,7 +4,10 @@ import com.google.common.truth.Truth.assertThat
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.testing.TestAgentleClock
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -82,6 +85,59 @@ class AuthorizationCodeFlowTest {
             },
         ).isEqualTo(AuthorizationResult.Failed(AppError.UnsupportedFeature("browser")))
         assertThrows<ConnectException> { Socket(RawHttp.LOOPBACK, port).close() }
+    }
+
+    @Test
+    fun `no installed browser is a distinct outcome and releases the port (oauth-security-16)`() {
+        var port = -1
+        val flow = AuthorizationCodeFlow(
+            { url ->
+                port = url.queryParameter("redirect_uri")!!.toHttpUrl().port
+                Outcome.Failure(BrowserLauncher.NO_BROWSER_ERROR)
+            },
+            clock,
+            random,
+            loopback,
+        )
+        assertThat(blocking { flow.authorize(buildRequest = ::request) }).isEqualTo(AuthorizationResult.NoBrowser)
+        assertThrows<ConnectException> { Socket(RawHttp.LOOPBACK, port).close() }
+        assertThat(BrowserLauncher.isNoBrowser(AppError.UnsupportedFeature("browser"))).isFalse()
+    }
+
+    @Test
+    fun `a session re-opens the same page on a repeated tap and close cancels the wait`() {
+        val launcher = RecordingBrowserLauncher()
+        val session = (AuthorizationCodeFlow(launcher, clock, random, loopback).begin(buildRequest = ::request) as Outcome.Success).value
+        blocking {
+            assertThat(session.open()).isNull()
+            assertThat(session.open()).isNull()
+        }
+        assertThat(launcher.launched).hasSize(2)
+        assertThat(launcher.launched.toSet()).hasSize(1)
+        assertThat(session.toString()).doesNotContain(session.attempt.state.value)
+        val result = blocking {
+            coroutineScope {
+                val waiting = async(start = CoroutineStart.UNDISPATCHED) { session.await() }
+                session.close()
+                waiting.await()
+            }
+        }
+        assertThat(result).isEqualTo(AuthorizationResult.NotCompleted(CallbackOutcome.Cancelled))
+        assertThat(session.isSettled).isTrue()
+        assertThrows<ConnectException> { Socket(RawHttp.LOOPBACK, session.redirectUri.port).close() }
+    }
+
+    @Test
+    fun `a session still accepts the callback after a re-open`() {
+        val launcher = RecordingBrowserLauncher()
+        val session = (AuthorizationCodeFlow(launcher, clock, random, loopback).begin(buildRequest = ::request) as Outcome.Success).value
+        session.use {
+            blocking { session.open() }
+            val url = launcher.launched.single()
+            RawHttp.get(session.redirectUri.port, "/auth/callback?code=c-9&state=${url.queryParameter("state")}")
+            val result = blocking { session.await() } as AuthorizationResult.Authorized
+            assertThat(result.callback.code).isEqualTo(Secret("c-9"))
+        }
     }
 
     @Test
