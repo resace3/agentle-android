@@ -26,8 +26,13 @@ import kotlin.time.Instant
  * - A ref with an unknown feature id or a bad arg, and an observed value outside the feature's valid range or enum,
  *   is `Missing(INVALID_VALUE)`; an unavailable feature is `Missing(API_UNAVAILABLE)`; a feature above the device's
  *   API level is `Missing(API_LEVEL)`.
+ * - Nothing is cached across passes: daily values (last night's sleep, today's resting heart rate, engine-day counts)
+ *   are recomputed from the ports on every [resolve], so a dirty engine day or civil date is never served from a stale
+ *   persisted value (jitai-correctness-11).
+ * - Every returned value traces to its data category through the catalog ([FeatureCategories], jitai-correctness-19).
  * - It never throws for data conditions. A port that throws anyway makes only the features that needed it
- *   `Missing(API_UNAVAILABLE)`; the log line names the feature and the exception class, never its message.
+ *   `Missing(API_UNAVAILABLE)`; the log line names the feature, its category and the exception class, never its
+ *   message.
  *
  * `jitai=self` must be bound to the evaluated rule's id with [JitaiArgs.bindSelf] before resolving.
  */
@@ -67,7 +72,8 @@ public class RealtimeFeatureEngine(
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
-        logger.w(COMPONENT, "feature computation failed", fields = mapOf("feature" to definition.id, "error" to e::class.simpleName))
+        val fields = mapOf("feature" to definition.id, "category" to definition.category?.name, "error" to e::class.simpleName)
+        logger.w(COMPONENT, "feature computation failed", fields = fields)
         FeatureValue.Missing(MissingReason.API_UNAVAILABLE)
     }
 

@@ -5,6 +5,7 @@ import dev.agentle.analytics.features.FeatureScalar
 import dev.agentle.analytics.features.FeatureValue
 import dev.agentle.analytics.features.Freshness
 import dev.agentle.analytics.features.MissingReason
+import dev.agentle.analytics.features.Quality
 import dev.agentle.core.model.ActivityKind
 import dev.agentle.core.model.TransitionKind
 import dev.agentle.core.time.ClosedOpenRange
@@ -63,7 +64,10 @@ internal object ActivityFeatures {
 
                 !StepMath.hasData(series, window) -> FeatureValue.Missing(if (fresh) MissingReason.NO_DATA else MissingReason.NOT_SYNCED)
 
-                else -> fromCoverage(pass, FeatureScalar.IntValue(StepMath.prorated(series, window).floor()), through, fresh)
+                else -> {
+                    val steps = FeatureScalar.IntValue(StepMath.prorated(series, window).floor())
+                    fromCoverage(pass, steps, through, fresh, provisional(series, window))
+                }
             }
         }
     }
@@ -75,7 +79,8 @@ internal object ActivityFeatures {
     suspend fun activityLevel(pass: FeaturePass, definition: FeatureDefinition): FeatureValue {
         val endMinute = Instant.fromEpochSeconds(Math.floorDiv(pass.at.epochSeconds, SECONDS_PER_MINUTE) * SECONDS_PER_MINUTE)
         val start = endMinute - StepMath.CADENCE_MINUTES.minutes
-        return pass.fusedSteps(ClosedOpenRange(start, endMinute)).orMissing { series ->
+        val window = ClosedOpenRange(start, endMinute)
+        return pass.fusedSteps(window).orMissing { series ->
             val through = series.coverageThrough
             val fresh = through != null && through >= pass.at - maxLag(definition)
             val cadence = StepMath.cadence(series, start)
@@ -85,13 +90,29 @@ internal object ActivityFeatures {
                 cadence.observedMinutes < StepMath.MIN_OBSERVED_MINUTES ->
                     FeatureValue.Missing(if (fresh) MissingReason.COVERAGE_GAP else MissingReason.NOT_SYNCED)
 
-                else -> fromCoverage(pass, FeatureScalar.EnumValue(StepMath.level(cadence)), through, fresh)
+                else -> fromCoverage(pass, FeatureScalar.EnumValue(StepMath.level(cadence)), through, fresh, provisional(series, window))
             }
         }
     }
 
-    private fun fromCoverage(pass: FeaturePass, value: FeatureScalar, through: Instant, fresh: Boolean): FeatureValue =
-        if (fresh) pass.known(value, asOf = minOf(through, pass.at)) else FeatureValue.Stale(value, through, MissingReason.NOT_SYNCED)
+    /**
+     * `Known` when the series is fresh, `PROVISIONAL` when a local copy fills minutes the canonical source has not synced
+     * yet (jitai-correctness-03); otherwise `Stale` with the value as a lower bound for `steps_today` (R10 §6.3).
+     */
+    private fun fromCoverage(
+        pass: FeaturePass,
+        value: FeatureScalar,
+        through: Instant,
+        fresh: Boolean,
+        provisional: Boolean,
+    ): FeatureValue = if (fresh) {
+        pass.known(value, asOf = minOf(through, pass.at), quality = if (provisional) Quality.PROVISIONAL else Quality.FINAL)
+    } else {
+        FeatureValue.Stale(value, through, MissingReason.NOT_SYNCED)
+    }
+
+    private fun provisional(series: FusedStepSeries, window: ClosedOpenRange): Boolean =
+        series.segments.any { it.provisional && it.range.overlaps(window) }
 
     private fun maxLag(definition: FeatureDefinition): Duration = (definition.freshness as? Freshness.SourceLag)?.maxLag ?: Duration.ZERO
 }

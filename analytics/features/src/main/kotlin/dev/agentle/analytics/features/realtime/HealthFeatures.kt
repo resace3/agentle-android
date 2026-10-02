@@ -43,12 +43,22 @@ internal object HeartFeatures {
         val today = pass.localDate
         val first = today.minus(DatePeriod(days = BASELINE_DAYS))
         return pass.dailyValues(DailyMetric.RESTING_HEART_RATE, first, today).orMissing { series ->
-            val value = series.values[today] ?: return pass.absentDailyValue(series.source, HealthMetric.RESTING_HEART_RATE)
-            if (featureId == "resting_hr_today") return pass.known(FeatureScalar.IntValue(value))
-            if (value !in VALID) return FeatureValue.Missing(MissingReason.INVALID_VALUE)
-            val baseline = series.values.filterKeys { it >= first && it < today }.values.filter { it in VALID }.sorted()
-            if (baseline.size < MIN_BASELINE_VALUES) return FeatureValue.Missing(MissingReason.NO_DATA)
-            pass.known(FeatureScalar.IntValue(value - lowerMedian(baseline)))
+            val value = series.values[today]
+            when {
+                value == null -> pass.absentDailyValue(series.source, HealthMetric.RESTING_HEART_RATE)
+                featureId == "resting_hr_today" -> pass.known(FeatureScalar.IntValue(value))
+                else -> delta(pass, value, series.values.filterKeys { it >= first && it < today }.values)
+            }
+        }
+    }
+
+    /** Today's value minus the lower median of the valid values of the previous 28 civil dates (at least 14). */
+    private fun delta(pass: FeaturePass, today: Long, previous: Collection<Long>): FeatureValue {
+        val baseline = previous.filter { it in VALID }.sorted()
+        return when {
+            today !in VALID -> FeatureValue.Missing(MissingReason.INVALID_VALUE)
+            baseline.size < MIN_BASELINE_VALUES -> FeatureValue.Missing(MissingReason.NO_DATA)
+            else -> pass.known(FeatureScalar.IntValue(today - lowerMedian(baseline)))
         }
     }
 

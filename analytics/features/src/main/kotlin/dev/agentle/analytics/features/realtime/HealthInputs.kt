@@ -25,8 +25,16 @@ public data class StepInterval(val start: Instant, val end: Instant, val count: 
 /**
  * A run of whole minutes [range] whose steps come from [source] alone, with that source's intervals that overlap the
  * run (an interval may extend beyond it; only its prorated share inside the run counts).
+ *
+ * @property provisional the run lies after the canonical source's `coverageThrough` and a local copy fills it
+ *   (jitai-correctness-03): the canonical source replaces these minutes once it syncs them.
  */
-public data class FusedStepSegment(val range: ClosedOpenRange, val source: String, val intervals: List<StepInterval>)
+public data class FusedStepSegment(
+    val range: ClosedOpenRange,
+    val source: String,
+    val intervals: List<StepInterval>,
+    val provisional: Boolean = false,
+)
 
 /**
  * The fused step series of a window (database-sync-02): per minute, the canonical source where it has coverage, else
@@ -37,16 +45,22 @@ public data class FusedStepSegment(val range: ClosedOpenRange, val source: Strin
  * A source has coverage for a minute when it reported a value for it (a true zero counts) or, for a source that omits
  * zero minutes (Health Connect on-device steps), when the minute ends at or before that source's `coverageThrough`.
  *
+ * Wearable users whose API source syncs rarely (jitai-correctness-03): minutes after the canonical source's
+ * `coverageThrough` are filled by the freshest local copy (Health Connect Fitbit-origin steps, on-device steps) as
+ * [provisional][FusedStepSegment.provisional] segments; once the canonical source covers them, its values win again,
+ * so daily totals stay canonical.
+ *
  * @property segments disjoint, ordered, minute-aligned runs.
- * @property coverageThrough the instant before which the fused series is complete: the canonical source's
- *   `coverageThrough`, or, when the canonical source has never asserted one, the next source's (R10 §5.3). Null when
- *   no source has asserted anything.
+ * @property coverageThrough the instant before which the fused series is complete: the latest `coverageThrough` of
+ *   its sources, since every minute before it is asserted by the canonical source or by the local copy that fills
+ *   after it (R10 §5.3). Null when no source has asserted anything.
  */
 public data class FusedStepSeries(val segments: List<FusedStepSegment>, val coverageThrough: Instant?)
 
 /**
- * Steps as a fused minute series. The Android repository implements the fusion over the stored sources; the in-memory
- * port in `testing` implements the same rule. Only rows of the active Google Health account are returned
+ * Steps as a fused minute series over the connected step sources, canonical first (the user's choice per metric,
+ * R05 §7.7). The Android repository implements the fusion over the stored sources and may use [StepFusion] for it; the
+ * in-memory port in `testing` uses the same rule. Only rows of the active Google Health account are returned
  * (database-sync-15); the repository enforces it.
  */
 public interface StepSeriesPort {
