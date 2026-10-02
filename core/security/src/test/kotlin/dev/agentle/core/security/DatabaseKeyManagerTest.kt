@@ -60,7 +60,7 @@ class DatabaseKeyManagerTest {
     fun `the SQLCipher passphrase is the raw key literal`() {
         val key = (manager.obtainKey() as DatabaseKeyResult.Available).key
         val passphrase = String(key.sqlCipherPassphrase(), Charsets.US_ASCII)
-        val hex = key.copyBytes().joinToString("") { "%02X".format(it.toInt() and 0xFF) }
+        val hex = key.copyBytes().joinToString("") { String.format(java.util.Locale.ROOT, "%02X", it.toInt() and 0xFF) }
         assertThat(passphrase).hasLength(67)
         assertThat(passphrase).isEqualTo("x'$hex'")
         assertThat(key.toString()).doesNotContain(hex)

@@ -47,6 +47,7 @@ object DatabaseModule {
     @Provides
     @Singleton
     @DataIoContext
+    @Suppress("InjectDispatcher") // This provider is the injection point.
     fun ioContext(): CoroutineContext = Dispatchers.IO
 
     @Provides

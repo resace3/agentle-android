@@ -78,7 +78,7 @@ class InstallIdProvider(private val paths: SecurityPaths, private val random: Se
         }
     }
 
-    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and BYTE_MASK) }
+    private fun ByteArray.toHex(): String = joinToString("") { String.format(java.util.Locale.ROOT, "%02x", it.toInt() and BYTE_MASK) }
 
     private companion object {
         const val ID_FILE = "install-id"

@@ -58,6 +58,7 @@ object DataStoreModule {
     @Provides
     @Singleton
     @StoreScope
+    @Suppress("InjectDispatcher") // This provider is the injection point.
     fun storeScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Provides

@@ -1,3 +1,5 @@
+@file:Suppress("SpreadOperator") // SQL bind arguments are passed as varargs; the arrays are small.
+
 package dev.agentle.core.database
 
 import dev.agentle.core.model.EventCodec

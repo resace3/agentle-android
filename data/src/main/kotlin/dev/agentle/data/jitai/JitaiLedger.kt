@@ -455,7 +455,7 @@ internal class RoomJitaiLedger(private val access: DataAccess, private val clock
             when (casOf(tx, expectedState, updated)) {
                 CasResult.UPDATED -> true
                 CasResult.STATE_MOVED, CasResult.NOT_FOUND -> false
-                CasResult.ILLEGAL_TRANSITION -> throw IllegalStateException("illegal transition $expectedState -> ${updated.state}")
+                CasResult.ILLEGAL_TRANSITION -> error("illegal transition $expectedState -> ${updated.state}")
             }
 
         override suspend fun recordResponse(key: String, response: String, atMs: Long): ResponseResult = responseOf(tx, key, response, atMs)

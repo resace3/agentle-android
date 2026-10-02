@@ -69,6 +69,7 @@ interface AnalyticsDao {
             "catalog_version, computed_ms, lineage) VALUES (:featureId, :windowDays, :anchorDate, :value, :valueText, :status, " +
             ":coveredDays, :catalogVersion, :computedMs, :lineage)",
     )
+    @Suppress("LongParameterList") // One parameter per column of the upsert.
     suspend fun putFeature(
         featureId: String,
         windowDays: Int,
@@ -137,6 +138,7 @@ interface AnalyticsDao {
             "decided_ms, lineage) VALUES (:proposalId, :patternId, :hypothesisId, :tier, :createdMs, :status, :proposalJson, " +
             ":decidedMs, :lineage)",
     )
+    @Suppress("LongParameterList") // One parameter per column of the upsert.
     suspend fun putProposal(
         proposalId: String,
         patternId: String,

@@ -4,6 +4,12 @@ import dev.agentle.core.database.TermKind
 import dev.agentle.core.model.EventType
 import dev.agentle.data.DataAccess
 import dev.agentle.data.Tx
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 
 /** Rows whose personal text a purge cleared; the content-free events stay. */
 data class TextPurgeCounts(val notifications: Int, val calendarEvents: Int) {
@@ -27,34 +33,51 @@ interface ContentTextPurger {
 
 internal class RoomContentTextPurger(private val access: DataAccess) : ContentTextPurger {
     override suspend fun purgeNotificationText(packageName: String): TextPurgeCounts = access.write {
-        TextPurgeCounts(clearNotifications("AND json_extract(payload_json, '$.packageName') = ?", packageName), 0)
+        TextPurgeCounts(clear(NOTIFICATION_TYPES, Long.MAX_VALUE, NOTIFICATION_FIELDS) { it.text("packageName") == packageName }, 0)
     }
 
     override suspend fun purgeTextOfPackage(packageName: String): TextPurgeCounts = purgeNotificationText(packageName)
 
     override suspend fun purgeTextBefore(cutoffMs: Long): TextPurgeCounts = access.write {
-        val notifications = clearNotifications("AND start_ms < ?", cutoffMs)
-        val calendar = typeIds(EventType.CALENDAR_EVENT).sumOf { type ->
-            sql.execute(
-                "UPDATE event SET payload_json = json_remove(payload_json, '$.title') " +
-                    "WHERE type = ? AND start_ms < ? AND json_extract(payload_json, '$.title') IS NOT NULL",
-                type,
-                cutoffMs,
-            )
-        }
-        TextPurgeCounts(notifications, calendar)
+        TextPurgeCounts(
+            notifications = clear(NOTIFICATION_TYPES, cutoffMs, NOTIFICATION_FIELDS) { true },
+            calendarEvents = clear(listOf(EventType.CALENDAR_EVENT), cutoffMs, CALENDAR_FIELDS) { true },
+        )
     }
 
-    private suspend fun Tx.clearNotifications(filter: String, arg: Any): Int =
-        typeIds(EventType.NOTIFICATION_POSTED, EventType.NOTIFICATION_REMOVED).sumOf { type ->
-            sql.execute(
-                "UPDATE event SET payload_json = json_remove(payload_json, '$.title', '$.text') WHERE type = ? $filter " +
-                    "AND (json_extract(payload_json, '$.title') IS NOT NULL OR json_extract(payload_json, '$.text') IS NOT NULL)",
-                type,
-                arg,
-            )
+    /** Removes [fields] from the payloads of [types] that started before [beforeMs] and match [filter]. */
+    private suspend fun Tx.clear(types: List<EventType>, beforeMs: Long, fields: Set<String>, filter: (JsonObject) -> Boolean): Int {
+        var cleared = 0
+        for (type in types) {
+            val typeId = access.terms.idOf(db.termDao(), TermKind.TYPE, type.name) ?: continue
+            val rows = sql.query("SELECT seq, payload_json FROM event WHERE type = ? AND start_ms < ?", typeId, beforeMs) {
+                it.long(0) to it.text(1)
+            }
+            for ((seq, json) in rows) {
+                val payload = parse(json) ?: continue
+                if (fields.none { it in payload } || !filter(payload)) continue
+                val scrubbed = JsonObject(payload - fields)
+                sql.execute("UPDATE event SET payload_json = ? WHERE seq = ?", JSON.encodeToString(JsonObject.serializer(), scrubbed), seq)
+                cleared++
+            }
         }
+        return cleared
+    }
 
-    private suspend fun Tx.typeIds(vararg types: EventType): List<Long> =
-        types.mapNotNull { access.terms.idOf(db.termDao(), TermKind.TYPE, it.name) }
+    private fun parse(json: String): JsonObject? = try {
+        JSON.parseToJsonElement(json).jsonObject
+    } catch (expected: SerializationException) {
+        null
+    } catch (expected: IllegalArgumentException) {
+        null
+    }
+
+    private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
+
+    private companion object {
+        val JSON = Json
+        val NOTIFICATION_TYPES = listOf(EventType.NOTIFICATION_POSTED, EventType.NOTIFICATION_REMOVED)
+        val NOTIFICATION_FIELDS = setOf("title", "text")
+        val CALENDAR_FIELDS = setOf("title")
+    }
 }

@@ -242,6 +242,7 @@ internal class IngestSession(
      * the row's last update is ignored. A REMOVED notification is stored as usual and closes the open row, so the
      * next post of a reused key starts a new row. Returns the stored key, or null when the event was dropped.
      */
+    @Suppress("ReturnCount") // One early return per notification lifecycle case.
     private suspend fun foldNotification(event: PersonalEvent, account: Long): String? {
         val floor = floors.floorFor(event.type, event.source)
         if (floor != null && event.startTime.toEpochMilliseconds() < floor) {

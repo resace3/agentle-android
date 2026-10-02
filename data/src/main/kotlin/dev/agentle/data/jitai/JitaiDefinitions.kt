@@ -217,10 +217,16 @@ internal class RoomJitaiDefinitionStore(private val access: DataAccess, private 
             expiresMs = definition.expiresMs,
         )
 
-        fun summaryOf(row: JitaiDefinitionEntity): DefinitionSummary =
-            DefinitionSummary(
-                row.id, row.currentVersion, row.enabled, row.state, row.kind, row.category, row.origin,
-                row.modifiedMs, row.expiresMs,
-            )
+        fun summaryOf(row: JitaiDefinitionEntity): DefinitionSummary = DefinitionSummary(
+            id = row.id,
+            version = row.currentVersion,
+            enabled = row.enabled,
+            state = row.state,
+            kind = row.kind,
+            category = row.category,
+            origin = row.origin,
+            modifiedMs = row.modifiedMs,
+            expiresMs = row.expiresMs,
+        )
     }
 }

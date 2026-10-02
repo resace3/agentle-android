@@ -164,7 +164,7 @@ internal class RoomEventRepository(private val access: DataAccess) : EventReposi
         val fromMs = from.toEpochMilliseconds()
         val toMs = to.toEpochMilliseconds()
         val samples = db.eventDao().samplesOverlapping(typeId, activeAccounts(), fromMs, toMs)
-        val sourceNames = samples.map { it.source }.distinct().associateWith { access.terms.term(db.termDao(), it)?.value ?: "" }
+        val sourceNames = samples.map { it.source }.distinct().associateWith { access.terms.term(db.termDao(), it)?.value.orEmpty() }
         MinuteFusion(db.analyticsDao().policies(metric), aggregation).fuse(samples, sourceNames, fromMs, toMs)
     }
 
@@ -197,6 +197,7 @@ internal class RoomEventRepository(private val access: DataAccess) : EventReposi
 
     private suspend fun Tx.decodeAll(rows: List<EventEntity>): List<StoredEvent> = rows.mapNotNull { decode(it) }
 
+    @Suppress("ReturnCount") // One early return per undecodable case reads clearer than nesting.
     private suspend fun Tx.decode(row: EventEntity): StoredEvent? {
         val typeName = access.terms.term(db.termDao(), row.type)?.value ?: return null
         val type = EventType.entries.firstOrNull { it.name == typeName } ?: return null
