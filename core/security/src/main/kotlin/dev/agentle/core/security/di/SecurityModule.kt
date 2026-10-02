@@ -13,6 +13,7 @@ import dev.agentle.core.security.CryptoEraser
 import dev.agentle.core.security.DatabaseKeyManager
 import dev.agentle.core.security.InstallIdProvider
 import dev.agentle.core.security.KeyEncryptionKeyProvider
+import dev.agentle.core.security.KeystoreDatabaseKeyManager
 import dev.agentle.core.security.SecretVault
 import dev.agentle.core.security.SecurityPaths
 import dev.agentle.core.security.TinkSecretVault
@@ -46,7 +47,7 @@ object SecurityModule {
 
     @Provides
     @Singleton
-    fun databaseKeyManager(kek: KeyEncryptionKeyProvider, paths: SecurityPaths): DatabaseKeyManager = DatabaseKeyManager(kek, paths)
+    fun databaseKeyManager(kek: KeyEncryptionKeyProvider, paths: SecurityPaths): DatabaseKeyManager = KeystoreDatabaseKeyManager(kek, paths)
 
     @Provides
     @Singleton

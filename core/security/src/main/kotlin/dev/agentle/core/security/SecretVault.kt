@@ -210,7 +210,7 @@ class TinkSecretVault(
     }
 
     private fun aad(entry: VaultEntry, recordVersion: Int): ByteArray =
-        "agentle/${entry.id}/v1|$packageName|$recordVersion".toByteArray(Charsets.UTF_8)
+        vaultAadText(entry, packageName, recordVersion).toByteArray(Charsets.UTF_8)
 
     private companion object {
         const val FORMAT_V1: Byte = 1
@@ -220,3 +220,10 @@ class TinkSecretVault(
         const val MIN_SEALED_BYTES = 12 + 16
     }
 }
+
+/**
+ * The AAD of one vault record: `agentle/<entry>/v1|<package>|<recordVersion>` (round 2 correction 7), for example
+ * `agentle/siwc-credentials/v1|dev.agentle|1`. Pinned by a golden test: changing it orphans every stored record.
+ */
+internal fun vaultAadText(entry: VaultEntry, packageName: String, recordVersion: Int): String =
+    "agentle/${entry.id}/v1|$packageName|$recordVersion"

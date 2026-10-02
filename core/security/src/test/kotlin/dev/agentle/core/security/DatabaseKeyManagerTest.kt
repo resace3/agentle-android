@@ -30,7 +30,7 @@ class DatabaseKeyManagerTest {
     fun setUp() {
         kek = InMemoryKekProvider()
         paths = SecurityPaths(temp.newFolder("nobackup"), File(temp.newFolder("databases"), SecurityPaths.DATABASE_NAME))
-        manager = DatabaseKeyManager(kek, paths)
+        manager = KeystoreDatabaseKeyManager(kek, paths)
     }
 
     @Test
@@ -38,11 +38,11 @@ class DatabaseKeyManagerTest {
         val first = manager.obtainKey() as DatabaseKeyResult.Available
         assertThat(first.created).isTrue()
         val file = paths.databaseKeyFile
-        assertThat(file.length()).isEqualTo(DatabaseKeyManager.WRAPPED_FILE_BYTES.toLong())
-        assertThat(file.readBytes()[0]).isEqualTo(DatabaseKeyManager.FORMAT_V1)
+        assertThat(file.length()).isEqualTo(DatabaseKeyFormat.WRAPPED_FILE_BYTES.toLong())
+        assertThat(file.readBytes()[0]).isEqualTo(DatabaseKeyFormat.FORMAT_V1)
         assertThat(File(file.path + AtomicFiles.TEMP_SUFFIX).exists()).isFalse()
 
-        val second = DatabaseKeyManager(kek, paths).obtainKey() as DatabaseKeyResult.Available
+        val second = KeystoreDatabaseKeyManager(kek, paths).obtainKey() as DatabaseKeyResult.Available
         assertThat(second.created).isFalse()
         assertThat(second.key.copyBytes()).isEqualTo(first.key.copyBytes())
     }
@@ -76,9 +76,9 @@ class DatabaseKeyManagerTest {
     @Test
     fun `a key sealed with another AAD is rejected permanently`() {
         manager.obtainKey()
-        val dek = ByteArray(DatabaseKeyManager.DEK_BYTES) { 7 }
+        val dek = ByteArray(DatabaseKeyFormat.DEK_BYTES) { 7 }
         val other = kek.aead(KekAlias.DATABASE).encrypt(dek, "agentle/db-dek/v1|other.db".toByteArray())
-        paths.databaseKeyFile.writeBytes(byteArrayOf(DatabaseKeyManager.FORMAT_V1) + other)
+        paths.databaseKeyFile.writeBytes(byteArrayOf(DatabaseKeyFormat.FORMAT_V1) + other)
 
         val result = manager.obtainKey() as DatabaseKeyResult.Unavailable
         assertThat(result.reason).isEqualTo(UnlockFailureReason.WRAPPED_KEY_REJECTED)

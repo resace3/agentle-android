@@ -45,7 +45,7 @@ class DatabaseKey internal constructor(private val dek: ByteArray) : AutoCloseab
     @Volatile private var closed = false
 
     init {
-        require(dek.size == DatabaseKeyManager.DEK_BYTES) { "data key must be ${DatabaseKeyManager.DEK_BYTES} bytes" }
+        require(dek.size == DatabaseKeyFormat.DEK_BYTES) { "data key must be ${DatabaseKeyFormat.DEK_BYTES} bytes" }
     }
 
     /**
@@ -99,33 +99,63 @@ sealed interface DatabaseKeyResult {
 }
 
 /**
- * The SQLCipher data key (docs/ARCHITECTURE.md §5.4): a random 32-byte key sealed by the Keystore AEAD
- * [KekAlias.DATABASE] with AAD `agentle/db-dek/v1|agentle.db`, stored atomically in
- * `noBackupFilesDir/keys/db-dek.v1.bin` as `0x01 || IV(12) || ct(32) || tag(16)`.
- *
- * [obtainKey] retries a transient Keystore or storage failure once, then reports a typed failure. It never deletes or
- * replaces existing key material: a new key is generated only when neither the wrapped key nor the database exists.
- * Blocking; call it off the main thread (the database provider unwraps lazily on its I/O dispatcher).
+ * The SQLCipher data key (docs/ARCHITECTURE.md §5.4). Implementations never fall back to plaintext and never replace
+ * existing key material in the background. [KeystoreDatabaseKeyManager] is the production one; tests use
+ * [dev.agentle.core.security.testing.JceDatabaseKeyManager] and
+ * [dev.agentle.core.security.testing.FaultInjectingDatabaseKeyManager] (round 4 correction 1).
  */
-class DatabaseKeyManager(
-    private val kek: KeyEncryptionKeyProvider,
-    private val paths: SecurityPaths,
-    private val random: SecureRandom = SecureRandom(),
-) {
-    private val lock = ReentrantLock()
+interface DatabaseKeyManager {
+    /** The key, or a typed failure. Blocking: call it off the main thread. */
+    fun obtainKey(): DatabaseKeyResult
 
-    fun obtainKey(): DatabaseKeyResult = lock.withLock {
-        val first = attempt()
-        if (first is DatabaseKeyResult.Unavailable && first.reason in RETRYABLE) attempt() else first
-    }
-
-    fun hasWrappedKey(): Boolean = paths.databaseKeyFile.exists()
+    /** Whether a wrapped key exists on disk. */
+    fun hasWrappedKey(): Boolean
 
     /**
      * Moves the wrapped key into the quarantine directory. Only a user-confirmed local data reset calls this; nothing
      * in the background ever does (red team lifecycle-battery-08).
      */
-    fun quarantineWrappedKey(tag: String): Boolean = lock.withLock {
+    fun quarantineWrappedKey(tag: String): Boolean
+}
+
+/** The on-disk format of the wrapped data key; pinned by a golden test. */
+object DatabaseKeyFormat {
+    const val DEK_BYTES: Int = 32
+    const val FORMAT_V1: Byte = 1
+
+    /** Version byte + IV(12) + sealed key(32) + tag(16). */
+    const val WRAPPED_FILE_BYTES: Int = 1 + 12 + DEK_BYTES + 16
+
+    /** The AAD that binds the wrapped key to its purpose and to the database file name. */
+    const val AAD_TEXT: String = "agentle/db-dek/v1|agentle.db"
+
+    val AAD: ByteArray get() = AAD_TEXT.toByteArray(Charsets.UTF_8)
+}
+
+/**
+ * [DatabaseKeyManager] on the Android Keystore: a random 32-byte key sealed by the Keystore AEAD [KekAlias.DATABASE]
+ * with AAD `agentle/db-dek/v1|agentle.db`, stored atomically in `noBackupFilesDir/keys/db-dek.v1.bin` as
+ * `0x01 || IV(12) || ct(32) || tag(16)`.
+ *
+ * [obtainKey] retries a transient Keystore or storage failure once, then reports a typed failure. It never deletes or
+ * replaces existing key material: a new key is generated only when neither the wrapped key nor the database exists.
+ * Blocking; call it off the main thread (the database provider unwraps lazily on its I/O dispatcher).
+ */
+class KeystoreDatabaseKeyManager(
+    private val kek: KeyEncryptionKeyProvider,
+    private val paths: SecurityPaths,
+    private val random: SecureRandom = SecureRandom(),
+) : DatabaseKeyManager {
+    private val lock = ReentrantLock()
+
+    override fun obtainKey(): DatabaseKeyResult = lock.withLock {
+        val first = attempt()
+        if (first is DatabaseKeyResult.Unavailable && first.reason in RETRYABLE) attempt() else first
+    }
+
+    override fun hasWrappedKey(): Boolean = paths.databaseKeyFile.exists()
+
+    override fun quarantineWrappedKey(tag: String): Boolean = lock.withLock {
         Quarantine.move(paths.databaseKeyFile, paths.quarantineDir, tag)
     }
 
@@ -212,15 +242,11 @@ class DatabaseKeyManager(
     private fun unavailable(reason: UnlockFailureReason, error: Throwable): DatabaseKeyResult.Unavailable =
         DatabaseKeyResult.Unavailable(reason, error.javaClass.simpleName)
 
-    companion object {
-        const val DEK_BYTES: Int = 32
-        const val FORMAT_V1: Byte = 1
-
-        /** Version byte + IV(12) + sealed key(32) + tag(16). */
-        const val WRAPPED_FILE_BYTES: Int = 1 + 12 + DEK_BYTES + 16
-
-        val AAD: ByteArray = "agentle/db-dek/v1|agentle.db".toByteArray(Charsets.UTF_8)
-
-        private val RETRYABLE = setOf(UnlockFailureReason.KEYSTORE_ERROR, UnlockFailureReason.STORAGE_ERROR)
+    private companion object {
+        const val DEK_BYTES: Int = DatabaseKeyFormat.DEK_BYTES
+        const val FORMAT_V1: Byte = DatabaseKeyFormat.FORMAT_V1
+        const val WRAPPED_FILE_BYTES: Int = DatabaseKeyFormat.WRAPPED_FILE_BYTES
+        val AAD: ByteArray = DatabaseKeyFormat.AAD
+        val RETRYABLE = setOf(UnlockFailureReason.KEYSTORE_ERROR, UnlockFailureReason.STORAGE_ERROR)
     }
 }

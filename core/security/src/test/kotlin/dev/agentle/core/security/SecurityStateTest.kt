@@ -95,7 +95,7 @@ class SecurityStateTest {
     @Test
     fun `crypto-erasure removes the wrapped key, vault blobs, quarantine and both aliases`() = runBlocking {
         val kek = InMemoryKekProvider()
-        DatabaseKeyManager(kek, paths).obtainKey()
+        KeystoreDatabaseKeyManager(kek, paths).obtainKey()
         TinkSecretVault(kek, paths, "dev.agentle.app").write(VaultEntry.SIWC_CREDENTIALS, Secret("t"))
         File(paths.quarantineDir, "old/agentle.db").apply { parentFile?.mkdirs() }.writeText("x")
 
