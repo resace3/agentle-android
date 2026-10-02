@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "id": "00000000-0000-4000-8000-000000000001",
+  "version": 1,
+  "name": "Wind down after late screen time",
+  "description": "On nights when I use my phone for 45 minutes or more after 10 PM, remind me to start winding down.",
+  "kind": "INTERVENTION",
+  "category": "SLEEP_WIND_DOWN",
+  "status": "PROPOSED",
+  "enabled": false,
+  "trigger": {
+    "type": "interval",
+    "everyMinutes": 30
+  },
+  "activeWindow": {
+    "start": "22:00",
+    "end": "01:00",
+    "days": null
+  },
+  "conditions": {
+    "type": "gte",
+    "feature": "screen_minutes_since",
+    "args": {
+      "since": "22:00"
+    },
+    "value": 45,
+    "onUnknown": null
+  },
+  "contextRequirements": {
+    "type": "eq",
+    "feature": "device_interactive",
+    "args": {},
+    "value": true,
+    "onUnknown": null
+  },
+  "delivery": {
+    "channel": "NOTIFICATION",
+    "quietHoursPolicy": "ALLOW_WHEN_INTERACTIVE",
+    "notificationTimeoutMinutes": 60,
+    "deliveryDeadlineMinutes": 10
+  },
+  "content": {
+    "type": "template",
+    "title": "Winding down?",
+    "body": "{{screen_minutes_since}} minutes of screen time since 10 PM. Want to start winding down now?"
+  },
+  "cooldownMinutes": 120,
+  "maxPerDay": 1,
+  "maxPerWeek": 7,
+  "priority": 40,
+  "snooze": {
+    "mode": "SUPPRESS_ONLY",
+    "options": [
+      "MINUTES_30",
+      "UNTIL_TOMORROW"
+    ]
+  },
+  "expiresAt": null,
+  "createdBy": "AI_DISCOVERED",
+  "createdAt": "2026-10-01T10:00:00Z",
+  "modifiedAt": "2026-10-01T10:00:00Z",
+  "outcome": {
+    "proximal": {
+      "metric": "SCREEN_MINUTES_AFTER",
+      "args": {},
+      "windowMinutes": 30
+    },
+    "distal": {
+      "metric": "BEDTIME_NEXT",
+      "args": {},
+      "windowMinutes": null
+    }
+  },
+  "suppression": null,
+  "experiment": {
+    "mode": "NONE",
+    "deliverProbability": null
+  },
+  "userConfirmedUnknownOverrides": false,
+  "provenance": {
+    "nlRequest": null,
+    "proposalId": "b1f7c3a0-5d2e-4f61-9c8a-2e4d6f8a1b3c",
+    "patternId": "H04:+",
+    "templateId": null,
+    "evidence": {
+      "analysisWindow": {
+        "firstNight": "2026-08-06",
+        "lastNight": "2026-10-04"
+      },
+      "nightsComplete": 60,
+      "exposed": {
+        "nights": 24,
+        "withOutcome": 17
+      },
+      "unexposed": {
+        "nights": 36,
+        "withOutcome": 9
+      },
+      "rateExposed": 0.708,
+      "rateUnexposed": 0.250,
+      "riskDifference": 0.458,
+      "riskDifferenceCi95": [
+        0.202,
+        0.640
+      ],
+      "lift": 2.83,
+      "riskDifferenceMh": 0.460,
+      "pExactStratified": 0.00103,
+      "qBenjaminiHochberg": 0.0185,
+      "familySize": 18,
+      "strata": [
+        {
+          "nightType": "WORK_NIGHT",
+          "exposed": {
+            "nights": 14,
+            "withOutcome": 10
+          },
+          "unexposed": {
+            "nights": 28,
+            "withOutcome": 7
+          }
+        },
+        {
+          "nightType": "WEEKEND_NIGHT",
+          "exposed": {
+            "nights": 10,
+            "withOutcome": 7
+          },
+          "unexposed": {
+            "nights": 8,
+            "withOutcome": 2
+          }
+        }
+      ],
+      "checks": {
+        "strataSign": true,
+        "splitHalf": true
+      },
+      "consecutiveRuns": 2,
+      "method": "exact-stratified-permutation-v1"
+    },
+    "promptVersion": null,
+    "catalogVersion": null,
+    "appLabels": {},
+    "expiresInDays": 28,
+    "approvedRendering": null
+  }
+}
