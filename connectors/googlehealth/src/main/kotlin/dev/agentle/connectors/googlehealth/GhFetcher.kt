@@ -43,7 +43,7 @@ internal class GhFetcher(
     private val zone: TimeZone,
 ) {
     /** Per-run fallback state of one stream: set once its documented filter was rejected. */
-    class StreamRun {
+    class StreamRun(val floor: Instant? = null) {
         var fallback: Boolean = false
     }
 
@@ -60,8 +60,8 @@ internal class GhFetcher(
     suspend fun fetchAll(stream: GhStream, windows: List<GhRange>, run: StreamRun, commit: suspend (GhWindow) -> Boolean): GhFailure? {
         var index = 0
         while (index < windows.size) {
-            if (run.fallback && stream.hasFallback) return fallbackRest(stream, windows.subList(index, windows.size), commit)
-            when (val result = fetch(stream, windows[index], documented = true)) {
+            if (run.fallback && stream.hasFallback) return fallbackRest(stream, windows.subList(index, windows.size), run.floor, commit)
+            when (val result = fetch(stream, windows[index], documented = true, run.floor)) {
                 is Result.Ok -> if (!commit(result.window)) return null
 
                 is Result.Failed -> {
@@ -77,24 +77,29 @@ internal class GhFetcher(
     }
 
     /** One fallback read covering every remaining window, partitioned and committed window by window. */
-    private suspend fun fallbackRest(stream: GhStream, windows: List<GhRange>, commit: suspend (GhWindow) -> Boolean): GhFailure? {
+    private suspend fun fallbackRest(
+        stream: GhStream,
+        windows: List<GhRange>,
+        floor: Instant?,
+        commit: suspend (GhWindow) -> Boolean,
+    ): GhFailure? {
         val span = GhRange(windows.minOf { it.start }, windows.maxOf { it.end })
-        val all = when (val result = fetch(stream, span, documented = false)) {
+        val all = when (val result = fetch(stream, span, documented = false, floor)) {
             is Result.Ok -> result.window
 
             is Result.Failed -> return (result.failure as? GhFailure.FilterRejected)?.let { GhFailure.Unsupported(it.reason) }
                 ?: result.failure
         }
         for (window in windows) {
-            val events = all.events.filter { it.startTime in diffRange(stream, window) }
+            val events = all.events.filter { it.startTime in diffRange(stream, window, floor) }
             if (!commit(GhWindow(window, events, events.size, if (window === windows.first()) all.skipped else 0))) return null
         }
         return null
     }
 
     /** Fetches every page of [range] and maps it; nothing partial is ever returned. */
-    suspend fun fetch(stream: GhStream, range: GhRange, documented: Boolean): Result = when (stream.method) {
-        GhMethod.LIST, GhMethod.RECONCILE -> listWindow(stream, range, documented)
+    suspend fun fetch(stream: GhStream, range: GhRange, documented: Boolean, floor: Instant? = null): Result = when (stream.method) {
+        GhMethod.LIST, GhMethod.RECONCILE -> listWindow(stream, range, documented, floor)
         GhMethod.ROLL_UP -> rollUpWindow(stream, range)
         GhMethod.DAILY_ROLL_UP -> dailyRollUpWindow(stream, range)
         GhMethod.PAIRED_DEVICES -> Result.Failed(GhFailure.Unsupported("devices_window"))
@@ -104,7 +109,7 @@ internal class GhFetcher(
 
     // ---------------------------------------------------------------- list and :reconcile
 
-    private suspend fun listWindow(stream: GhStream, range: GhRange, documented: Boolean): Result {
+    private suspend fun listWindow(stream: GhStream, range: GhRange, documented: Boolean, floor: Instant?): Result {
         val filter = if (documented) documentedFilter(stream, range) else fallbackFilter(stream, range)
         val pageSize = if (stream.pageSizeCapped) config.sessionPageSize else config.pageSize
         val request = GhRequest.Data(stream.method, stream.dataType, filter = filter, pageSize = pageSize)
@@ -130,7 +135,7 @@ internal class GhFetcher(
         val events = ArrayList<PersonalEvent>()
         for (point in points) {
             when (val mapped = mapper.point(stream, point)) {
-                is Mapped.Event -> if (inWindow(stream, mapped.event, range)) events += mapped.event
+                is Mapped.Event -> if (inWindow(stream, mapped.event, range, floor)) events += mapped.event
                 is Mapped.Skip -> skipped++
             }
         }
@@ -182,8 +187,8 @@ internal class GhFetcher(
     private fun date(at: Instant): LocalDate = at.toLocalDateTime(zone).date
 
     /** Civil-date events belong to the window of their date; everything else to the window of its start instant. */
-    private fun inWindow(stream: GhStream, event: PersonalEvent, range: GhRange): Boolean =
-        if (stream.civilDays) dayOf(event) in date(range.start)..<date(range.end) else event.startTime in diffRange(stream, range)
+    private fun inWindow(stream: GhStream, event: PersonalEvent, range: GhRange, floor: Instant?): Boolean =
+        if (stream.civilDays) dayOf(event) in date(range.start)..<date(range.end) else event.startTime in diffRange(stream, range, floor)
 
     private fun dayOf(event: PersonalEvent): LocalDate = when (val payload = event.payload) {
         is dev.agentle.core.model.DailyTotalPayload -> payload.date
@@ -366,8 +371,11 @@ internal class GhFetcher(
          * The part of the store a fetched window replaces. Sleep reads every session ending after `start - lead`, so
          * sessions starting in the 24 h lead are diffed too (an upstream deletion there converges).
          */
-        fun diffRange(stream: GhStream, range: GhRange): GhRange =
-            if (stream.kind == GhKind.SLEEP) GhRange(range.start - SESSION_LEAD, range.end) else range
+        fun diffRange(stream: GhStream, range: GhRange, floor: Instant? = null): GhRange = if (stream.kind == GhKind.SLEEP) {
+            GhRange(maxOf(range.start - SESSION_LEAD, minOf(floor ?: Instant.DISTANT_PAST, range.start)), range.end)
+        } else {
+            range
+        }
 
         const val MAX_PAGES: Int = 500
         private const val ROLLUP_WINDOW = "60s"

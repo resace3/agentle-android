@@ -176,6 +176,16 @@ class GoogleHealthSyncTest {
     }
 
     @Test
+    fun `P4 the sleep diff range never reaches below the import floor`() {
+        val range = GhRange(Instant.parse("2026-09-30T12:00:00Z"), Instant.parse("2026-10-01T12:00:00Z"))
+        val floor = Instant.parse("2026-09-30T00:00:00Z")
+        val sleep = GhStreams.catalog(GoogleHealthConfig()).single { it.id == SLEEP }
+        assertThat(GhFetcher.diffRange(sleep, range, floor).start).isEqualTo(floor)
+        assertThat(GhFetcher.diffRange(sleep, range).start).isEqualTo(range.start - 24.hours)
+        assertThat(GhFetcher.diffRange(sleep, range, range.end).start).isEqualTo(range.start)
+    }
+
+    @Test
     fun `rate limit - a 90-day backfill keeps 4 per second and 200 per minute in virtual time`() = runTest(timeout = 3.minutes) {
         harness(GhHarness()) {
             connect()

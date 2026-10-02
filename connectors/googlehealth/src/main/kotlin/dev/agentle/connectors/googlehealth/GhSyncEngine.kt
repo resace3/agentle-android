@@ -72,7 +72,7 @@ internal class GhSyncEngine(private val sink: EventSink, private val clock: Agen
             GhDeviceClass.NONE -> null
         }
         val tally = Tally(stored?.generation ?: 0L)
-        val streamRun = GhFetcher.StreamRun()
+        val streamRun = GhFetcher.StreamRun(floor)
 
         suspend fun write(window: GhWindow, next: GhStreamState, coverage: StreamCoverage?): Boolean {
             if (!run.alive()) {
@@ -90,7 +90,7 @@ internal class GhSyncEngine(private val sink: EventSink, private val clock: Agen
             )
             val result = sink.replaceWindow(
                 stream.source,
-                GhFetcher.diffRange(stream, window.range).start,
+                GhFetcher.diffRange(stream, window.range, floor).start,
                 window.range.end,
                 window.events,
                 cursor,
