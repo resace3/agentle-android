@@ -42,10 +42,8 @@ public sealed interface ContentStrategy {
     /** A bundled picture or clip from the app's media catalog with a template caption (IMAGE and VIDEO channels). */
     @Serializable
     @SerialName("local_media")
-    public data class LocalMedia(
-        val assetId: String,
-        @Serializable(with = TemplateFieldSerializer::class) val caption: Template,
-    ) : ContentStrategy
+    public data class LocalMedia(val assetId: String, @Serializable(with = TemplateFieldSerializer::class) val caption: Template) :
+        ContentStrategy
 }
 
 /** One `variants` item; template placeholders allowed. */

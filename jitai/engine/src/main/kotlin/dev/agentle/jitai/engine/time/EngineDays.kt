@@ -2,6 +2,7 @@ package dev.agentle.jitai.engine.time
 
 import dev.agentle.analytics.features.FeatureScalar
 import dev.agentle.analytics.features.FeatureValue
+import dev.agentle.jitai.dsl.rule.ClockTime
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDate
@@ -76,6 +77,18 @@ public object CalendarFeatures {
             else -> return null
         }
         return FeatureValue.Known(scalar, at)
+    }
+
+    /**
+     * `since*` of a `since` argument (R10 §10.4): [time] on the local date of [at] in [zone] (a gap shifts it later, an
+     * overlap takes the earlier offset), or on the previous date when that is after [at]; null for a malformed time. The
+     * resolver owns the `*_since` values; this is the reference definition for the fakes and for R10 §12.O12.
+     */
+    public fun sinceStart(time: String, at: Instant, zone: TimeZone): Instant? {
+        val minute = ClockTime.minuteOfDay(time) ?: return null
+        val today = at.toLocalDateTime(zone).date
+        val candidate = LocalWindow.atMinute(today, minute, zone)
+        return if (candidate <= at) candidate else LocalWindow.atMinute(today.minus(1, DateTimeUnit.DAY), minute, zone)
     }
 
     private const val MINUTES_PER_HOUR = 60

@@ -56,6 +56,12 @@ public object IntervalSlots {
         return slotAt(instance, trigger.everyMinutes, t)
     }
 
+    /** The instance of [definition] starting on [date] (the local day for a rule without a window), or null. */
+    public fun instanceStartingOn(definition: JitaiDefinition, date: LocalDate, zone: TimeZone): WindowInstance? {
+        val window = definition.activeWindow ?: return LocalWindow.wholeDay(date, zone)
+        return LocalWindow.of(window)?.instanceStartingOn(date, zone)
+    }
+
     /** The instance of [definition] that ended at or before [t] most recently (unreached slots are backfilled as MISSED). */
     public fun previousInstance(definition: JitaiDefinition, t: Instant, zone: TimeZone): WindowInstance? {
         val window = definition.activeWindow ?: return LocalWindow.wholeDay(t.toLocalDateTime(zone).date.minus(1, DateTimeUnit.DAY), zone)
@@ -88,22 +94,12 @@ public object IntervalSlots {
 
 /** `daily_at` slot arithmetic (R10 §7.4, §10.6; red team lifecycle-battery-04). */
 public object DailyAtSlots {
-    /** A worker that wakes up earlier than this before its slot re-plans and exits without a decision. */
+    /** A slot evaluated earlier than this before its time re-plans without a decision (the coalescing window). */
     public val EARLY_TOLERANCE: Duration = 2.minutes
 
     /** The instant of [time] on local [date] in [zone] (gap: shifted later by the gap; overlap: earlier offset). */
     public fun slotInstant(date: LocalDate, time: String, zone: TimeZone): Instant? =
         ClockTime.minuteOfDay(time)?.let { LocalWindow.atMinute(date, it, zone) }
-
-    /** Unique work name `jitai-at-<id>-<yyyyMMdd>-<HHmm>` (one per date and time). */
-    public fun uniqueName(jitaiId: String, date: LocalDate, time: String): String =
-        "jitai-at-$jitaiId-${compactDate(date)}-${time.replace(":", "")}"
-
-    /** Unique prefetch name `jitai-prefetch-<id>-<yyyyMMdd>-<HHmm>`. */
-    public fun prefetchName(jitaiId: String, date: LocalDate, time: String): String =
-        "jitai-prefetch-$jitaiId-${compactDate(date)}-${time.replace(":", "")}"
-
-    private fun compactDate(date: LocalDate): String = date.toString().replace("-", "")
 
     /** Where a `daily_at` run stands relative to its slot. */
     public enum class Timing { TOO_EARLY, ON_TIME, TOO_LATE }

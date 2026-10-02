@@ -5,32 +5,53 @@ import dev.agentle.analytics.features.FeatureScalar
 import dev.agentle.analytics.features.FeatureSnapshot
 import dev.agentle.analytics.features.FeatureValue
 import dev.agentle.analytics.features.RealtimeFeatureCatalog
+import dev.agentle.jitai.dsl.codec.RuleCodec
 import dev.agentle.jitai.dsl.model.ContentStrategy
 import dev.agentle.jitai.dsl.model.DeliveryChannel
 import dev.agentle.jitai.dsl.model.JitaiCategory
 import dev.agentle.jitai.dsl.model.JitaiDefinition
 import dev.agentle.jitai.dsl.model.SnoozeOption
-import dev.agentle.jitai.dsl.model.SnoozePolicy
 import dev.agentle.jitai.engine.decision.DecisionKeys
 import dev.agentle.jitai.engine.eval.RuleRefs
 import dev.agentle.jitai.engine.eval.TraceValue
 import dev.agentle.jitai.engine.ports.AiTextConsent
 import dev.agentle.jitai.engine.ports.DisplaySettings
+import dev.agentle.jitai.engine.ports.NotificationPrivacy
 import dev.agentle.jitai.engine.ports.PooledText
+import dev.agentle.jitai.engine.response.SnoozePolicies
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import java.text.NumberFormat
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Instant
 
 /**
- * What the [dev.agentle.jitai.engine.ports.DeliveryPort] receives: the text, media and actions of one delivery.
+ * What the [dev.agentle.jitai.engine.ports.DeliveryPort] receives: the texts, media and actions of one delivery. It is
+ * serializable so the background team can hand it to a delivery worker and tests can keep golden copies.
+ *
+ * Two texts (jitai-correctness-18): [title] / [body] are the in-app text (placeholders filled, app labels), shown only
+ * inside Agentle; [postedTitle] / [postedBody] are what the posted notification (and a VOICE utterance) may show: the
+ * generic text unless the user turned on detailed notifications ([detailed]). Nothing else of this object (name,
+ * category, in-app text) may appear in the posted notification. [localOnly] posts with `setLocalOnly(true)`, so the
+ * notification is not bridged to a wearable unless the user opted in.
  *
  * @property channel the channel to post on; differs from [decidedChannel] after a downgrade ([downgradeReason]).
  * @property nonce the decision's per-delivery nonce; notification actions must present it (red team oauth-security-12).
  * @property contentRef what was chosen ([ContentRef]); stored in the decision so a retry renders the same text.
+ * @property snoozeOptions the snooze actions of the rule's snooze policy (jitai-correctness-14); "Not now" is
+ *   [notNowOption] and is always offered.
  */
+@Serializable
 public data class RenderedIntervention(
     val decisionKey: String,
     val jitaiId: String,
@@ -40,6 +61,10 @@ public data class RenderedIntervention(
     val decidedChannel: DeliveryChannel,
     val title: String,
     val body: String,
+    val postedTitle: String,
+    val postedBody: String,
+    val detailed: Boolean,
+    val localOnly: Boolean,
     val assetId: String?,
     val contentRef: ContentRef,
     val nonce: String,
@@ -50,8 +75,14 @@ public data class RenderedIntervention(
     /** `notify(tag = decisionKey, ...)` (R10 §8.5). */
     public val notificationTag: String get() = decisionKey
 
-    /** VOICE speaks the text after posting a silent companion notification (R10 §8.5 step 4). */
+    /** VOICE speaks after posting a silent companion notification (R10 §8.5 step 4). */
     public val speak: Boolean get() = channel == DeliveryChannel.VOICE
+
+    /** What VOICE speaks: the posted text, so a generic notification is never read out in detail. */
+    public val spokenText: String get() = postedBody
+
+    /** "Not now": snoozed until the active window ends (jitai-correctness-14). */
+    public val notNowOption: SnoozeOption get() = SnoozePolicies.NOT_NOW
 
     /** This delivery as a plain notification ([reason] = `TTS_UNAVAILABLE` or `MEDIA_UNAVAILABLE`). */
     public fun downgraded(reason: String): RenderedIntervention =
@@ -59,6 +90,7 @@ public data class RenderedIntervention(
 }
 
 /** Which content a decision used (R10 §8.3 `contentRef`), stored as [encoded]. */
+@Serializable(with = ContentRefSerializer::class)
 public sealed interface ContentRef {
     public val encoded: String
 
@@ -98,6 +130,16 @@ public sealed interface ContentRef {
             else -> null
         }
     }
+}
+
+/** [ContentRef] as its [ContentRef.encoded] string. */
+public object ContentRefSerializer : KSerializer<ContentRef> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("dev.agentle.jitai.engine.ContentRef", PrimitiveKind.STRING)
+
+    override fun serialize(encoder: Encoder, value: ContentRef): Unit = encoder.encodeString(value.encoded)
+
+    override fun deserialize(decoder: Decoder): ContentRef =
+        ContentRef.parse(decoder.decodeString()) ?: throw SerializationException("unknown content ref")
 }
 
 /** Formats placeholder values (R10 §3.3): locale-aware integers, `HH:mm` or `h:mm a` per the device 24-hour setting. */
@@ -189,23 +231,26 @@ public class ContentRenderer(private val formatter: PlaceholderFormatter = Defau
         is ContentStrategy.Variants ->
             ContentRef.Variant(if (content.items.isEmpty()) 0 else Math.floorMod(previousDeliveries, content.items.size.toLong()).toInt())
 
-        is ContentStrategy.AiText ->
+        is ContentStrategy.AiText -> {
+            val contentHash = RuleCodec.contentHash(definition)
             pool
-                .filter { usablePooledText(it, definition.id, decisionHash, now, consent) }
+                .filter { usablePooledText(it, definition.id, contentHash, decisionHash, now, consent) }
                 .minWithOrNull(compareBy<PooledText>({ it.createdAt }, { it.id }))
                 ?.let { ContentRef.AiPooled(it.id) }
                 ?: ContentRef.AiFallback
+        }
 
         is ContentStrategy.LocalMedia -> ContentRef.Media(content.assetId)
     }
 
     /**
-     * Renders [ref] for a decision. [pooled] is the pool item an [ContentRef.AiPooled] names; when it is gone or no longer
-     * passes [usablePooledText], the template fallback is rendered instead (never an unchecked AI text).
+     * Renders [ref] for a decision. [RenderInput.pooled] is the pool item an [ContentRef.AiPooled] names; when it is gone or
+     * no longer passes [usablePooledText], the template fallback is rendered instead (never an unchecked AI text).
      */
     public fun render(input: RenderInput): RenderedIntervention {
         val definition = input.definition
         val (title, body, ref) = text(input)
+        val detailed = input.privacy.detailedNotifications
         return RenderedIntervention(
             decisionKey = input.decisionKey,
             jitaiId = definition.id,
@@ -215,11 +260,15 @@ public class ContentRenderer(private val formatter: PlaceholderFormatter = Defau
             decidedChannel = input.channel,
             title = title,
             body = body,
+            postedTitle = if (detailed) title else input.display.genericTitle,
+            postedBody = if (detailed) body else input.display.genericBody,
+            detailed = detailed,
+            localOnly = !input.privacy.bridgeToWearables,
             assetId = (definition.content as? ContentStrategy.LocalMedia)?.assetId,
             contentRef = ref,
             nonce = input.nonce,
             timeoutMinutes = definition.delivery.notificationTimeoutMinutes,
-            snoozeOptions = (definition.snooze ?: SnoozePolicy.DEFAULT).options,
+            snoozeOptions = SnoozePolicies.of(definition).options,
         )
     }
 
@@ -237,9 +286,10 @@ public class ContentRenderer(private val formatter: PlaceholderFormatter = Defau
             }
 
             is ContentStrategy.AiText -> {
+                val contentHash = RuleCodec.contentHash(input.definition)
                 val pooled = input.pooled?.takeIf {
                     input.ref is ContentRef.AiPooled && it.id == input.ref.itemId &&
-                        usablePooledText(it, input.definition.id, input.snapshotHash, input.now, input.consent)
+                        usablePooledText(it, input.definition.id, contentHash, input.snapshotHash, input.now, input.consent)
                 }
                 if (pooled != null) {
                     Triple(pooled.title, pooled.body, ContentRef.AiPooled(pooled.id))
@@ -259,11 +309,11 @@ public class ContentRenderer(private val formatter: PlaceholderFormatter = Defau
     public fun fill(text: String, definition: JitaiDefinition, snapshot: FeatureSnapshot?): String = PLACEHOLDER.replace(text) { match ->
         val featureId = match.groupValues[1]
         val leaf = RuleRefs.placeholderLeaf(definition, featureId)
-        val value = if (leaf == null || snapshot == null) null else snapshot[leaf.ref]
+        val value = if (leaf == null || snapshot == null) null else snapshot[RuleRefs.ref(leaf, definition.id)]
         formatter.format(featureId, value, definition.provenance?.appLabels.orEmpty())
     }
 
-    /** Input of [render]. */
+    /** Input of [render]; [display] supplies the generic posted text, [privacy] the posting rules (jitai-correctness-18). */
     public data class RenderInput(
         val definition: JitaiDefinition,
         val decisionKey: String,
@@ -275,26 +325,31 @@ public class ContentRenderer(private val formatter: PlaceholderFormatter = Defau
         val nonce: String,
         val now: Instant,
         val consent: AiTextConsent,
+        val display: DisplaySettings = DisplaySettings(),
+        val privacy: NotificationPrivacy = NotificationPrivacy(),
     )
 
     public companion object {
         private val PLACEHOLDER = Regex("\\{\\{([a-z][a-z0-9_]*)\\}\\}")
 
-        /** Pooled AI text older than this is never delivered (red team privacy-ai-01). */
-        public val MAX_POOLED_AGE: kotlin.time.Duration = 24.hours
+        /** Pooled AI text older than this is never delivered (red team privacy-ai-01, jitai-correctness-17). */
+        public val MAX_POOLED_AGE: Duration = 24.hours
 
         /**
-         * The delivery-time checks of red team privacy-ai-01: the item belongs to the JITAI, is at most 24 h old, was made
-         * under the current consent version, used only categories still allowed, and was written for the decision's
-         * context ([SnapshotHashes.contextHash] equal to [decisionHash]).
+         * The delivery-time checks of red team privacy-ai-01 and jitai-correctness-17: the item belongs to the JITAI and to
+         * its current content ([contentHash], `RuleCodec.contentHash`), is at most 24 h old, was made under the current
+         * consent version, used only categories still allowed, and was written for the decision's context
+         * ([SnapshotHashes.contextHash] equal to [decisionHash]).
          */
         public fun usablePooledText(
             item: PooledText,
             jitaiId: String,
+            contentHash: String,
             decisionHash: String?,
             now: Instant,
             consent: AiTextConsent,
         ): Boolean = item.jitaiId == jitaiId &&
+            item.contentHash == contentHash &&
             now - item.createdAt <= MAX_POOLED_AGE &&
             item.consentVersion == consent.version &&
             consent.allowedCategories.containsAll(item.categories) &&

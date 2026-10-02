@@ -76,8 +76,7 @@ public object TypedLiterals {
     )
 
     /** Operators allowed for [type], in R10 §4.3 order. */
-    public fun allowedOperators(type: FeatureType): List<Operator> =
-        Operator.entries.filter { it in ALLOWED.getValue(type) }
+    public fun allowedOperators(type: FeatureType): List<Operator> = Operator.entries.filter { it in ALLOWED.getValue(type) }
 
     public fun isAllowed(type: FeatureType, operator: Operator): Boolean = operator in ALLOWED.getValue(type)
 
@@ -90,12 +89,18 @@ public object TypedLiterals {
     /** Converts [literal] by the catalog type of [definition]. */
     public fun convert(definition: FeatureDefinition, literal: RuleLiteral): LiteralConversion = when (definition.type) {
         FeatureType.INT -> convertInt(definition, literal)
+
         FeatureType.BOOL -> (literal as? RuleLiteral.Bool)?.let { converted(FeatureScalar.BoolValue(it.value)) } ?: mismatch()
+
         FeatureType.ENUM -> text(literal)?.takeIf { it in definition.enumValues }?.let { converted(FeatureScalar.EnumValue(it)) }
             ?: mismatch()
+
         FeatureType.DAY_OF_WEEK -> text(literal)?.let { DAYS[it] }?.let { converted(FeatureScalar.DayOfWeekValue(it)) } ?: mismatch()
+
         FeatureType.LOCAL_TIME -> convertTime(literal) { FeatureScalar.LocalTimeValue(it) }
+
         FeatureType.NIGHT_TIME -> convertTime(literal) { FeatureScalar.NightTimeValue(it) }
+
         FeatureType.PACKAGE -> when (val value = text(literal)) {
             null -> mismatch()
             else -> if (isPackageName(value)) converted(FeatureScalar.PackageValue(value)) else rejected(LiteralRejection.INVALID_PACKAGE)
@@ -109,11 +114,12 @@ public object TypedLiterals {
     }
 
     private fun convertInt(definition: FeatureDefinition, literal: RuleLiteral): LiteralConversion {
-        val token = literal as? RuleLiteral.NumberToken ?: return mismatch()
-        if (!token.isInteger) return mismatch()
-        val value = token.token.toLongOrNull() ?: return rejected(LiteralRejection.OUT_OF_RANGE)
-        val range = definition.literalRange ?: return mismatch()
-        return if (value in range) converted(FeatureScalar.IntValue(value)) else rejected(LiteralRejection.OUT_OF_RANGE)
+        val token = (literal as? RuleLiteral.NumberToken)?.takeIf { it.isInteger }
+        val range = definition.literalRange
+        if (token == null || range == null) return mismatch()
+        // An integer token too large for a Long is out of every catalog range.
+        val value = token.token.toLongOrNull()
+        return if (value != null && value in range) converted(FeatureScalar.IntValue(value)) else rejected(LiteralRejection.OUT_OF_RANGE)
     }
 
     private fun convertTime(literal: RuleLiteral, make: (Int) -> FeatureScalar): LiteralConversion {
@@ -145,11 +151,13 @@ public object OperatorSemantics {
         if (literals.isEmpty()) return null
         return when (value) {
             FeatureScalar.Never -> operator in NEVER_TRUE
+
             FeatureScalar.NoPackage -> when (operator) {
                 Operator.EQ, Operator.IN -> false
                 Operator.NEQ -> true
                 else -> null
             }
+
             else -> compare(operator, value, literals)
         }
     }
@@ -162,12 +170,19 @@ public object OperatorSemantics {
         val first = literals.first()
         return when (operator) {
             Operator.EQ -> value == first.scalar
+
             Operator.NEQ -> value != first.scalar
+
             Operator.IN -> literals.any { it.scalar == value }
+
             Operator.GT -> ordered(x, first) { a, b -> a > b }
+
             Operator.GTE -> ordered(x, first) { a, b -> a >= b }
+
             Operator.LT -> ordered(x, first) { a, b -> a < b }
+
             Operator.LTE -> ordered(x, first) { a, b -> a <= b }
+
             Operator.BETWEEN -> {
                 val min = first.orderKey
                 val max = literals.getOrNull(1)?.orderKey

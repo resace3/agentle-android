@@ -4,6 +4,7 @@ import dev.agentle.jitai.dsl.rule.ClockTime
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Serializable
 import java.security.MessageDigest
+import java.util.Locale
 import kotlin.time.Instant
 
 /** The kind of decision point a key names; [code] is its letter in the key (R10 §8.2). */
@@ -70,7 +71,7 @@ public object DecisionKeys {
 
     /** Lower-case hex SHA-256 of the UTF-8 bytes of [text]. */
     public fun sha256Hex(text: String): String =
-        MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(Locale.ROOT, it) }
 
     private const val MIN_PARTS = 4
 

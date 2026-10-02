@@ -17,16 +17,17 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
 import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.MethodSource
+import java.util.Locale
 
 /** R10 §8.2 decision keys, §8.3 state machine and reason codes, §6.7 trace encoding. */
 class DecisionModelTest {
-    @ParameterizedTest(name = "{0} -> {1}: {2}")
+    @ParameterizedTest(quoteTextArguments = false, name = "{0} -> {1}: {2}")
     @MethodSource("transitions")
     fun `R10 8_3 only the listed transitions are legal`(from: DecisionState, to: DecisionState, legal: Boolean) {
         assertThat(DecisionStateMachine.isLegal(from, to)).isEqualTo(legal)
     }
 
-    @ParameterizedTest(name = "{0}")
+    @ParameterizedTest(quoteTextArguments = false, name = "{0}")
     @EnumSource(DecisionState::class)
     fun `rows are inserted only in an evaluation outcome or DECIDED`(state: DecisionState) {
         val initial = state in setOf(
@@ -42,20 +43,29 @@ class DecisionModelTest {
     }
 
     @Test
-    fun `counted states are DECIDED, DELIVERING, DELIVERED and DELIVERY_UNCERTAIN`() {
+    fun `counted states are DECIDED, DELIVERING, DELIVERED, DELIVERY_UNCERTAIN and CARD_PENDING (own caps only)`() {
         assertThat(DecisionState.entries.filter { it.counted }).containsExactly(
             DecisionState.DECIDED,
             DecisionState.DELIVERING,
             DecisionState.DELIVERED,
             DecisionState.DELIVERY_UNCERTAIN,
+            DecisionState.CARD_PENDING,
         )
-        assertThat(DecisionState.entries.filterNot { it.isFinal }).containsExactly(DecisionState.DECIDED, DecisionState.DELIVERING)
-        assertThat(DecisionState.entries).hasSize(13)
+        // Correction 6: the in-app card fallback is excluded from the global caps until displayed.
+        assertThat(DecisionState.entries.filter { it.countsGlobally }).containsExactly(
+            DecisionState.DECIDED,
+            DecisionState.DELIVERING,
+            DecisionState.DELIVERED,
+            DecisionState.DELIVERY_UNCERTAIN,
+        )
+        assertThat(DecisionState.entries.filterNot { it.isFinal })
+            .containsExactly(DecisionState.DECIDED, DecisionState.DELIVERING, DecisionState.CARD_PENDING)
+        assertThat(DecisionState.entries).hasSize(14)
     }
 
     @Test
     fun `the gates are G01-G16 in evaluation order`() {
-        assertThat(ReasonCode.GATES.map { it.gateId }).isEqualTo((1..16).map { "G%02d".format(it) })
+        assertThat(ReasonCode.GATES.map { it.gateId }).isEqualTo((1..16).map { "G%02d".format(Locale.ROOT, it) })
         assertThat(ReasonCode.STATE_CHANGED.isGate).isFalse()
     }
 
@@ -134,8 +144,9 @@ class DecisionModelTest {
             if (stageOf(text) != "summary") assertThat(text.toByteArray().size).isAtMost(max)
         }
         val branch = TraceCodec.decode(outputs.first { stageOf(it.second) == "branch" }.second)!!
-        assertThat(branch.conditions!!.nodes.map { it.path }).containsExactly("", "/of/3").inOrder()
-        assertThat(branch.conditions!!.truncated).isTrue()
+        val conditions = checkNotNull(branch.conditions)
+        assertThat(conditions.nodes.map { it.path }).containsExactly("", "/of/3").inOrder()
+        assertThat(conditions.truncated).isTrue()
         val gates = TraceCodec.decode(outputs.first { stageOf(it.second) == "gates" }.second)!!
         assertThat(gates.suppressedBy).containsExactly("S1")
         val summary = outputs.last().second
@@ -196,9 +207,17 @@ class DecisionModelTest {
             DecisionState.DECIDED to DecisionState.EXPIRED,
             DecisionState.DECIDED to DecisionState.CANCELLED,
             DecisionState.DECIDED to DecisionState.SUPPRESSED,
+            DecisionState.DECIDED to DecisionState.CARD_PENDING,
             DecisionState.DELIVERING to DecisionState.DELIVERED,
             DecisionState.DELIVERING to DecisionState.DELIVERY_UNCERTAIN,
             DecisionState.DELIVERING to DecisionState.FAILED,
+            DecisionState.DELIVERING to DecisionState.SUPPRESSED,
+            DecisionState.DELIVERING to DecisionState.CARD_PENDING,
+            // Correction 5: a worker cancelled before the post reverts its claim.
+            DecisionState.DELIVERING to DecisionState.DECIDED,
+            DecisionState.CARD_PENDING to DecisionState.DELIVERED,
+            DecisionState.CARD_PENDING to DecisionState.EXPIRED,
+            DecisionState.CARD_PENDING to DecisionState.CANCELLED,
         )
 
         @JvmStatic

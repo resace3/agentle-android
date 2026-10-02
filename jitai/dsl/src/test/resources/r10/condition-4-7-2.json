@@ -1,0 +1,6 @@
+{ "type": "all", "of": [
+  { "type": "in", "feature": "day_type", "args": {}, "values": ["WEEKEND"], "onUnknown": null },
+  { "type": "eq", "feature": "location_class", "args": {}, "value": "HOME", "onUnknown": null },
+  { "type": "not", "of":
+    { "type": "lt", "feature": "minutes_since_last_delivery", "args": { "jitai": "category:DIGITAL_WELLBEING" }, "value": 120, "onUnknown": null } }
+] }

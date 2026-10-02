@@ -11,7 +11,17 @@ public enum class JitaiKind { INTERVENTION, SUPPRESSION }
 
 /** Notification channel, suppression targeting and per-category budgets (R10 §2.1, §9.7). */
 @Serializable
-public enum class JitaiCategory { PHYSICAL_ACTIVITY, SLEEP_WIND_DOWN, DIGITAL_WELLBEING, STRESS_BREAK, GENERAL }
+public enum class JitaiCategory {
+    PHYSICAL_ACTIVITY,
+    SLEEP_WIND_DOWN,
+    DIGITAL_WELLBEING,
+    STRESS_BREAK,
+    GENERAL,
+    ;
+
+    /** The notification channel of the category (R10 §9.7): `jitai_physical_activity`, ... */
+    public val notificationChannelId: String get() = "jitai_" + name.lowercase()
+}
 
 /** Lifecycle states (R10 §3.4); transitions are checked by [JitaiLifecycle]. */
 @Serializable
@@ -61,7 +71,7 @@ public enum class Tone { WARM, NEUTRAL, BRIEF }
 
 /** Variant selection of `variants` content (R10 §3.3): index = deliveryCount mod n. */
 @Serializable
-public enum class VariantSelection { ROTATE }
+public enum class VariantSelection { ROTATE, }
 
 /** Days of an active window, written `MON`..`SUN` on the wire (R10 §3.2). */
 @Serializable

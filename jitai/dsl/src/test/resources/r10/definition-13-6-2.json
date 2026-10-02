@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "id": "00000000-0000-4000-8000-000000000001",
+  "version": 1,
+  "name": "Afternoon walk nudge",
+  "description": "At 5 PM, if I have fewer than 3,000 steps today, encourage me to go for a walk.",
+  "kind": "INTERVENTION",
+  "category": "PHYSICAL_ACTIVITY",
+  "status": "PROPOSED",
+  "enabled": false,
+  "trigger": {
+    "type": "daily_at",
+    "times": [
+      "17:00"
+    ],
+    "maxLatenessMinutes": 30
+  },
+  "activeWindow": null,
+  "conditions": {
+    "type": "lt",
+    "feature": "steps_today",
+    "args": {},
+    "value": 3000,
+    "onUnknown": null
+  },
+  "contextRequirements": null,
+  "delivery": {
+    "channel": "NOTIFICATION",
+    "quietHoursPolicy": "RESPECT",
+    "notificationTimeoutMinutes": 120,
+    "deliveryDeadlineMinutes": 10
+  },
+  "content": {
+    "type": "template",
+    "title": "Time for a short walk?",
+    "body": "You are at {{steps_today}} steps today. A 10-minute walk now would get you moving."
+  },
+  "cooldownMinutes": 60,
+  "maxPerDay": 1,
+  "maxPerWeek": 7,
+  "priority": 50,
+  "snooze": {
+    "mode": "RE_EVALUATE_AFTER",
+    "options": [
+      "MINUTES_30",
+      "MINUTES_60"
+    ]
+  },
+  "expiresAt": null,
+  "createdBy": "AI_NATURAL_LANGUAGE",
+  "createdAt": "2026-10-01T10:00:00Z",
+  "modifiedAt": "2026-10-01T10:00:00Z",
+  "outcome": {
+    "proximal": {
+      "metric": "STEPS_AFTER",
+      "args": {},
+      "windowMinutes": 30
+    },
+    "distal": {
+      "metric": "STEPS_DAY_TOTAL",
+      "args": {},
+      "windowMinutes": null
+    }
+  },
+  "suppression": null,
+  "experiment": {
+    "mode": "NONE",
+    "deliverProbability": null
+  },
+  "userConfirmedUnknownOverrides": false,
+  "provenance": {
+    "nlRequest": "Encourage me to walk when I have fewer than 3,000 steps by 5 PM.",
+    "proposalId": null,
+    "patternId": null,
+    "templateId": null,
+    "evidence": null,
+    "promptVersion": "jitai-nl-v1",
+    "catalogVersion": "06bd70125394",
+    "appLabels": {},
+    "expiresInDays": null,
+    "approvedRendering": null
+  }
+}

@@ -9,30 +9,69 @@ import dev.agentle.jitai.dsl.model.JitaiEventType
 import dev.agentle.jitai.engine.content.RenderedIntervention
 import dev.agentle.jitai.engine.time.MonotonicStamp
 import java.security.SecureRandom
+import java.util.Locale
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
-/** The JITAI definitions (`jitai_definition`, ANDROID-DATA's `JitaiRepository`). */
+/**
+ * The JITAI definitions (`jitai_definition`, ANDROID-DATA's `JitaiRepository`).
+ *
+ * Every change of a definition (save of a new version, enable, disable, delete, a status change, and the two changes the
+ * engine itself requests below) deletes that JITAI's timer rows in the **same transaction** as the change; the engine
+ * re-plans afterwards (jitai-correctness-05/07). A timer row that survives anyway is caught by the version check of the
+ * firing timer.
+ */
 public interface JitaiRepositoryPort {
     /** The current version of every stored definition that is not ARCHIVED; the engine selects the effective ones. */
     public suspend fun definitions(): Outcome<List<JitaiDefinition>>
 
-    /** G02: the definition's `expiresAt` passed; move its status to EXPIRED (R10 §9.5). */
+    /** G02: the definition's `expiresAt` passed; move its status to EXPIRED (R10 §9.5) and delete its timer rows. */
     public suspend fun markExpired(jitaiId: String, at: Instant): Outcome<Unit>
 
-    /** R10 §9.6: [consecutiveIgnored] reached 5; pause the JITAI and ask in-app (not by notification) what to do. */
+    /**
+     * R10 §9.6: [consecutiveIgnored] reached 5; pause the JITAI (deleting its timer rows) and ask in-app, not by
+     * notification, what to do.
+     */
     public suspend fun pauseForBackoff(jitaiId: String, consecutiveIgnored: Int, at: Instant): Outcome<Unit>
 }
 
-/** Collection profiles set the `jitai-tick` period (docs/ARCHITECTURE.md §11, §13; R02 §3.2: 60 / 30 / 15 minutes). */
+/**
+ * Collection profiles (docs/ARCHITECTURE.md §11, §13; R02 §3.2: 60 / 30 / 15 minutes). They set only the period of the
+ * BACKSTOP timer row; interval slots follow the rules' own `everyMinutes` (jitai-correctness-09).
+ */
 public enum class TickProfile(public val tickMinutes: Int) { LOW(60), BALANCED(30), HIGH(15) }
 
 /** Quiet hours (R10 §9.3): same half-open, midnight-crossing semantics as active windows. Default 22:00-07:00, on. */
 public data class QuietHours(val start: String = "22:00", val end: String = "07:00", val enabled: Boolean = true)
 
-/** How rendered values look (R10 §3.3): locale-aware integers and `HH:mm` or `h:mm a` per the device setting. */
-public data class DisplaySettings(val localeTag: String = "en-US", val use24HourClock: Boolean = true)
+/**
+ * How rendered values look (R10 §3.3): locale-aware integers and `HH:mm` or `h:mm a` per the device setting.
+ *
+ * @property genericTitle the posted title when detailed notifications are off (jitai-correctness-18); the app passes
+ *   its localized string.
+ * @property genericBody the posted body when detailed notifications are off.
+ */
+public data class DisplaySettings(
+    val localeTag: String = "en-US",
+    val use24HourClock: Boolean = true,
+    val genericTitle: String = DEFAULT_GENERIC_TITLE,
+    val genericBody: String = DEFAULT_GENERIC_BODY,
+) {
+    public companion object {
+        public const val DEFAULT_GENERIC_TITLE: String = "Agentle"
+        public const val DEFAULT_GENERIC_BODY: String = "You have a new check-in. Open Agentle to see it."
+    }
+}
+
+/**
+ * What a posted notification may show (jitai-correctness-18). Both are off by default.
+ *
+ * @property detailedNotifications the posted text equals the in-app text (placeholders, app labels); otherwise it is the
+ *   generic text of [DisplaySettings].
+ * @property bridgeToWearables posts may be bridged to a watch; otherwise every post is local-only.
+ */
+public data class NotificationPrivacy(val detailedNotifications: Boolean = false, val bridgeToWearables: Boolean = false)
 
 /** The AI-sharing consent in force; pooled AI text generated under other terms is not delivered (red team privacy-ai-01). */
 public data class AiTextConsent(val version: Int = 0, val allowedCategories: Set<DataCategory> = emptySet())
@@ -42,7 +81,11 @@ public data class AiTextConsent(val version: Int = 0, val allowedCategories: Set
  * hostile settings file cannot raise the budgets.
  *
  * @property channelCaps per-channel daily caps; a channel without an entry is capped by [globalMaxPerDay].
- * @property maxEventAgeMinutes per-event-type bound on `now - eventAt` (default [DEFAULT_MAX_EVENT_AGE_MINUTES]).
+ * @property maxEventAgeMinutes per-event-type bound on `now - eventAt`; every type defaults to
+ *   [DEFAULT_MAX_EVENT_AGE_MINUTES] (jitai-correctness item 14).
+ * @property tickProfile the collection profile; sets the BACKSTOP period only.
+ * @property inAppCards when notifications are blocked at the claim, keep the intervention as an in-app card
+ *   (CARD_PENDING) instead of SUPPRESSED(NOTIFICATIONS_BLOCKED) (jitai-correctness-13). Off by default.
  */
 public data class EngineSettings(
     val globalMaxPerDay: Int = 6,
@@ -56,6 +99,8 @@ public data class EngineSettings(
     val tickProfile: TickProfile = TickProfile.BALANCED,
     val display: DisplaySettings = DisplaySettings(),
     val aiConsent: AiTextConsent = AiTextConsent(),
+    val notificationPrivacy: NotificationPrivacy = NotificationPrivacy(),
+    val inAppCards: Boolean = false,
 ) {
     /** These settings clamped to the hard ceilings of R10 §9.2. */
     public fun effective(): EngineSettings {
@@ -105,24 +150,15 @@ public enum class InterruptionFilter {
 }
 
 /**
- * Live notification state (G05, G07, R10 §8.5 step 2).
+ * Live notification state besides the delivery prerequisite (G07, event availability).
  *
- * @property permissionGranted POST_NOTIFICATIONS on API 33+ (always true below).
- * @property appNotificationsEnabled `areNotificationsEnabled()`.
- * @property blockedCategories categories whose channel has importance NONE.
  * @property notificationListenerConnected the listener's connection state; the best-effort event types follow it
  *   (red team lifecycle-battery-07).
  */
 public data class NotificationSystemState(
-    val permissionGranted: Boolean = true,
-    val appNotificationsEnabled: Boolean = true,
-    val blockedCategories: Set<JitaiCategory> = emptySet(),
     val interruptionFilter: InterruptionFilter = InterruptionFilter.ALL,
     val notificationListenerConnected: Boolean = true,
-) {
-    /** G05: notifications of [category] cannot be shown. */
-    public fun blocks(category: JitaiCategory): Boolean = !permissionGranted || !appNotificationsEnabled || category in blockedCategories
-}
+)
 
 /** Settings (DataStore) and live notification state. */
 public interface SettingsPort {
@@ -169,8 +205,22 @@ public interface TriggerEventFeed {
 }
 
 /**
- * One pooled `ai_text` item (R10 §3.3), generated ahead of time. Checked at delivery (red team privacy-ai-01).
+ * Brings the daily features of dirty days up to date right before a pass takes its snapshot, so an event pass sees the
+ * data whose ingest triggered it (a sleep session, a step sync; jitai-correctness-08). The snapshot itself is still read
+ * only through [dev.agentle.analytics.features.FeatureResolver]. The analytics team wires its dirty-day recompute here; a
+ * resolver that recomputes dirty days inside `resolve` needs nothing, so the port is optional. A failure is logged and
+ * the pass goes on: the resolver then reports the affected values as stale or missing, never as current.
+ */
+public fun interface DailyFeatureRefresher {
+    public suspend fun refreshDirtyDays(at: Instant): Outcome<Unit>
+}
+
+/**
+ * One pooled `ai_text` item (R10 §3.3), generated ahead of time. Checked at delivery (red team privacy-ai-01,
+ * jitai-correctness-17).
  *
+ * @property contentHash `RuleCodec.contentHash` of the definition it was generated for; the pool is keyed by it, so an
+ *   edited rule never delivers text written for its old version.
  * @property consentVersion the AI-sharing consent version the request was made under.
  * @property categories the data categories its request used.
  * @property snapshotHash [dev.agentle.jitai.engine.content.SnapshotHashes.contextHash] of the context it was written for.
@@ -178,6 +228,7 @@ public interface TriggerEventFeed {
 public data class PooledText(
     val id: String,
     val jitaiId: String,
+    val contentHash: String,
     val title: String,
     val body: String,
     val createdAt: Instant,
@@ -186,13 +237,23 @@ public data class PooledText(
     val snapshotHash: String?,
 )
 
-/** The per-JITAI pool of generated texts (AI-CONTEXT fills it; no network call sits on the delivery path). */
+/**
+ * The pool of generated texts, keyed by the rule's content hash (AI-CONTEXT fills it; no network call sits on the
+ * delivery path). Items are never older than 24 hours when delivered and are purged when their rule is edited.
+ */
 public interface AiTextPoolPort {
-    public suspend fun pooled(jitaiId: String): Outcome<List<PooledText>>
+    /** The items generated for the rule content [contentHash]. */
+    public suspend fun pooled(contentHash: String): Outcome<List<PooledText>>
 
     public suspend fun get(itemId: String): Outcome<PooledText?>
 
     public suspend fun markUsed(itemId: String, decisionKey: String): Outcome<Unit>
+
+    /** Deletes the items of [jitaiId] whose content hash is not [keepContentHash] (all of them when it is null). */
+    public suspend fun purge(jitaiId: String, keepContentHash: String?): Outcome<Int>
+
+    /** Deletes the items created before [createdBefore] (the 24-hour limit). */
+    public suspend fun purgeExpired(createdBefore: Instant): Outcome<Int>
 }
 
 /** Slow media prepared before the delivery lease starts (red team lifecycle-battery-18). */
@@ -210,7 +271,7 @@ public sealed interface PrepareResult {
 public sealed interface PostResult {
     public data object Posted : PostResult
 
-    /** Notifications are blocked (permission, app setting or channel importance NONE). */
+    /** The delivery prerequisite failed at the post itself (it changed after the claim). */
     public data object Blocked : PostResult
 
     /** A permanent error with a content-free [code]. */
@@ -218,20 +279,47 @@ public sealed interface PostResult {
 }
 
 /**
+ * The delivery prerequisite of one category (jitai-correctness-13): notifications enabled (POST_NOTIFICATIONS granted
+ * on API 33+ and `areNotificationsEnabled()`), the category channel's importance is not NONE, and notifications are not
+ * paused (`areNotificationsPaused()`). Checked at the decision (G05) and again at the claim.
+ */
+public data class DeliveryPrerequisite(
+    val notificationsEnabled: Boolean,
+    val channelImportanceNone: Boolean,
+    val notificationsPaused: Boolean,
+) {
+    public val met: Boolean get() = notificationsEnabled && !channelImportanceNone && !notificationsPaused
+
+    public companion object {
+        public val MET: DeliveryPrerequisite = DeliveryPrerequisite(true, channelImportanceNone = false, notificationsPaused = false)
+
+        /** What an unreadable state counts as: not met (fail closed). */
+        public val UNKNOWN: DeliveryPrerequisite = DeliveryPrerequisite(false, channelImportanceNone = true, notificationsPaused = true)
+    }
+}
+
+/**
  * Delivery on the device (the interventions team's `NotificationDeliverer`): never depended on directly, only through
  * this port, so the engine never reaches `:interventions`.
  */
 public interface DeliveryPort {
-    /** Prepares slow media (TTS synthesis for VOICE) before the claim, never inside the 2-minute lease. */
+    /** The live delivery prerequisite for [category] (jitai-correctness-13). */
+    public suspend fun prerequisite(category: JitaiCategory): Outcome<DeliveryPrerequisite>
+
+    /** Prepares slow media (TTS synthesis for VOICE) while the row is still DECIDED, never inside the lease. */
     public suspend fun prepare(intervention: RenderedIntervention): PrepareResult
 
-    /** Posts with `tag = decisionKey`; posting an active tag again updates it and alerts once (R10 §8.5). */
+    /**
+     * Posts with `tag = decisionKey`; posting an active tag again updates it and alerts once (R10 §8.5). Posts
+     * [RenderedIntervention.postedTitle] / [RenderedIntervention.postedBody] and sets `setLocalOnly` from
+     * [RenderedIntervention.localOnly] (jitai-correctness-18).
+     */
     public suspend fun post(prepared: PreparedDelivery): PostResult
 
     /** Whether a notification with [tag] is active (`getActiveNotifications()`), for crash recovery. */
     public suspend fun isActive(tag: String): Outcome<Boolean>
 
-    /** Releases prepared media that will not be posted (the claim was lost). */
+    /** Releases prepared media that will not be posted (the claim was lost or refused). */
     public suspend fun discard(prepared: PreparedDelivery)
 }
 
@@ -245,7 +333,7 @@ public class SecureNonceSource(private val random: SecureRandom = SecureRandom()
     override fun nextNonce(): String {
         val bytes = ByteArray(NONCE_BYTES)
         random.nextBytes(bytes)
-        return bytes.joinToString("") { "%02x".format(it) }
+        return bytes.joinToString("") { "%02x".format(Locale.ROOT, it) }
     }
 
     private companion object {

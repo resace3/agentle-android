@@ -9,8 +9,12 @@ import dev.agentle.jitai.dsl.model.OutcomeMetric
 import dev.agentle.jitai.dsl.model.OutcomeMetricRef
 import dev.agentle.jitai.dsl.model.OutcomeRole
 import dev.agentle.jitai.engine.decision.DecisionRecord
+import dev.agentle.jitai.engine.decision.DecisionState
 import dev.agentle.jitai.engine.decision.JitaiResponse
 import dev.agentle.jitai.engine.delivery.DeliveryProtocol
+import dev.agentle.jitai.engine.schedule.TimerKeys
+import dev.agentle.jitai.engine.schedule.TimerKind
+import dev.agentle.jitai.engine.schedule.TimerRow
 import dev.agentle.jitai.engine.time.LocalWindow
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.TimeZone
@@ -22,9 +26,9 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 /**
- * One outcome computation to schedule (R10 §8.7, §15.1): unique work [uniqueName] with policy KEEP at [dueAt], the end
- * of the outcome window plus the metric's data-latency allowance. Without data at [unavailableAt] (48 h after the
- * window) the outcome is UNAVAILABLE.
+ * One outcome computation to schedule (R10 §8.7, §15.1): an OUTCOME timer row ([timerRow]) due at [dueAt], the end of
+ * the outcome window plus the metric's data-latency allowance. Without data at [unavailableAt] (48 h after the window)
+ * the outcome is UNAVAILABLE.
  */
 public data class PlannedOutcome(
     val decisionKey: String,
@@ -35,13 +39,16 @@ public data class PlannedOutcome(
     val dueAt: Instant,
     val unavailableAt: Instant,
 ) {
-    /** `jitai-outcome-<key>` for the proximal outcome, `jitai-outcome-distal-<key>` for the distal one. */
-    public val uniqueName: String
-        get() = if (role == OutcomeRole.PROXIMAL) "$PREFIX$decisionKey" else "${PREFIX}distal-$decisionKey"
-
-    public companion object {
-        public const val PREFIX: String = "jitai-outcome-"
-    }
+    /** The OUTCOME timer row of this computation (jitai-correctness-05). */
+    public fun timerRow(version: Int): TimerRow = TimerRow(
+        key = TimerKeys.outcome(decisionKey, role),
+        kind = TimerKind.OUTCOME,
+        dueAt = dueAt,
+        jitaiId = jitaiId,
+        version = version,
+        decisionKey = decisionKey,
+        role = role,
+    )
 }
 
 /** State of a computed outcome (`jitai_outcome.state`). */
@@ -62,7 +69,8 @@ public data class OutcomeResult(
 
 /**
  * Stored data behind the window metrics (steps, screen and app minutes, sleep), read by the analytics team's
- * implementation. Every answer must be a pure function of stored data so re-runs give the same value.
+ * implementation, and the `jitai_outcome` table. Every measurement must be a pure function of stored data so re-runs
+ * give the same value.
  */
 public interface OutcomeDataPort {
     /**
@@ -70,15 +78,25 @@ public interface OutcomeDataPort {
      * failures are [Outcome.Failure].
      */
     public suspend fun measure(metric: OutcomeMetricRef, window: ClosedOpenRange, zone: TimeZone): Outcome<FeatureScalar?>
+
+    /**
+     * Stores a final (AVAILABLE or UNAVAILABLE) outcome in `jitai_outcome`, idempotent by decision key and role: the
+     * OUTCOME timer row is deleted only after this succeeded, so a crash in between stores the same value again.
+     */
+    public suspend fun record(result: OutcomeResult): Outcome<Unit>
 }
 
 /**
  * Outcome scheduling and the outcomes computed from the decision row itself (R10 §8.7, §15.1). `t0` is the row's
- * `decisionPointAt`. Outcomes are planned for every row a pass writes (scheduled points, delivered or not, and event rows).
+ * `decisionPointAt`. Outcomes are planned for every resolved decision point a pass writes (scheduled points, delivered
+ * or not, and event rows); MISSED rows were never evaluated and get none.
  */
 public object OutcomePlanner {
     /** Waiting time after the window before an outcome without data becomes UNAVAILABLE. */
     public val UNAVAILABLE_AFTER: Duration = 48.hours
+
+    /** A PENDING outcome is computed again after this long (never after its `unavailableAt`). */
+    public val PENDING_RETRY: Duration = 1.hours
 
     /** `BEDTIME_NEXT` and `SLEEP_MINUTES_NEXT` look for a main sleep session starting within this time after `t0`. */
     public val SLEEP_SEARCH: Duration = 18.hours
@@ -102,6 +120,10 @@ public object OutcomePlanner {
             spec.distal?.let { plan(record, definition, it, OutcomeRole.DISTAL, zone) },
         )
     }
+
+    /** The OUTCOME timer rows of [record] (none for a MISSED row or a rule without an outcome spec). */
+    public fun timerRows(record: DecisionRecord, definition: JitaiDefinition, zone: TimeZone): List<TimerRow> =
+        if (record.state == DecisionState.MISSED) emptyList() else plan(record, definition, zone).map { it.timerRow(definition.version) }
 
     private fun plan(
         record: DecisionRecord,
@@ -211,5 +233,32 @@ public object OutcomeEvaluator {
     private fun feedback(record: DecisionRecord): JitaiResponse = when (record.content.response) {
         JitaiResponse.HELPFUL, JitaiResponse.NOT_HELPFUL -> record.content.response
         else -> JitaiResponse.NONE
+    }
+}
+
+/**
+ * Whether a proximal outcome counts as positive for the engagement backoff (jitai-correctness-14: a DISMISSED delivery
+ * with a positive proximal outcome does not extend the ignored run). UNVERIFIED reading, since R10 defines no polarity:
+ * the notification was opened; the user rated it helpful; any steps after it; no screen, app or app-category minutes
+ * after it (the user put the phone down). Sleep and daily metrics are distal by nature and never count here.
+ */
+public object OutcomePositivity {
+    public fun isPositive(result: OutcomeResult): Boolean {
+        if (result.state != OutcomeState.AVAILABLE || result.role != OutcomeRole.PROXIMAL) return false
+        val value = result.value
+        return when (result.metric) {
+            OutcomeMetric.NOTIFICATION_OPENED -> (value as? FeatureScalar.BoolValue)?.value == true
+
+            OutcomeMetric.SELF_REPORT_HELPFUL -> (value as? FeatureScalar.EnumValue)?.value == JitaiResponse.HELPFUL.name
+
+            OutcomeMetric.STEPS_AFTER -> ((value as? FeatureScalar.IntValue)?.value ?: 0L) > 0L
+
+            OutcomeMetric.SCREEN_MINUTES_AFTER,
+            OutcomeMetric.APP_MINUTES_AFTER,
+            OutcomeMetric.APP_CATEGORY_MINUTES_AFTER,
+            -> (value as? FeatureScalar.IntValue)?.value == 0L
+
+            OutcomeMetric.BEDTIME_NEXT, OutcomeMetric.SLEEP_MINUTES_NEXT, OutcomeMetric.STEPS_DAY_TOTAL -> false
+        }
     }
 }

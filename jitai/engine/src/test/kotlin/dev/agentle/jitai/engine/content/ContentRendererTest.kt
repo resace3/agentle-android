@@ -1,14 +1,17 @@
 package dev.agentle.jitai.engine.content
 
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import dev.agentle.analytics.features.FeatureRef
 import dev.agentle.analytics.features.FeatureScalar
 import dev.agentle.analytics.features.FeatureSnapshot
 import dev.agentle.analytics.features.FeatureValue
 import dev.agentle.analytics.features.MissingReason
 import dev.agentle.core.model.DataCategory
+import dev.agentle.jitai.dsl.codec.RuleCodec
 import dev.agentle.jitai.dsl.model.ContentStrategy
 import dev.agentle.jitai.dsl.model.DeliveryChannel
+import dev.agentle.jitai.dsl.model.JitaiDefinition
 import dev.agentle.jitai.dsl.model.Provenance
 import dev.agentle.jitai.dsl.model.SnoozeMode
 import dev.agentle.jitai.dsl.model.SnoozeOption
@@ -22,13 +25,18 @@ import dev.agentle.jitai.engine.Leaves
 import dev.agentle.jitai.engine.Rules
 import dev.agentle.jitai.engine.ports.AiTextConsent
 import dev.agentle.jitai.engine.ports.DisplaySettings
+import dev.agentle.jitai.engine.ports.NotificationPrivacy
 import dev.agentle.jitai.engine.ports.PooledText
 import kotlinx.datetime.DayOfWeek
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
 
 /** R10 §3.3 content: choice, rendering, placeholder formatting and the pooled AI text checks of red team privacy-ai-01. */
 class ContentRendererTest {
@@ -37,17 +45,9 @@ class ContentRendererTest {
     private val consent = AiTextConsent(version = 3, allowedCategories = setOf(DataCategory.ACTIVITY))
 
     private val stepsRule = Rules.R2
-    private val snapshot = FeatureSnapshot.of(at, F0.BERLIN.id, mapOf(FeatureRef(Leaves.STEPS) to FeatureValue.Known(FeatureScalar.IntValue(2_500), at)))
+    private val snapshot =
+        FeatureSnapshot.of(at, F0.BERLIN.id, mapOf(FeatureRef(Leaves.STEPS) to FeatureValue.Known(FeatureScalar.IntValue(2_500), at)))
     private val hash = SnapshotHashes.contextHash(stepsRule, snapshot)
-
-    private fun pooled(
-        id: String,
-        createdAt: kotlin.time.Instant = at - 1.hours,
-        jitaiId: String = "AI",
-        consentVersion: Int = 3,
-        categories: Set<DataCategory> = setOf(DataCategory.ACTIVITY),
-        snapshotHash: String? = hash,
-    ) = PooledText(id, jitaiId, "Pooled $id", "Body $id", createdAt, consentVersion, categories, snapshotHash)
 
     private val aiRule = stepsRule.copy(
         id = "AI",
@@ -57,27 +57,45 @@ class ContentRendererTest {
             fallback = ContentStrategy.Template("Walk?", "Only {{steps_today}} steps."),
         ),
     )
+    private val aiContent = RuleCodec.contentHash(aiRule)
 
-    private fun input(definition: dev.agentle.jitai.dsl.model.JitaiDefinition, ref: ContentRef, pooled: PooledText? = null, snapshot: FeatureSnapshot? = this.snapshot) =
-        ContentRenderer.RenderInput(
-            definition = definition,
-            decisionKey = "v1|${definition.id}|D|2026-10-01|17:00",
-            channel = definition.delivery.channel,
-            snapshot = snapshot,
-            snapshotHash = hash,
-            ref = ref,
-            pooled = pooled,
-            nonce = "nonce-1",
-            now = at,
-            consent = consent,
-        )
+    private fun pooled(
+        id: String,
+        createdAt: Instant = at - 1.hours,
+        jitaiId: String = "AI",
+        consentVersion: Int = 3,
+        categories: Set<DataCategory> = setOf(DataCategory.ACTIVITY),
+        snapshotHash: String? = hash,
+        contentHash: String = aiContent,
+    ) = PooledText(id, jitaiId, contentHash, "Pooled $id", "Body $id", createdAt, consentVersion, categories, snapshotHash)
+
+    private fun input(
+        definition: JitaiDefinition,
+        ref: ContentRef,
+        pooled: PooledText? = null,
+        snapshot: FeatureSnapshot? = this.snapshot,
+        privacy: NotificationPrivacy = NotificationPrivacy(detailedNotifications = true),
+    ) = ContentRenderer.RenderInput(
+        definition = definition,
+        decisionKey = "v1|${definition.id}|D|2026-10-01|17:00",
+        channel = definition.delivery.channel,
+        snapshot = snapshot,
+        snapshotHash = hash,
+        ref = ref,
+        pooled = pooled,
+        nonce = "nonce-1",
+        now = at,
+        consent = consent,
+        privacy = privacy,
+    )
 
     // -- choice ------------------------------------------------------------------------------------------------------------
 
-    @ParameterizedTest(name = "delivery {0} -> variant {1}")
+    @ParameterizedTest(quoteTextArguments = false, name = "delivery {0} -> variant {1}")
     @CsvSource("0, 0", "1, 1", "2, 2", "3, 0", "7, 1")
     fun `variants rotate by deliveryCount mod n`(previous: Long, index: Int) {
-        val rule = stepsRule.copy(content = ContentStrategy.Variants(listOf(TextPair("A", "a"), TextPair("B", "b"), TextPair("C", "c"))))
+        val variants = ContentStrategy.Variants(listOf(TextPair("A", "a"), TextPair("B", "b"), TextPair("C", "c")))
+        val rule = stepsRule.copy(content = variants)
 
         assertThat(renderer.choose(rule, previous, emptyList(), hash, at, consent)).isEqualTo(ContentRef.Variant(index))
     }
@@ -99,13 +117,15 @@ class ContentRendererTest {
         val pool = listOf(pooled("new", at - 1.hours), pooled("old", at - 2.hours), pooled("stale", at - 25.hours))
 
         assertThat(renderer.choose(aiRule, 0, pool, hash, at, consent)).isEqualTo(ContentRef.AiPooled("old"))
-        assertThat(renderer.choose(aiRule, 0, listOf(pooled("stale", at - 25.hours)), hash, at, consent)).isEqualTo(ContentRef.AiFallback)
+        assertThat(renderer.choose(aiRule, 0, listOf(pooled("stale", at - 25.hours)), hash, at, consent))
+            .isEqualTo(ContentRef.AiFallback)
         assertThat(renderer.choose(aiRule, 0, emptyList(), hash, at, consent)).isEqualTo(ContentRef.AiFallback)
     }
 
     @Test
-    fun `pooled text is checked at delivery - JITAI, age, consent version, categories and context hash`() {
-        fun usable(item: PooledText, decisionHash: String? = hash) = ContentRenderer.usablePooledText(item, "AI", decisionHash, at, consent)
+    fun `pooled text is checked at delivery - JITAI, content hash, age, consent version, categories and context hash`() {
+        fun usable(item: PooledText, decisionHash: String? = hash) =
+            ContentRenderer.usablePooledText(item, "AI", aiContent, decisionHash, at, consent)
 
         assertThat(usable(pooled("ok"))).isTrue()
         assertThat(usable(pooled("exactly-24h", at - 24.hours))).isTrue()
@@ -116,6 +136,75 @@ class ContentRendererTest {
         assertThat(usable(pooled("other-context", snapshotHash = "0".repeat(64)))).isFalse()
         assertThat(usable(pooled("no-hash", snapshotHash = null))).isFalse()
         assertThat(usable(pooled("ok"), decisionHash = null)).isFalse()
+        // jitai-correctness-17: text written for another version of the rule's content is never delivered.
+        assertThat(usable(pooled("old-content", contentHash = RuleCodec.contentHash(aiRule.copy(priority = 40))))).isFalse()
+    }
+
+    @Test
+    fun `correction 13 the pool is keyed by the rule content hash, which ignores id, version and status`() {
+        val edited = aiRule.copy(conditions = Leaves.lt(Leaves.STEPS, 2_000))
+
+        assertThat(RuleCodec.contentHash(aiRule.copy(id = "other", version = 7, enabled = false))).isEqualTo(aiContent)
+        assertThat(RuleCodec.contentHash(edited)).isNotEqualTo(aiContent)
+        assertThat(renderer.choose(edited, 0, listOf(pooled("p1")), hash, at, consent)).isEqualTo(ContentRef.AiFallback)
+        assertThat(ContentRenderer.MAX_POOLED_AGE).isAtMost(24.hours)
+    }
+
+    @Test
+    fun `correction 10 the posted text is generic unless detailed notifications are on, and posts are local-only by default`() {
+        val generic = renderer.render(input(stepsRule, ContentRef.TemplateText, privacy = NotificationPrivacy()))
+        val detailed = renderer.render(
+            input(stepsRule, ContentRef.TemplateText, privacy = NotificationPrivacy(detailedNotifications = true)),
+        )
+        val bridged = renderer.render(input(stepsRule, ContentRef.TemplateText, privacy = NotificationPrivacy(bridgeToWearables = true)))
+
+        assertThat(NotificationPrivacy().detailedNotifications).isFalse()
+        assertThat(generic.body).isEqualTo("Only 2,500 steps so far today.")
+        assertThat(generic.postedTitle).isEqualTo(DisplaySettings.DEFAULT_GENERIC_TITLE)
+        assertThat(generic.postedBody).isEqualTo(DisplaySettings.DEFAULT_GENERIC_BODY)
+        assertThat(generic.detailed).isFalse()
+        assertThat(generic.localOnly).isTrue()
+        assertThat(generic.spokenText).isEqualTo(DisplaySettings.DEFAULT_GENERIC_BODY)
+        assertThat(detailed.postedTitle).isEqualTo(detailed.title)
+        assertThat(detailed.postedBody).isEqualTo("Only 2,500 steps so far today.")
+        assertThat(detailed.localOnly).isTrue()
+        assertThat(bridged.localOnly).isFalse()
+        assertThat(bridged.postedBody).isEqualTo(DisplaySettings.DEFAULT_GENERIC_BODY)
+    }
+
+    @Test
+    fun `the generic posted text comes from the display settings`() {
+        val display = DisplaySettings(genericTitle = "Agentle check-in", genericBody = "Open the app")
+
+        val rendered = renderer.render(input(stepsRule, ContentRef.TemplateText, privacy = NotificationPrivacy()).copy(display = display))
+
+        assertThat(rendered.postedTitle).isEqualTo("Agentle check-in")
+        assertThat(rendered.postedBody).isEqualTo("Open the app")
+    }
+
+    @Test
+    fun `correction 7 snooze actions come from the rule's policy, Not now is until the window end`() {
+        val custom = stepsRule.copy(snooze = SnoozePolicy(SnoozeMode.SUPPRESS_ONLY, listOf(SnoozeOption.MINUTES_120)))
+
+        assertThat(renderer.render(input(stepsRule, ContentRef.TemplateText)).snoozeOptions)
+            .isEqualTo(SnoozePolicy.DEFAULT_DAILY_AT.options)
+        assertThat(renderer.render(input(Rules.R1, ContentRef.StaticText)).snoozeOptions).isEqualTo(SnoozePolicy.DEFAULT.options)
+        assertThat(renderer.render(input(custom, ContentRef.TemplateText)).snoozeOptions).containsExactly(SnoozeOption.MINUTES_120)
+        assertThat(renderer.render(input(custom, ContentRef.TemplateText)).notNowOption).isEqualTo(SnoozeOption.UNTIL_WINDOW_END)
+    }
+
+    @Test
+    fun `a rendered intervention is serializable, content refs as their encoded form`() {
+        val json = Json { encodeDefaults = true }
+        val rendered = renderer.render(input(aiRule, ContentRef.AiPooled("p1"), pooled("p1")))
+
+        val text = json.encodeToString(RenderedIntervention.serializer(), rendered)
+
+        assertThat(text).contains("\"contentRef\":\"ai:p1\"")
+        assertThat(json.decodeFromString(RenderedIntervention.serializer(), text)).isEqualTo(rendered)
+        assertThrows<SerializationException> {
+            json.decodeFromString(RenderedIntervention.serializer(), text.replace("\"ai:p1\"", "\"bogus\""))
+        }
     }
 
     // -- rendering ---------------------------------------------------------------------------------------------------------
@@ -130,15 +219,17 @@ class ContentRendererTest {
         assertThat(rendered.nonce).isEqualTo("nonce-1")
         assertThat(rendered.contentRef).isEqualTo(ContentRef.TemplateText)
         assertThat(rendered.speak).isFalse()
-        assertThat(rendered.snoozeOptions).isEqualTo(SnoozePolicy.DEFAULT.options)
+        assertThat(rendered.snoozeOptions).isEqualTo(SnoozePolicy.DEFAULT_DAILY_AT.options)
     }
 
     @Test
     fun `a missing value renders as a dash, never as zero`() {
         val empty = FeatureSnapshot.of(at, F0.BERLIN.id, mapOf(FeatureRef(Leaves.STEPS) to FeatureValue.Missing(MissingReason.NO_DATA)))
 
-        assertThat(renderer.render(input(stepsRule, ContentRef.TemplateText, snapshot = empty)).body).isEqualTo("Only — steps so far today.")
-        assertThat(renderer.render(input(stepsRule, ContentRef.TemplateText, snapshot = null)).body).isEqualTo("Only — steps so far today.")
+        assertThat(renderer.render(input(stepsRule, ContentRef.TemplateText, snapshot = empty)).body)
+            .isEqualTo("Only — steps so far today.")
+        assertThat(renderer.render(input(stepsRule, ContentRef.TemplateText, snapshot = null)).body)
+            .isEqualTo("Only — steps so far today.")
         val unknownPlaceholder = stepsRule.copy(content = ContentStrategy.Template("{{battery_pct}}", "x"))
         assertThat(renderer.render(input(unknownPlaceholder, ContentRef.TemplateText)).title).isEqualTo("—")
     }
@@ -150,7 +241,8 @@ class ContentRendererTest {
         assertThat(renderer.render(input(rule, ContentRef.Variant(1))).title).isEqualTo("B")
         assertThat(renderer.render(input(rule, ContentRef.Variant(9))).title).isEqualTo("A 2,500")
         assertThat(renderer.render(input(rule, ContentRef.TemplateText)).contentRef).isEqualTo(ContentRef.Variant(0))
-        assertThat(renderer.render(input(stepsRule.copy(content = ContentStrategy.Variants(emptyList())), ContentRef.Variant(0))).title).isEmpty()
+        val empty = stepsRule.copy(content = ContentStrategy.Variants(emptyList()))
+        assertThat(renderer.render(input(empty, ContentRef.Variant(0))).title).isEmpty()
     }
 
     @Test
@@ -231,13 +323,20 @@ class ContentRendererTest {
 
     @Test
     fun `content refs round-trip and malformed refs are rejected`() {
-        val refs = listOf(ContentRef.StaticText, ContentRef.TemplateText, ContentRef.Variant(2), ContentRef.AiPooled("p9"), ContentRef.AiFallback, ContentRef.Media("m1"))
+        val refs = listOf(
+            ContentRef.StaticText,
+            ContentRef.TemplateText,
+            ContentRef.Variant(2),
+            ContentRef.AiPooled("p9"),
+            ContentRef.AiFallback,
+            ContentRef.Media("m1"),
+        )
 
         refs.forEach { assertThat(ContentRef.parse(it.encoded)).isEqualTo(it) }
         listOf("variant:-1", "variant:x", "ai:", "media:", "other").forEach { assertThat(ContentRef.parse(it)).isNull() }
     }
 
-    @ParameterizedTest(name = "{0}")
+    @ParameterizedTest(quoteTextArguments = false, name = "{0}")
     @CsvSource(
         "en-US 24h int, en-US, true, int, 12500, '12,500'",
         "de-DE int, de-DE, true, int, 12500, '12.500'",
@@ -250,7 +349,14 @@ class ContentRendererTest {
         "never, en-US, true, never, 0, '—'",
         "no package, en-US, true, none, 0, '—'",
     )
-    fun `placeholder values are formatted by locale and clock setting`(id: String, locale: String, h24: Boolean, kind: String, raw: Int, expected: String) {
+    fun `placeholder values are formatted by locale and clock setting`(
+        id: String,
+        locale: String,
+        h24: Boolean,
+        kind: String,
+        raw: Int,
+        expected: String,
+    ) {
         val formatter = DefaultPlaceholderFormatter(DisplaySettings(locale, h24))
         val scalar = when (kind) {
             "int" -> FeatureScalar.IntValue(raw.toLong())
@@ -263,15 +369,15 @@ class ContentRendererTest {
             else -> FeatureScalar.NoPackage
         }
 
-        assertThat(formatter.format("x", FeatureValue.Known(scalar, at), emptyMap())).isEqualTo(expected)
+        assertWithMessage(id).that(formatter.format("x", FeatureValue.Known(scalar, at), emptyMap())).isEqualTo(expected)
     }
 
     @Test
     fun `a stale value renders its last value and an unlabelled package its name`() {
         val formatter = DefaultPlaceholderFormatter()
 
-        assertThat(formatter.format("steps_today", FeatureValue.Stale(FeatureScalar.IntValue(3_200), at, MissingReason.NOT_SYNCED), emptyMap()))
-            .isEqualTo("3,200")
+        val stale = FeatureValue.Stale(FeatureScalar.IntValue(3_200), at, MissingReason.NOT_SYNCED)
+        assertThat(formatter.format("steps_today", stale, emptyMap())).isEqualTo("3,200")
         assertThat(formatter.format("foreground_app", FeatureValue.Known(FeatureScalar.PackageValue("org.sample"), at), emptyMap()))
             .isEqualTo("org.sample")
         assertThat(formatter.format("x", null, emptyMap())).isEqualTo(DefaultPlaceholderFormatter.MISSING_VALUE)
@@ -285,7 +391,10 @@ class ContentRendererTest {
             FeatureSnapshot.of(
                 at,
                 F0.BERLIN.id,
-                mapOf(FeatureRef(Leaves.STEPS) to steps, FeatureRef("local_time") to FeatureValue.Known(FeatureScalar.LocalTimeValue(time), at)),
+                mapOf(
+                    FeatureRef(Leaves.STEPS) to steps,
+                    FeatureRef("local_time") to FeatureValue.Known(FeatureScalar.LocalTimeValue(time), at),
+                ),
             ),
         )
 

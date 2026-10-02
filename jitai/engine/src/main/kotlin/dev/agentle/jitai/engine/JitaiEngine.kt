@@ -10,12 +10,13 @@ import dev.agentle.core.common.getOrThrow
 import dev.agentle.core.common.onFailure
 import dev.agentle.core.common.outcomeOf
 import dev.agentle.core.time.AgentleClock
+import dev.agentle.jitai.dsl.codec.RuleCodec
+import dev.agentle.jitai.dsl.model.JitaiCategory
 import dev.agentle.jitai.dsl.model.JitaiDefinition
 import dev.agentle.jitai.dsl.model.OutcomeRole
-import dev.agentle.jitai.dsl.model.SnoozeMode
 import dev.agentle.jitai.dsl.model.SnoozeOption
-import dev.agentle.jitai.dsl.model.SnoozePolicy
 import dev.agentle.jitai.dsl.model.Trigger
+import dev.agentle.jitai.engine.content.ContentRenderer
 import dev.agentle.jitai.engine.decision.DecisionKeys
 import dev.agentle.jitai.engine.decision.DecisionRecord
 import dev.agentle.jitai.engine.decision.DecisionState
@@ -23,6 +24,7 @@ import dev.agentle.jitai.engine.decision.JitaiResponse
 import dev.agentle.jitai.engine.decision.ReasonCode
 import dev.agentle.jitai.engine.decision.TriggerKind
 import dev.agentle.jitai.engine.delivery.DeliveryCoordinator
+import dev.agentle.jitai.engine.delivery.DeliveryEnvironment
 import dev.agentle.jitai.engine.delivery.DeliveryProtocol
 import dev.agentle.jitai.engine.eval.RuleEvaluator
 import dev.agentle.jitai.engine.gates.Backoff
@@ -30,32 +32,41 @@ import dev.agentle.jitai.engine.gates.MicroRandomization
 import dev.agentle.jitai.engine.outcome.OutcomeDataPort
 import dev.agentle.jitai.engine.outcome.OutcomeEvaluator
 import dev.agentle.jitai.engine.outcome.OutcomePlanner
+import dev.agentle.jitai.engine.outcome.OutcomePositivity
 import dev.agentle.jitai.engine.outcome.OutcomeResult
-import dev.agentle.jitai.engine.outcome.PlannedOutcome
+import dev.agentle.jitai.engine.outcome.OutcomeState
 import dev.agentle.jitai.engine.pipeline.CandidateEvaluation
 import dev.agentle.jitai.engine.pipeline.CommitRequest
 import dev.agentle.jitai.engine.pipeline.CommitResolver
 import dev.agentle.jitai.engine.pipeline.CommitResult
-import dev.agentle.jitai.engine.pipeline.DailyAtReport
-import dev.agentle.jitai.engine.pipeline.DailyAtStatus
 import dev.agentle.jitai.engine.pipeline.DecisionPoint
 import dev.agentle.jitai.engine.pipeline.DeliveryResult
 import dev.agentle.jitai.engine.pipeline.EventsReport
+import dev.agentle.jitai.engine.pipeline.LiveState
 import dev.agentle.jitai.engine.pipeline.MissedPoint
 import dev.agentle.jitai.engine.pipeline.PassEvaluator
 import dev.agentle.jitai.engine.pipeline.PassKind
 import dev.agentle.jitai.engine.pipeline.PassReport
+import dev.agentle.jitai.engine.pipeline.PassWrites
+import dev.agentle.jitai.engine.pipeline.PlanContext
 import dev.agentle.jitai.engine.pipeline.RecoveryReport
 import dev.agentle.jitai.engine.pipeline.RuntimeUpdate
-import dev.agentle.jitai.engine.pipeline.TickReport
+import dev.agentle.jitai.engine.pipeline.StalenessRetry
+import dev.agentle.jitai.engine.pipeline.SyncReason
+import dev.agentle.jitai.engine.pipeline.SyncRequest
+import dev.agentle.jitai.engine.pipeline.TimerReconciler
+import dev.agentle.jitai.engine.pipeline.TimerReport
 import dev.agentle.jitai.engine.pipeline.WatermarkAdvance
 import dev.agentle.jitai.engine.ports.AiTextPoolPort
+import dev.agentle.jitai.engine.ports.DailyFeatureRefresher
 import dev.agentle.jitai.engine.ports.DecisionStore
 import dev.agentle.jitai.engine.ports.DeliveryPort
+import dev.agentle.jitai.engine.ports.DeliveryPrerequisite
 import dev.agentle.jitai.engine.ports.EngineSettings
 import dev.agentle.jitai.engine.ports.EvalLogEntry
 import dev.agentle.jitai.engine.ports.EvalOutcome
 import dev.agentle.jitai.engine.ports.JitaiRepositoryPort
+import dev.agentle.jitai.engine.ports.JitaiRuntimeState
 import dev.agentle.jitai.engine.ports.NonceSource
 import dev.agentle.jitai.engine.ports.NotificationSystemState
 import dev.agentle.jitai.engine.ports.PendingTriggerEvent
@@ -71,28 +82,24 @@ import dev.agentle.jitai.engine.response.Nonces
 import dev.agentle.jitai.engine.response.ResponseReport
 import dev.agentle.jitai.engine.response.ResponseStatus
 import dev.agentle.jitai.engine.response.SnoozeCalculator
-import dev.agentle.jitai.engine.schedule.DailyAtSlots
+import dev.agentle.jitai.engine.response.SnoozePolicies
 import dev.agentle.jitai.engine.schedule.Effectiveness
 import dev.agentle.jitai.engine.schedule.EventPolicy
-import dev.agentle.jitai.engine.schedule.IntervalSlots
-import dev.agentle.jitai.engine.schedule.MissedSlot
-import dev.agentle.jitai.engine.schedule.PlannedWork
-import dev.agentle.jitai.engine.schedule.RescheduleSignal
-import dev.agentle.jitai.engine.schedule.SchedulePlan
+import dev.agentle.jitai.engine.schedule.ReplanReason
 import dev.agentle.jitai.engine.schedule.SchedulePlanner
-import dev.agentle.jitai.engine.schedule.WorkInput
-import dev.agentle.jitai.engine.schedule.WorkPolicy
+import dev.agentle.jitai.engine.schedule.TimerChecks
+import dev.agentle.jitai.engine.schedule.TimerKind
+import dev.agentle.jitai.engine.schedule.TimerPlan
+import dev.agentle.jitai.engine.schedule.TimerRow
+import dev.agentle.jitai.engine.schedule.TimerVerdict
 import dev.agentle.jitai.engine.time.BootCountSource
 import dev.agentle.jitai.engine.time.EngineClock
 import dev.agentle.jitai.engine.time.EngineDays
 import dev.agentle.jitai.engine.time.MonotonicStamp
 import dev.agentle.jitai.engine.time.elapsedBetween
-import dev.agentle.jitai.engine.time.isBefore
-import kotlinx.datetime.DateTimeUnit
-import kotlinx.datetime.LocalDate
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.plus
-import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
@@ -100,6 +107,9 @@ import kotlin.time.Instant
 /**
  * The ports the engine talks to. All are interfaces declared in this module (plus [FeatureResolver], the shared
  * contract of `:analytics:features`): rules read metrics only through [features].
+ *
+ * @property outcomeData outcome measurement and storage; without it OUTCOME timer rows are dropped unrecorded.
+ * @property dailyRefresh recomputes dirty days before a pass takes its snapshot (jitai-correctness-08); optional.
  */
 public class EnginePorts(
     public val repository: JitaiRepositoryPort,
@@ -110,21 +120,29 @@ public class EnginePorts(
     public val events: TriggerEventFeed,
     public val aiTexts: AiTextPoolPort,
     public val outcomeData: OutcomeDataPort? = null,
+    public val dailyRefresh: DailyFeatureRefresher? = null,
 )
 
-/** A schedule plan plus the MISSED rows it resolved (R10 §7.4, §12.O7). */
-public data class PlanReport(val plan: SchedulePlan, val missed: PassReport?)
+/** Result of a definition change: cancelled unclaimed rows (R10 §12.N6), purged pool items and the new timer table. */
+public data class DefinitionChangeReport(val cancelled: List<DeliveryResult>, val purgedTexts: Int, val plan: TimerPlan)
 
-/** Result of a definition change: cancelled unclaimed rows (R10 §12.N6) and the re-plan. */
-public data class DefinitionChangeReport(val cancelled: List<DeliveryResult>, val plan: PlanReport)
+/** Result of [JitaiEngine.applyRetention]: the ledger and logs (R10 §8.8) and the expired AI pool items (24 h). */
+public data class MaintenanceReport(val retention: RetentionReport, val expiredTexts: Int)
 
 /**
- * The JITAI decision engine (R10 §7-§9 with the architecture red-team corrections). Every public method is one worker
- * entry point; each returns an [Outcome] and never throws for expected failures (cancellation is rethrown). Decisions
- * are idempotent: running any entry point twice, concurrently or after a crash never delivers twice (decision keys,
- * insert-if-absent, conditional updates and the serialized commit of [DecisionStore.commit]).
+ * The JITAI decision engine (R10 §7-§9 with the architecture red-team and integrator corrections). Every public method
+ * is one worker entry point; each returns an [Outcome] and never throws for expected failures (cancellation is
+ * rethrown). Decisions are idempotent: running any entry point twice, concurrently or after a crash never delivers twice
+ * (decision keys, insert-if-absent, the claim transaction and the serialized commit of [DecisionStore.commit]).
  *
- * Time comes only from [clock] (wall, elapsed and zone) plus [boot]; the zone is re-read at the start of every pass.
+ * Scheduling is a persisted timer table (jitai-correctness-05/07): the background team keeps one unique one-time work,
+ * [SchedulePlanner.TIMER_WORK], aimed at the minimum `dueAt`, and calls [runTimer] when it fires; every entry point
+ * reports where to aim next. Inside one process the evaluating entry points are serialized ([runTimer], [runEvents],
+ * [replan], [recover], [sweepIgnored], [onDefinitionChanged]); across workers the store's serialized commit and the
+ * claim transaction keep every cap.
+ *
+ * Time comes only from [clock] (wall, elapsed and zone) plus [boot]; the zone is re-read at the start of every pass and
+ * the JVM default zone is never used.
  */
 public class JitaiEngine(
     private val ports: EnginePorts,
@@ -135,40 +153,40 @@ public class JitaiEngine(
     private val evaluator: RuleEvaluator = RuleEvaluator(),
 ) {
     private val clock = EngineClock(clock, boot)
-    private val coordinator = DeliveryCoordinator(ports, this.clock, logger)
+    private val coordinator = DeliveryCoordinator(ports, this.clock, logger, evaluator)
     private val resolver = CommitResolver(nonces)
+    private val evaluatorLock = Mutex()
 
     /**
-     * The periodic `jitai-tick` (R10 §7.4): crash recovery, the interval pass (current slots plus MISSED rows for slots
-     * no tick reached), an event pass as a backstop, and the next tick (override past inactive windows).
+     * The `jitai-timer` work (jitai-correctness-05/07): crash recovery, the ignored sweep, then every timer row due within
+     * the 2-minute coalescing window. PREFETCH rows become [SyncRequest]s, OUTCOME rows are computed and recorded, SLOT and
+     * SNOOZE rows are verified ([TimerChecks]) and evaluated together in one pass that arbitrates across them, and a due
+     * BACKSTOP drains the trigger events. Ends with the re-plan; [TimerReport.nextDueAt] is where the work aims next.
      */
-    public suspend fun runTick(): Outcome<TickReport> = guard("tick") { tick() }
+    public suspend fun runTimer(): Outcome<TimerReport> = guard("timer") { serialized { timer() } }
 
     /**
      * The event worker `jitai-eval-events` (R10 §7.3; red team database-sync-04): clears the dirty flag, evaluates the
      * events after the watermark, and repeats while ingestion marked the store dirty again, at most [maxPasses] times.
-     * [EventsReport.followUpNeeded] asks the caller to enqueue one more run.
      */
-    public suspend fun runEvents(maxPasses: Int = DEFAULT_EVENT_PASSES): Outcome<EventsReport> = guard("events") { events(maxPasses) }
-
-    /** One `daily_at` work unit for ([date], [time]) (R10 §7.4; red team lifecycle-battery-04). */
-    public suspend fun runDailyAt(jitaiId: String, date: LocalDate, time: String): Outcome<DailyAtReport> =
-        guard("daily_at") { dailyAt(jitaiId, date, time) }
-
-    /** The `RE_EVALUATE_AFTER` follow-up of [originalKey] (R10 §9.5, key `R`). Null when nothing was due. */
-    public suspend fun runSnoozeFollowUp(originalKey: String): Outcome<PassReport?> =
-        guard("snooze_follow_up") { snoozeFollowUp(originalKey) }
-
-    /** Crash recovery alone (process start, boot; R10 §8.5). */
-    public suspend fun recover(): Outcome<RecoveryReport> = guard("recover") {
-        val context = context()
-        coordinator.recover(context.byId, context.settings)
-    }
+    public suspend fun runEvents(maxPasses: Int = DEFAULT_EVENT_PASSES): Outcome<EventsReport> =
+        guard("events") { serialized { events(maxPasses) } }
 
     /**
-     * A notification action or in-app response (R10 §8.7): checks the per-delivery [nonce], records the first response,
-     * applies a snooze ([snooze], `snoozedUntil = max(old, new)`), plans the `RE_EVALUATE_AFTER` follow-up and recounts the
-     * engagement backoff (pausing at 5).
+     * Rebuilds every timer row from the current definitions at the current instant and zone (jitai-correctness-04): the
+     * background team calls it on `TIME_SET` (CLOCK), `TIMEZONE_CHANGED`, an offset change, `BOOT_COMPLETED` and
+     * `MY_PACKAGE_REPLACED`, then aims `jitai-timer` at [TimerPlan.nextDueAt].
+     */
+    public suspend fun replan(reason: ReplanReason): Outcome<TimerPlan> = guard("replan") { serialized { reconcile(context(), reason) } }
+
+    /** Crash recovery alone (process start, boot; R10 §8.5). */
+    public suspend fun recover(): Outcome<RecoveryReport> = guard("recover") { serialized { coordinator.recover(context().delivery) } }
+
+    /**
+     * A notification action or in-app response (R10 §8.7): checks the per-delivery [nonce], checks a snooze against the
+     * rule's snooze policy, records the first response, applies the snooze (`snoozedUntil = max(old, new)`), plans the
+     * one `R`-keyed follow-up for `RE_EVALUATE_AFTER`, and recounts the engagement backoff (pausing at 5) unless the
+     * delivery prerequisite is unmet (jitai-correctness-13/14).
      */
     public suspend fun recordResponse(
         decisionKey: String,
@@ -179,48 +197,60 @@ public class JitaiEngine(
         val record = ports.store.decision(decisionKey).getOrThrow()
         when {
             record == null -> ResponseReport(ResponseStatus.NOT_FOUND)
+
             !Nonces.matches(record.nonce, nonce) -> ResponseReport(ResponseStatus.REJECTED)
-            else -> applyResponse(record, response, snooze)
+
+            else -> {
+                val context = context()
+                val definition = context.byId[record.jitaiId]
+                val invalid = response == JitaiResponse.SNOOZED && (snooze == null || !SnoozePolicies.allows(definition, snooze))
+                if (invalid) ResponseReport(ResponseStatus.INVALID_OPTION) else applyResponse(context, record, response, snooze)
+            }
         }
     }
+
+    /** The in-app card [decisionKey] was displayed (CARD_PENDING -> DELIVERED, jitai-correctness-13). */
+    public suspend fun markCardDisplayed(decisionKey: String): Outcome<DeliveryResult> =
+        guard("card_displayed") { coordinator.displayCard(decisionKey, context().delivery) }
 
     /**
      * Marks DELIVERED decisions without a response as IGNORED once their notification timed out, or, without a timeout,
-     * once their engine day ended (R10 §9.6). Returns the keys marked.
+     * once their engine day ended (R10 §9.6). Returns the keys marked. [runTimer] runs it too.
      */
-    public suspend fun sweepIgnored(): Outcome<List<String>> = guard("ignored") { ignored() }
-
-    /** A definition was saved, edited, disabled or deleted (R10 §7.5, §9.5): cancel unclaimed rows if needed and re-plan. */
-    public suspend fun onDefinitionChanged(jitaiId: String): Outcome<DefinitionChangeReport> = guard("definition_changed") {
-        val context = context()
-        val definition = context.byId[jitaiId]
-        val cancelled = if (definition == null || !Effectiveness.isEffective(definition, context.now.wall)) {
-            coordinator.cancelUnclaimed(jitaiId)
-        } else {
-            emptyList()
-        }
-        DefinitionChangeReport(cancelled, plan(context, RescheduleSignal.DEFINITION_CHANGED, jitaiId))
-    }
+    public suspend fun sweepIgnored(): Outcome<List<String>> = guard("ignored") { serialized { ignored(context()) } }
 
     /**
-     * Recomputes the schedule (R10 §7.5): `daily_at` work per date, prefetches, the tick and its override, cadence and
-     * availability reports. Missed `daily_at` slots are written as MISSED rows.
+     * A definition was saved, edited, disabled, deleted or expired (R10 §7.5, §9.5; jitai-correctness-05/16/17): the
+     * repository already deleted its timer rows in the same transaction; this cancels its unclaimed rows (all of them when
+     * it is no longer armed, those of an older version otherwise), purges pool texts written for other content and re-plans.
      */
-    public suspend fun plan(signal: RescheduleSignal, changedJitaiId: String? = null): Outcome<PlanReport> = guard("plan") {
-        plan(context(), signal, changedJitaiId)
+    public suspend fun onDefinitionChanged(jitaiId: String): Outcome<DefinitionChangeReport> = guard("definition_changed") {
+        serialized {
+            val context = context()
+            val definition = context.byId[jitaiId]
+            val armed = definition?.takeIf { Effectiveness.isArmed(it) }
+            val cancelled = coordinator.cancelUnclaimed(jitaiId, armed?.version)
+            val purged = ports.aiTexts.purge(jitaiId, definition?.let(RuleCodec::contentHash))
+                .onFailure { logger.w(COMPONENT, "pool purge failed", it) }
+                .getOrNull() ?: 0
+            DefinitionChangeReport(cancelled, purged, reconcile(context, ReplanReason.DEFINITION_CHANGED))
+        }
     }
 
-    /** Retention (R10 §8.8): ledger 400 days, evaluation log 30 days, full traces 90 days. */
-    public suspend fun applyRetention(): Outcome<RetentionReport> = guard("retention") {
+    /** Retention (R10 §8.8): ledger 400 days, evaluation log 30 days, full traces 90 days; pooled AI texts 24 hours. */
+    public suspend fun applyRetention(): Outcome<MaintenanceReport> = guard("retention") {
         val now = clock.now().wall
-        ports.store.applyRetention(
+        val retention = ports.store.applyRetention(
             RetentionCutoffs(
                 ledgerBefore = now - LEDGER_DAYS.days,
                 evalLogBefore = now - EVAL_LOG_DAYS.days,
-                fullTraceBefore =
-                now - TRACE_DAYS.days,
+                fullTraceBefore = now - TRACE_DAYS.days,
             ),
         ).getOrThrow()
+        val expired = ports.aiTexts.purgeExpired(now - ContentRenderer.MAX_POOLED_AGE)
+            .onFailure { logger.w(COMPONENT, "pool expiry failed", it) }
+            .getOrNull() ?: 0
+        MaintenanceReport(retention, expired)
     }
 
     /** "Delete intervention history": content goes, the content-free ledger stays (red team database-sync-06/07). */
@@ -245,8 +275,13 @@ public class JitaiEngine(
         }
     }
 
+    /** The minimum `dueAt` of the timer table: where `jitai-timer` must aim (null: nothing to wake for). */
+    public suspend fun nextDueAt(): Outcome<Instant?> = guard("next_due") {
+        ports.store.timers().getOrThrow().minOfOrNull { it.dueAt }
+    }
+
     // ---------------------------------------------------------------------------------------------------------------
-    // Passes
+    // Context
 
     private class Context(
         val now: MonotonicStamp,
@@ -256,6 +291,17 @@ public class JitaiEngine(
         val definitions: List<JitaiDefinition>,
     ) {
         val byId: Map<String, JitaiDefinition> = definitions.associateBy { it.id }
+
+        val delivery: DeliveryEnvironment get() = DeliveryEnvironment(byId, settings, zone)
+
+        fun plan(reason: ReplanReason): PlanContext = PlanContext(
+            reason = reason,
+            now = now,
+            zone = zone,
+            definitions = definitions,
+            backstopMinutes = settings.tickProfile.tickMinutes,
+            listenerConnected = notifications.notificationListenerConnected,
+        )
 
         /** The same definitions and settings at a later instant (the zone is re-read). */
         fun at(now: MonotonicStamp, zone: TimeZone): Context = Context(now, zone, settings, notifications, definitions)
@@ -268,38 +314,169 @@ public class JitaiEngine(
         return Context(clock.now(), clock.zone(), settings, notifications, definitions)
     }
 
-    private suspend fun tick(): TickReport {
+    private fun Context.later(): Context = at(clock.now(), clock.zone())
+
+    private suspend fun generation(): String = ports.store.engineState().getOrThrow().dbGeneration
+
+    private suspend fun reconcile(
+        context: Context,
+        reason: ReplanReason,
+        deletes: Set<String> = emptySet(),
+        puts: List<TimerRow> = emptyList(),
+    ): TimerPlan = ports.store.commit(generation()) { tx ->
+        deletes.forEach { tx.deleteTimer(it) }
+        puts.forEach { tx.putTimer(it) }
+        TimerReconciler.reconcile(tx, context.plan(reason))
+    }.getOrThrow()
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // The timer
+
+    /** Due rows sorted into what each needs. */
+    private class DueRows(
+        val points: List<DecisionPoint>,
+        val missed: List<MissedPoint>,
+        val replan: Map<String, String>,
+        val prefetches: List<TimerRow>,
+        val outcomes: List<TimerRow>,
+        val backstop: TimerRow?,
+    )
+
+    private suspend fun timer(): TimerReport {
         val start = context()
-        val recovery = coordinator.recover(start.byId, start.settings)
-        val context = start.at(clock.now(), clock.zone())
-        val pass = intervalPass(context)
-        val events = eventPass(start.at(clock.now(), clock.zone()))
-        val next = SchedulePlanner.tickPlan(
-            context.definitions,
-            context.now.wall,
-            context.zone,
-            context.settings.tickProfile,
-            afterCurrentSlot = true,
+        val recovery = coordinator.recover(start.delivery)
+        val ignored = ignored(start.later())
+        val context = start.later()
+        reconcile(context, ReplanReason.EVALUATION)
+        val due = sort(context, ports.store.timers().getOrThrow().filter { it.dueAt <= context.now.wall + SchedulePlanner.COALESCE })
+        val syncs = due.prefetches.mapNotNull { prefetch(it, context) }
+        val outcomes = outcomes(context, due.outcomes)
+        val pass = if (due.points.isEmpty() && due.missed.isEmpty() && due.replan.isEmpty()) {
+            null
+        } else {
+            evaluate(context, due.points, due.missed, due.replan.keys)
+        }
+        val events = due.backstop?.let { eventPass(context.later())?.report }
+        val end = context.later()
+        val handled = due.prefetches.map { it.key } + outcomes.done + listOfNotNull(due.backstop?.key)
+        val plan = reconcile(end, ReplanReason.EVALUATION, handled.toSet(), outcomes.reschedule)
+        val expired = expire(end)
+        return TimerReport(
+            at = context.now.wall,
+            recovery = recovery,
+            ignored = ignored,
+            pass = pass?.copy(expired = expired),
+            events = events,
+            syncRequests = syncs + pass?.syncRequests.orEmpty(),
+            outcomes = outcomes.results,
+            replanned = due.replan.values.toList(),
+            nextDueAt = plan.nextDueAt,
         )
-        return TickReport(recovery, pass, events?.report, next)
     }
 
-    private suspend fun intervalPass(context: Context): PassReport {
+    private fun sort(context: Context, due: List<TimerRow>): DueRows {
         val points = mutableListOf<DecisionPoint>()
         val missed = mutableListOf<MissedPoint>()
-        context.definitions
-            .filter { Effectiveness.isArmed(it) && Effectiveness.isIntervention(it) && it.trigger is Trigger.Interval }
-            .forEach { definition ->
-                IntervalSlots.currentSlot(definition, context.now.wall, context.zone)?.let { slot ->
-                    points += DecisionPoint(definition, slot.key(definition.id), TriggerKind.INTERVAL)
-                }
-                IntervalSlots.unreached(definition, context.now.wall, context.zone, notBefore = definition.modifiedAt).forEach { slot ->
-                    missed +=
-                        MissedPoint(definition, slot.key(definition.id), TriggerKind.INTERVAL, slot.start, ReasonCode.SLOT_NOT_REACHED)
-                }
+        val replan = linkedMapOf<String, String>()
+        due.filter { it.kind == TimerKind.SLOT || it.kind == TimerKind.SNOOZE }.forEach { row ->
+            val definition = context.byId[row.jitaiId]
+            val verdict = TimerChecks.verify(row, definition, context.now.wall, context.zone)
+            when {
+                definition == null -> replan[row.key] = "definition_missing"
+
+                verdict is TimerVerdict.Evaluate ->
+                    points += DecisionPoint(definition, verdict.key, verdict.kind, verdict.nominalAt, verdict.latestAt, timer = row)
+
+                verdict is TimerVerdict.Missed ->
+                    missed += MissedPoint(definition, verdict.key, verdict.kind, verdict.nominalAt, verdict.reason, timer = row)
+
+                verdict is TimerVerdict.Replan -> replan[row.key] = verdict.why
             }
-        return runPass(PassKind.TICK, context, points, missed) ?: PassReport(PassKind.TICK, context.now.wall)
+        }
+        return DueRows(
+            points = points,
+            missed = missed,
+            replan = replan,
+            prefetches = due.filter { it.kind == TimerKind.PREFETCH },
+            outcomes = due.filter { it.kind == TimerKind.OUTCOME },
+            backstop = due.firstOrNull { it.kind == TimerKind.BACKSTOP },
+        )
     }
+
+    /** A due PREFETCH row of the current version becomes a sync request (R10 §7.4). */
+    private fun prefetch(row: TimerRow, context: Context): SyncRequest? {
+        val definition = context.byId[row.jitaiId] ?: return null
+        val key = row.decisionKey ?: return null
+        if (definition.version != row.version || row.featureIds.isEmpty()) return null
+        return SyncRequest(definition.id, key, row.featureIds, SyncReason.PREFETCH)
+    }
+
+    /** Outcomes computed by a timer run: recorded results, rows to delete and PENDING rows to compute again. */
+    private class OutcomeRun(val results: List<OutcomeResult>, val done: List<String>, val reschedule: List<TimerRow>)
+
+    /** Due OUTCOME rows (R10 §8.7): final results are recorded, then their rows go; PENDING ones are due again later. */
+    private suspend fun outcomes(context: Context, rows: List<TimerRow>): OutcomeRun {
+        val results = mutableListOf<OutcomeResult>()
+        val done = mutableListOf<String>()
+        val reschedule = mutableListOf<TimerRow>()
+        val now = context.now.wall
+        rows.forEach { row ->
+            val record = row.decisionKey?.let { ports.store.decision(it).getOrThrow() }
+            val definition = record?.let { context.byId[it.jitaiId] }
+            val planned = definition?.let { OutcomePlanner.plan(record, it, context.zone).firstOrNull { p -> p.role == row.role } }
+            val port = ports.outcomeData
+            if (record == null || planned == null || port == null) {
+                done += row.key
+                return@forEach
+            }
+            val result = OutcomeEvaluator.compute(planned, record, now, context.zone, port).getOrNull()
+                ?.takeIf { it.state != OutcomeState.PENDING }
+            if (result != null && port.record(result).getOrNull() != null) {
+                results += result
+                done += row.key
+            } else {
+                reschedule += row.copy(dueAt = minOf(now + OutcomePlanner.PENDING_RETRY, maxOf(planned.unavailableAt, now + 1.minutes)))
+            }
+        }
+        return OutcomeRun(results, done, reschedule)
+    }
+
+    /** One serialized evaluation of the due decision points (jitai-correctness-05): one snapshot, one commit, arbitration. */
+    private suspend fun evaluate(
+        context: Context,
+        points: List<DecisionPoint>,
+        missed: List<MissedPoint>,
+        deletes: Set<String>,
+    ): PassReport {
+        val prepared = prepare(context, points, missed.map { it.key })
+        val retries = mutableListOf<StalenessRetry>()
+        val evaluations = prepared.evaluations.filter { evaluation ->
+            val retry = stalenessRetry(evaluation, context.now.wall)
+            retry?.let { retries += it }
+            retry == null
+        }
+        return commitAndDeliver(
+            kind = PassKind.TIMER,
+            context = context,
+            prepared = Prepared(prepared.generation, prepared.snapshot, evaluations),
+            writes = PassWrites(missed = missed, retries = retries, timerDeletes = deletes),
+        ) ?: PassReport(PassKind.TIMER, context.now.wall)
+    }
+
+    /**
+     * The `daily_at` staleness retry (R10 §8.2): when the point is UNKNOWN only because remote data is stale or not yet
+     * synced, it runs again at slot + 10 or + 20 minutes (within the lateness) after a sync; otherwise null.
+     */
+    private fun stalenessRetry(evaluation: CandidateEvaluation, now: Instant): StalenessRetry? {
+        val point = evaluation.point
+        val latest = point.latestAt?.takeIf { point.kind == TriggerKind.DAILY_AT && point.timer != null } ?: return null
+        val sync = PassEvaluator.retryableStaleness(evaluation) ?: return null
+        val at = RETRY_OFFSETS_MINUTES.map { point.nominalAt + it.minutes }.firstOrNull { it > now && it <= latest }
+        return at?.let { StalenessRetry(evaluation, it, sync) }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // Events
 
     /** Result of one event pass; [more] when the batch was full and events remain after the new watermark. */
     private class EventPass(val report: PassReport, val more: Boolean)
@@ -313,24 +490,28 @@ public class JitaiEngine(
             if (pass != null) {
                 passes += pass.report
                 more = pass.more
-                if (!more && !ports.store.engineState().getOrThrow().dirty) return EventsReport(passes, followUpNeeded = false)
+                if (!more && !ports.store.engineState().getOrThrow().dirty) {
+                    return EventsReport(passes, followUpNeeded = false, nextDueAt = currentNextDueAt())
+                }
             }
         }
-        return EventsReport(passes, followUpNeeded = more || ports.store.engineState().getOrThrow().dirty)
+        val followUp = more || ports.store.engineState().getOrThrow().dirty
+        return EventsReport(passes, followUpNeeded = followUp, nextDueAt = currentNextDueAt())
     }
+
+    private suspend fun currentNextDueAt(): Instant? = ports.store.timers().getOrThrow().minOfOrNull { it.dueAt }
 
     /**
      * One event pass (R10 §7.3): per candidate rule the latest fresh semantic event wins; events older than their bound
      * are MISSED(EVENT_TOO_OLD) in the evaluation log; a rule evaluated less than `debounceSeconds` ago keeps the event
-     * pending; the watermark advances in the same transaction as the decisions. Null when another pass moved the
-     * watermark first.
+     * pending (the BACKSTOP row wakes for it); the watermark advances in the same transaction as the decisions. Null when
+     * another pass moved the watermark first.
      */
     private suspend fun eventPass(context: Context): EventPass? {
         val state = ports.store.engineState().getOrThrow()
         val batch = ports.events.eventsAfter(state.watermark, EVENT_BATCH).getOrThrow().sortedBy { it.changeSeq }
         val rules = context.definitions.filter {
-            Effectiveness.isArmed(it) && Effectiveness.isIntervention(it) &&
-                it.trigger is Trigger.Event
+            Effectiveness.isArmed(it) && Effectiveness.isIntervention(it) && it.trigger is Trigger.Event
         }
         val runtimes = rules.associate { it.id to ports.store.runtime(it.id).getOrThrow() }
         if (batch.isEmpty() && runtimes.values.none { it.pendingEvent != null }) {
@@ -340,7 +521,6 @@ public class JitaiEngine(
         val log = mutableListOf<EvalLogEntry>()
         val updates = mutableListOf<RuntimeUpdate>()
         val points = mutableListOf<DecisionPoint>()
-        val wakeAt = mutableListOf<Instant>()
         val semantic = batch.filter { it.isSemantic && it.type.isAvailable }
         rules.forEach { rule ->
             val trigger = rule.trigger as Trigger.Event
@@ -351,153 +531,75 @@ public class JitaiEngine(
             old.maxByOrNull { it.changeSeq }?.let { event ->
                 log += EvalLogEntry(now.wall, rule.id, TriggerKind.EVENT, event.type, EvalOutcome.MISSED, ReasonCode.EVENT_TOO_OLD)
             }
-            val latest = fresh.maxWithOrNull(compareBy<TriggerEvent>({ it.eventAt }, { it.changeSeq })) ?: run {
+            val latest = fresh.maxWithOrNull(compareBy<TriggerEvent>({ it.eventAt }, { it.changeSeq }))
+            if (latest == null) {
                 if (pending != null) updates += RuntimeUpdate(rule.id) { it.copy(pendingEvent = null) }
                 return@forEach
             }
             if (!Effectiveness.windowOpen(rule, now.wall, context.zone)) {
-                log +=
-                    EvalLogEntry(now.wall, rule.id, TriggerKind.EVENT, latest.type, EvalOutcome.OUTSIDE_WINDOW, ReasonCode.OUTSIDE_WINDOW)
+                log += EvalLogEntry(
+                    now.wall,
+                    rule.id,
+                    TriggerKind.EVENT,
+                    latest.type,
+                    EvalOutcome.OUTSIDE_WINDOW,
+                    ReasonCode.OUTSIDE_WINDOW,
+                )
                 updates += RuntimeUpdate(rule.id) { it.copy(pendingEvent = null) }
                 return@forEach
             }
-            val debounce = EventPolicy.debounce(trigger)
             val since = runtime.lastEventEvaluation?.let { elapsedBetween(it, now) }
-            if (since != null && since < debounce) {
+            if (since != null && since < EventPolicy.debounce(trigger)) {
                 log += EvalLogEntry(now.wall, rule.id, TriggerKind.EVENT, latest.type, EvalOutcome.DEBOUNCED, ReasonCode.DEBOUNCED)
                 val held = PendingTriggerEvent(latest.changeSeq, latest.type, latest.eventAt, latest.activityState)
                 updates += RuntimeUpdate(rule.id) { it.copy(pendingEvent = held) }
-                wakeAt += now.wall + (debounce - since)
                 return@forEach
             }
             points += DecisionPoint(
                 definition = rule,
                 key = DecisionKeys.event(rule.id, latest.eventAt),
                 kind = TriggerKind.EVENT,
+                nominalAt = latest.eventAt,
                 eventType = latest.type,
                 impliedState = EventPolicy.impliedState(latest.type, latest.activityState),
             )
             updates += RuntimeUpdate(rule.id) { it.copy(lastEventEvaluation = now, pendingEvent = null) }
         }
         val target = batch.maxOfOrNull { it.changeSeq } ?: state.watermark
-        val report = runPass(
+        val report = commitAndDeliver(
             kind = PassKind.EVENTS,
             context = context,
-            points = points,
-            evalLog = log,
-            runtime = updates,
-            watermark = WatermarkAdvance(state.watermark, maxOf(target, state.watermark)),
+            prepared = prepare(context, points, emptyList()),
+            writes = PassWrites(
+                evalLog = log,
+                runtime = updates,
+                watermark = WatermarkAdvance(state.watermark, maxOf(target, state.watermark)),
+            ),
         ) ?: return null
-        val more = batch.size >= EVENT_BATCH
-        val followUp = listOfNotNull(
-            wakeAt.minOrNull()?.let { eventsWork(it) },
-            if (more) eventsWork(now.wall) else null,
-        ).distinctBy { it.runAt }.take(1)
-        return EventPass(report.copy(followUp = report.followUp + followUp), more)
+        val expired = expire(context)
+        return EventPass(report.copy(expired = expired), more = batch.size >= EVENT_BATCH)
     }
 
-    private fun eventsWork(at: Instant) = PlannedWork(EVENTS_WORK, setOf(EVENTS_WORK), at, WorkInput.EventsFollowUp, WorkPolicy.KEEP)
-
-    private suspend fun dailyAt(jitaiId: String, date: LocalDate, time: String): DailyAtReport {
-        val context = context()
-        val definition = context.byId[jitaiId]
-        val trigger = definition?.trigger as? Trigger.DailyAt
-        if (definition == null || trigger == null || time !in trigger.times ||
-            !Effectiveness.isArmed(definition) || !Effectiveness.isIntervention(definition)
-        ) {
-            return DailyAtReport(DailyAtStatus.NOT_SCHEDULED, null, null)
-        }
-        val now = context.now
-        val slot = DailyAtSlots.slotInstant(date, time, context.zone) ?: return DailyAtReport(DailyAtStatus.NOT_SCHEDULED, null, null)
-        val key = DecisionKeys.dailyAt(jitaiId, date, time)
-        val timing = DailyAtSlots.timing(now.wall, slot, trigger.maxLatenessMinutes)
-        if (timing == DailyAtSlots.Timing.TOO_EARLY) {
-            return DailyAtReport(DailyAtStatus.TOO_EARLY, slot, null, SchedulePlanner.dailyAtWork(jitaiId, date, time, runAt = slot))
-        }
-        val next = SchedulePlanner.nextAfterRun(definition, date, time, now.wall, context.zone)
-        if (timing == DailyAtSlots.Timing.TOO_LATE) {
-            val missed = MissedPoint(definition, key, TriggerKind.DAILY_AT, slot, ReasonCode.TOO_LATE)
-            return DailyAtReport(DailyAtStatus.MISSED, slot, runPass(PassKind.DAILY_AT, context, emptyList(), listOf(missed)), next)
-        }
-        if (!Effectiveness.windowOpen(definition, now.wall, context.zone)) {
-            val entry = EvalLogEntry(now.wall, jitaiId, TriggerKind.DAILY_AT, null, EvalOutcome.OUTSIDE_WINDOW, ReasonCode.OUTSIDE_WINDOW)
-            val pass = runPass(PassKind.DAILY_AT, context, emptyList(), evalLog = listOf(entry))
-            return DailyAtReport(DailyAtStatus.OUTSIDE_WINDOW, slot, pass, next)
-        }
-        val point = DecisionPoint(definition, key, TriggerKind.DAILY_AT)
-        val prepared = prepare(context, listOf(point), emptyList())
-        val retry = prepared.evaluations.firstOrNull()?.let { evaluation ->
-            val sync = PassEvaluator.retryableStaleness(evaluation) ?: return@let null
-            retryAt(slot, now.wall, trigger.maxLatenessMinutes)?.let { at -> sync to at }
-        }
-        if (retry != null) {
-            val (sync, at) = retry
-            val work = listOf(
-                SchedulePlanner.dailyAtWork(jitaiId, date, time, runAt = at).let {
-                    it.copy(uniqueName = "${it.uniqueName}-r${(at - slot).inWholeMinutes}", policy = WorkPolicy.KEEP)
-                },
-                PlannedWork(
-                    uniqueName = "${DailyAtSlots.prefetchName(jitaiId, date, time)}-r${(at - slot).inWholeMinutes}",
-                    tags = setOf(SchedulePlanner.jitaiTag(jitaiId), SchedulePlanner.TAG_PREFETCH),
-                    runAt = now.wall,
-                    input = WorkInput.Prefetch(jitaiId, date, time, sync),
-                    policy = WorkPolicy.KEEP,
-                ),
-            )
-            val pass = PassReport(PassKind.DAILY_AT, now.wall, retryAt = at, syncFeatures = sync, followUp = work)
-            return DailyAtReport(DailyAtStatus.RETRY, slot, pass, next)
-        }
-        val pass = commitAndDeliver(PassKind.DAILY_AT, context, prepared, emptyList())
-        return DailyAtReport(DailyAtStatus.EVALUATED, slot, pass, next)
-    }
-
-    /** The next staleness retry (slot + 10 or + 20 minutes, R10 §8.2) after [now] within the lateness bound, if any. */
-    private fun retryAt(slot: Instant, now: Instant, maxLatenessMinutes: Int): Instant? =
-        RETRY_OFFSETS_MINUTES.map { slot + it.minutes }.firstOrNull { it > now && it <= slot + maxLatenessMinutes.minutes }
-
-    private suspend fun snoozeFollowUp(originalKey: String): PassReport? {
-        val context = context()
-        val original = ports.store.decision(originalKey).getOrThrow() ?: return null
-        if (original.triggerKind == TriggerKind.SNOOZE_FOLLOW_UP) return null
-        val definition = context.byId[original.jitaiId] ?: return null
-        if (!Effectiveness.isArmed(definition) || !Effectiveness.isIntervention(definition)) return null
-        val now = context.now
-        val until = ports.store.runtime(definition.id).getOrThrow().snoozedUntil
-        if (until != null && isBefore(now, until + (-DailyAtSlots.EARLY_TOLERANCE))) {
-            return PassReport(
-                PassKind.SNOOZE_FOLLOW_UP,
-                now.wall,
-                followUp = listOf(SnoozeCalculator.followUpWork(definition.id, originalKey, until.wall)),
-            )
-        }
-        val key = DecisionKeys.snoozeFollowUp(definition.id, originalKey)
-        if (!Effectiveness.windowOpen(definition, now.wall, context.zone)) {
-            val entry =
-                EvalLogEntry(
-                    now.wall,
-                    definition.id,
-                    TriggerKind.SNOOZE_FOLLOW_UP,
-                    null,
-                    EvalOutcome.OUTSIDE_WINDOW,
-                    ReasonCode.OUTSIDE_WINDOW,
-                )
-            return runPass(PassKind.SNOOZE_FOLLOW_UP, context, emptyList(), evalLog = listOf(entry))
-        }
-        val point = DecisionPoint(definition, key, TriggerKind.SNOOZE_FOLLOW_UP, snoozeFollowUp = true)
-        return runPass(PassKind.SNOOZE_FOLLOW_UP, context, listOf(point))
-    }
+    // ---------------------------------------------------------------------------------------------------------------
+    // Prepare, commit, deliver
 
     /** A prepared pass: the database [generation] it read from, its snapshot and the evaluated points. */
     private class Prepared(val generation: String, val snapshot: FeatureSnapshot?, val evaluations: List<CandidateEvaluation>)
 
     /**
-     * Steps 2-4 of R10 §8.1 inside one read transaction (red team database-sync-05): drop points whose key exists, resolve
-     * every feature once, then evaluate the rules and the SUPPRESSION rules against that one snapshot. The database
-     * generation is read first, so a commit after a restore or replacement of the database is rejected (database-sync-04).
+     * Steps 2-4 of R10 §8.1 inside one read transaction (red team database-sync-05): drop points whose key exists, bring
+     * the daily features of dirty days up to date (jitai-correctness-08), resolve every feature once, then evaluate the
+     * rules and the SUPPRESSION rules against that one snapshot. The database generation is read first, so a commit after
+     * a restore or replacement of the database is rejected (database-sync-04).
      */
     private suspend fun prepare(context: Context, points: List<DecisionPoint>, missedKeys: List<String>): Prepared {
-        val generation = ports.store.engineState().getOrThrow().dbGeneration
+        val generation = generation()
         if (points.isEmpty()) return Prepared(generation, null, emptyList())
+        ports.dailyRefresh?.let { refresher ->
+            outcomeOf(mapError = { AppError.Unexpected("daily_refresh:${it::class.simpleName}") }) {
+                refresher.refreshDirtyDays(context.now.wall).getOrThrow()
+            }.onFailure { logger.w(COMPONENT, "daily refresh failed", it) }
+        }
         val suppressions = PassEvaluator.suppressions(context.definitions, context.now.wall)
         val (open, snapshot) = ports.store.readSnapshot { view ->
             val existing = view.existingKeys(points.map { it.key } + missedKeys)
@@ -509,67 +611,25 @@ public class JitaiEngine(
         return Prepared(generation, snapshot, open.map { PassEvaluator.evaluate(it, snapshot, blocking, evaluator) })
     }
 
-    /** Prepare, commit, deliver, plan outcomes. Null when an event pass lost the watermark race. */
-    private suspend fun runPass(
-        kind: PassKind,
-        context: Context,
-        points: List<DecisionPoint>,
-        missed: List<MissedPoint> = emptyList(),
-        evalLog: List<EvalLogEntry> = emptyList(),
-        runtime: List<RuntimeUpdate> = emptyList(),
-        watermark: WatermarkAdvance? = null,
-    ): PassReport? {
-        val prepared = prepare(context, points, missed.map { it.key })
-        return commitAndDeliver(kind, context, prepared, missed, evalLog, runtime, watermark)
-    }
-
-    private suspend fun commitAndDeliver(
-        kind: PassKind,
-        context: Context,
-        prepared: Prepared,
-        missed: List<MissedPoint>,
-        evalLog: List<EvalLogEntry> = emptyList(),
-        runtime: List<RuntimeUpdate> = emptyList(),
-        watermark: WatermarkAdvance? = null,
-    ): PassReport? {
-        val needsCommit = prepared.evaluations.isNotEmpty() || missed.isNotEmpty() || evalLog.isNotEmpty() || runtime.isNotEmpty() ||
-            (watermark != null && watermark.to != watermark.expected)
-        if (!needsCommit) {
-            val expired = expire(context)
-            return PassReport(
-                kind,
-                context.now.wall,
-                expired = expired,
-                cancelTags = expired.mapTo(linkedSetOf(), SchedulePlanner::jitaiTag),
-            )
-        }
+    /** Commit, then deliver the DECIDED rows. Null when an event pass lost the watermark race. */
+    private suspend fun commitAndDeliver(kind: PassKind, context: Context, prepared: Prepared, writes: PassWrites): PassReport? {
         val randomized = prepared.evaluations.any { it.eligible && MicroRandomization.probability(it.point.definition.experiment) != null }
-        val salt = if (randomized) ports.settings.installSalt().getOrThrow() else null
         val request = CommitRequest(
             now = context.now,
             zone = context.zone,
             settings = context.settings,
-            notifications = context.notifications,
-            salt = salt,
+            live = liveState(context, prepared.evaluations),
+            salt = if (randomized) ports.settings.installSalt().getOrThrow() else null,
             snapshot = prepared.snapshot,
             evaluations = prepared.evaluations,
-            missed = missed,
-            evalLog = evalLog,
-            runtime = runtime,
-            watermark = watermark,
+            writes = writes,
+            plan = context.plan(ReplanReason.EVALUATION),
         )
         val committed = when (val result = ports.store.commit(prepared.generation) { tx -> resolver.commit(tx, request) }.getOrThrow()) {
             CommitResult.Stale -> return null
             is CommitResult.Committed -> result
         }
-        // After the commit, so the commit's G01 re-check still sees the definition as it was evaluated (R10 §12.M2).
-        val expired = expire(context)
-        val deliveries = committed.written.filter { it.state == DecisionState.DECIDED }.map { row ->
-            coordinator.deliver(row, context.byId, context.settings)
-        }
-        val outcomes: List<PlannedOutcome> = committed.written.flatMap { row ->
-            context.byId[row.jitaiId]?.let { OutcomePlanner.plan(row, it, context.zone) }.orEmpty()
-        }
+        val deliveries = committed.written.filter { it.state == DecisionState.DECIDED }.map { coordinator.deliver(it, context.delivery) }
         logPass(kind, committed.written, deliveries)
         return PassReport(
             kind = kind,
@@ -577,13 +637,26 @@ public class JitaiEngine(
             written = committed.written,
             evalLog = committed.evalLog,
             deliveries = deliveries,
-            expired = expired,
-            cancelTags = expired.mapTo(linkedSetOf(), SchedulePlanner::jitaiTag),
-            outcomes = outcomes,
+            deferred = committed.deferred,
+            syncRequests = writes.retries.map {
+                SyncRequest(it.point.definition.id, it.point.key, it.syncFeatures, SyncReason.STALENESS_RETRY)
+            },
+            nextDueAt = committed.plan?.nextDueAt,
         )
     }
 
-    /** G02 side effect (R10 §9.1): armed definitions past `expiresAt` move to EXPIRED and their work is cancelled. */
+    /** G05 and G07 inputs read right before the commit: the delivery prerequisite of every eligible category. */
+    private suspend fun liveState(context: Context, evaluations: List<CandidateEvaluation>): LiveState {
+        val categories = evaluations.filter { it.eligible }.mapTo(linkedSetOf()) { it.point.definition.category }
+        return LiveState(context.notifications.interruptionFilter, categories.associateWith { prerequisite(it) })
+    }
+
+    private suspend fun prerequisite(category: JitaiCategory): DeliveryPrerequisite =
+        outcomeOf(mapError = { AppError.Unexpected("prerequisite:${it::class.simpleName}") }) {
+            ports.delivery.prerequisite(category).getOrNull()
+        }.getOrNull() ?: DeliveryPrerequisite.UNKNOWN
+
+    /** G02 side effect (R10 §9.1): armed definitions past `expiresAt` move to EXPIRED (the repository deletes their timers). */
     private suspend fun expire(context: Context): List<String> = context.definitions
         .filter { Effectiveness.isArmed(it) && it.expiresAt?.let { at -> at <= context.now.wall } == true }
         .map { definition ->
@@ -592,79 +665,82 @@ public class JitaiEngine(
             definition.id
         }
 
-    private suspend fun plan(context: Context, signal: RescheduleSignal, changedJitaiId: String?): PlanReport {
-        val dailyAt = context.definitions.filter { it.trigger is Trigger.DailyAt }
-        val today = context.now.wall.toLocalDateTime(context.zone).date
-        val keys = dailyAt.flatMap { definition ->
-            val times = (definition.trigger as Trigger.DailyAt).times
-            (-1..PLAN_LOOKAHEAD_DAYS).flatMap { offset ->
-                val date = today.plus(offset, DateTimeUnit.DAY)
-                times.map { DecisionKeys.dailyAt(definition.id, date, it) }
-            }
-        }
-        val used = if (keys.isEmpty()) emptySet() else ports.store.readSnapshot { it.existingKeys(keys) }.getOrThrow()
-        val plan = SchedulePlanner.plan(
-            definitions = context.definitions,
-            now = context.now.wall,
-            zone = context.zone,
-            profile = context.settings.tickProfile,
-            signal = signal,
-            changedJitaiId = changedJitaiId,
-            usedKeys = used,
-            listenerConnected = context.notifications.notificationListenerConnected,
-        )
-        val missed = resolveMissed(context, plan.missed)
-        return PlanReport(plan, missed)
-    }
+    // ---------------------------------------------------------------------------------------------------------------
+    // Responses
 
-    private suspend fun resolveMissed(context: Context, slots: List<MissedSlot>): PassReport? {
-        val points = slots.mapNotNull { slot ->
-            context.byId[slot.jitaiId]?.let { definition ->
-                MissedPoint(
-                    definition,
-                    slot.decisionKey,
-                    DecisionKeys.kindOf(slot.decisionKey) ?: TriggerKind.DAILY_AT,
-                    slot.slotAt,
-                    slot.reason,
+    /** What the response transaction wrote. */
+    private class Applied(val write: ResponseWrite, val runtime: JitaiRuntimeState?, val run: Int?, val plan: TimerPlan?)
+
+    private suspend fun applyResponse(
+        context: Context,
+        record: DecisionRecord,
+        response: JitaiResponse,
+        snooze: SnoozeOption?,
+    ): ResponseReport {
+        val now = context.now
+        val definition = context.byId[record.jitaiId]
+        val policy = SnoozePolicies.of(definition)
+        val option = snooze?.takeIf { response == JitaiResponse.SNOOZED }
+        val target = option?.let {
+            SnoozeCalculator.until(it, now, definition, context.zone, context.settings.rolloverMinute, context.settings.quietHours)
+        }
+        val followUp = option != null && SnoozePolicies.plansFollowUp(policy, option) && record.triggerKind != TriggerKind.SNOOZE_FOLLOW_UP
+        // Never back off or pause while notifications cannot be delivered (jitai-correctness-13).
+        val blocked = !prerequisite(record.category).met
+        val positive = if (blocked) emptySet() else positiveOutcomes(context, record.jitaiId)
+        val applied = ports.store.commit(generation()) { tx ->
+            val write = tx.recordResponse(record.decisionKey, response, now.wall)
+            if (write == ResponseWrite.NOT_FOUND) return@commit Applied(write, null, null, null)
+            var runtime = tx.runtime(record.jitaiId)
+            if (target != null) {
+                runtime = runtime.copy(
+                    snoozedUntil = SnoozeCalculator.later(runtime.snoozedUntil, target),
+                    snoozeMode = policy.mode,
+                    followUpOf = if (followUp) record.decisionKey else runtime.followUpOf,
                 )
             }
-        }
-        if (points.isEmpty()) return null
-        return runPass(PassKind.MISSED, context, emptyList(), points)
-    }
-
-    private suspend fun applyResponse(record: DecisionRecord, response: JitaiResponse, snooze: SnoozeOption?): ResponseReport {
-        val now = clock.now()
-        val zone = clock.zone()
-        val status = when (ports.store.recordResponse(record.decisionKey, response, now.wall).getOrThrow()) {
+            val run = if (blocked) {
+                null
+            } else {
+                val recent = tx.recentCounted(record.jitaiId, EngagementBackoff.SCAN_ROWS)
+                EngagementBackoff.consecutiveIgnored(recent) { it.decisionKey in positive }
+            }
+            run?.let { runtime = runtime.copy(consecutiveIgnored = it) }
+            tx.putRuntime(runtime)
+            Applied(write, runtime, run, TimerReconciler.reconcile(tx, context.plan(ReplanReason.RESPONSE)))
+        }.getOrThrow()
+        val status = when (applied.write) {
             ResponseWrite.RECORDED -> ResponseStatus.RECORDED
             ResponseWrite.ALREADY_RESPONDED -> ResponseStatus.ALREADY_RESPONDED
             ResponseWrite.NOT_FOUND -> return ResponseReport(ResponseStatus.NOT_FOUND)
         }
-        var snoozedUntil: MonotonicStamp? = null
-        var followUp: PlannedWork? = null
-        if (response == JitaiResponse.SNOOZED && snooze != null) {
-            val definition = ports.repository.definitions().getOrThrow().firstOrNull { it.id == record.jitaiId }
-            val settings = ports.settings.engineSettings().getOrThrow().effective()
-            val policy = definition?.snooze ?: SnoozePolicy.DEFAULT
-            val target = SnoozeCalculator.until(snooze, now, definition, zone, settings.rolloverMinute)
-            val updated = ports.store.updateRuntime(record.jitaiId) {
-                it.copy(snoozedUntil = SnoozeCalculator.later(it.snoozedUntil, target), snoozeMode = policy.mode)
-            }.getOrThrow()
-            snoozedUntil = updated.snoozedUntil
-            if (policy.mode == SnoozeMode.RE_EVALUATE_AFTER && record.triggerKind != TriggerKind.SNOOZE_FOLLOW_UP && snoozedUntil != null) {
-                followUp = SnoozeCalculator.followUpWork(record.jitaiId, record.decisionKey, snoozedUntil.wall)
-            }
-        }
-        val rows = ports.store.readSnapshot { it.recentCounted(record.jitaiId, EngagementBackoff.SCAN_ROWS) }.getOrThrow()
-        val run = EngagementBackoff.consecutiveIgnored(rows)
-        ports.store.updateRuntime(record.jitaiId) { it.copy(consecutiveIgnored = run) }.getOrThrow()
-        val paused = run >= Backoff.PAUSE_AT && ports.repository.pauseForBackoff(record.jitaiId, run, now.wall).getOrNull() != null
-        return ResponseReport(status, snoozedUntil, followUp, run, paused)
+        val run = applied.run
+        val paused = run != null && run >= Backoff.PAUSE_AT && definition?.let { Effectiveness.isArmed(it) } == true &&
+            ports.repository.pauseForBackoff(record.jitaiId, run, now.wall).getOrNull() != null
+        val snoozedUntil = applied.runtime?.snoozedUntil?.takeIf { target != null }
+        return ResponseReport(
+            status = status,
+            snoozedUntil = snoozedUntil,
+            followUpAt = snoozedUntil?.takeIf { followUp }?.let { SchedulePlanner.wallOf(it, now) },
+            consecutiveIgnored = run,
+            paused = paused,
+            nextTimerAt = if (paused) currentNextDueAt() else applied.plan?.nextDueAt,
+        )
     }
 
-    private suspend fun ignored(): List<String> {
-        val context = context()
+    /** DISMISSED rows of [jitaiId] whose proximal outcome is positive (jitai-correctness-14; [OutcomePositivity]). */
+    private suspend fun positiveOutcomes(context: Context, jitaiId: String): Set<String> {
+        val definition = context.byId[jitaiId] ?: return emptySet()
+        if (definition.outcome == null) return emptySet()
+        val rows = ports.store.readSnapshot { it.recentCounted(jitaiId, EngagementBackoff.SCAN_ROWS) }.getOrThrow()
+        return rows.filter { it.state == DecisionState.DELIVERED && it.content.response == JitaiResponse.DISMISSED }.filter { row ->
+            val planned = OutcomePlanner.plan(row, definition, context.zone).firstOrNull { it.role == OutcomeRole.PROXIMAL }
+            val result = planned?.let { OutcomeEvaluator.compute(it, row, context.now.wall, context.zone, ports.outcomeData).getOrNull() }
+            result != null && OutcomePositivity.isPositive(result)
+        }.mapTo(linkedSetOf()) { it.decisionKey }
+    }
+
+    private suspend fun ignored(context: Context): List<String> {
         val marked = mutableListOf<String>()
         context.definitions.filter { Effectiveness.isIntervention(it) }.forEach { definition ->
             val rows = ports.store.readSnapshot { it.recentCounted(definition.id, EngagementBackoff.SCAN_ROWS) }.getOrThrow()
@@ -673,13 +749,15 @@ public class JitaiEngine(
                 val due = definition.delivery.notificationTimeoutMinutes?.let { delivered + it.minutes }
                     ?: EngineDays.nextRollover(delivered, context.zone, context.settings.rolloverMinute)
                 if (context.now.wall >= due) {
-                    applyResponse(row, JitaiResponse.IGNORED, null)
+                    applyResponse(context, row, JitaiResponse.IGNORED, null)
                     marked += row.decisionKey
                 }
             }
         }
         return marked
     }
+
+    // ---------------------------------------------------------------------------------------------------------------
 
     private fun logPass(kind: PassKind, written: List<DecisionRecord>, deliveries: List<DeliveryResult>) {
         if (written.isEmpty() && deliveries.isEmpty()) return
@@ -695,6 +773,8 @@ public class JitaiEngine(
         )
     }
 
+    private suspend fun <T> serialized(block: suspend () -> T): T = evaluatorLock.withLock { block() }
+
     private suspend fun <T> guard(step: String, block: suspend () -> T): Outcome<T> =
         outcomeOf(mapError = { AppError.Unexpected("$step:${it::class.simpleName}") }) { block() }
             .onFailure { logger.w(COMPONENT, "engine step failed", it, mapOf("step" to step)) }
@@ -706,7 +786,6 @@ public class JitaiEngine(
         public const val LEDGER_DAYS: Int = 400
         public const val EVAL_LOG_DAYS: Int = 30
         public const val TRACE_DAYS: Int = 90
-        private const val PLAN_LOOKAHEAD_DAYS = 4
         private val RETRY_OFFSETS_MINUTES = listOf(10, 20)
         private const val COMPONENT = "jitai-engine"
     }
