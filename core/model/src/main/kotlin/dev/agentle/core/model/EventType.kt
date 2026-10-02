@@ -80,6 +80,9 @@ public enum class EventType(public val category: DataCategory) {
 
     // Appended later (enum names are persisted, so new types go at the end)
 
+    /** A per-civil-day total computed by the source (see [DailyTotalPayload]); never summed with interval samples. */
+    DAILY_TOTAL(DataCategory.ACTIVITY),
+
     /** The next alarm clock changed or was sampled (see [NextAlarmPayload]). */
     NEXT_ALARM_CHANGED(DataCategory.DEVICE_STATE),
 
