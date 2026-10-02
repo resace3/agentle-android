@@ -12,5 +12,6 @@ dependencies {
     // AppRoute implements NavKey so the app can keep its back stack with rememberNavBackStack.
     api(libs.androidx.navigation3.runtime)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.kotlinx.collections.immutable)
 }
