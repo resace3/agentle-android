@@ -1,0 +1,22 @@
+{
+    "decisionKey": "v1|R2|D|2026-10-01|17:00",
+    "jitaiId": "R2",
+    "jitaiName": "Rule R2",
+    "category": "PHYSICAL_ACTIVITY",
+    "channel": "NOTIFICATION",
+    "decidedChannel": "NOTIFICATION",
+    "title": "Time for a walk",
+    "body": "Only 2,000 steps so far today.",
+    "postedTitle": "Agentle",
+    "postedBody": "You have a new check-in. Open Agentle to see it.",
+    "detailed": false,
+    "localOnly": true,
+    "assetId": null,
+    "contentRef": "template",
+    "nonce": "f5008c5f5db4e0d206967259f3e133a2",
+    "timeoutMinutes": null,
+    "snoozeOptions": [
+        "MINUTES_60",
+        "UNTIL_TOMORROW"
+    ]
+}

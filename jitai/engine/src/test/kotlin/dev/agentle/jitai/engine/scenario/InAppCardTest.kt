@@ -2,16 +2,22 @@ package dev.agentle.jitai.engine.scenario
 
 import com.google.common.truth.Truth.assertThat
 import dev.agentle.core.common.getOrThrow
+import dev.agentle.jitai.dsl.codec.RuleCodec
+import dev.agentle.jitai.dsl.model.ContentStrategy
 import dev.agentle.jitai.dsl.model.JitaiCategory
 import dev.agentle.jitai.dsl.model.JitaiDefinition
+import dev.agentle.jitai.dsl.model.Tone
 import dev.agentle.jitai.engine.F0
 import dev.agentle.jitai.engine.Leaves
 import dev.agentle.jitai.engine.Rules
 import dev.agentle.jitai.engine.decision.DecisionState
 import dev.agentle.jitai.engine.int
 import dev.agentle.jitai.engine.ports.DeliveryPrerequisite
+import dev.agentle.jitai.engine.ports.PooledText
 import dev.agentle.jitai.engine.row
+import dev.agentle.jitai.engine.testing.CrashPoint
 import dev.agentle.jitai.engine.testing.EngineHarness
+import dev.agentle.jitai.engine.testing.expectCrash
 import dev.agentle.jitai.engine.timer
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Test
@@ -103,6 +109,35 @@ class InAppCardTest {
         assertThat(harness.engine.pendingCards().getOrThrow()).hasSize(1)
         harness.clock.advanceBy(1.minutes)
         assertThat(harness.engine.pendingCards().getOrThrow()).isEmpty()
+    }
+
+    @Test
+    fun `a pending card marks its ai_text item used and renders the fallback once the item is purged`() = runTest {
+        val fallback = ContentStrategy.Template("Walk", "A short walk helps.")
+        val ai = Rules.R2.copy(content = ContentStrategy.AiText("walk more", Tone.WARM, fallback))
+        val harness = harness(ai)
+        harness.death.arm(CrashPoint.AFTER_COMMIT)
+        expectCrash { harness.engine.runTimer() }
+        val item =
+            PooledText(
+                "p1", "R2",
+                RuleCodec.contentHash(
+                    ai,
+                ),
+                "AI title", "AI body", harness.clock.now(), 0, emptySet(), harness.row(KEY).content.snapshotHash,
+            )
+        harness.aiTexts.add(item)
+        harness.restart()
+        harness.blockAtClaim()
+
+        harness.timer()
+
+        assertThat(harness.row(KEY).state).isEqualTo(DecisionState.CARD_PENDING)
+        assertThat(harness.aiTexts.used).containsExactly("p1", KEY)
+        assertThat(harness.aiTexts.pooled(item.contentHash).getOrThrow()).isEmpty()
+        assertThat(harness.restart().pendingCards().getOrThrow().single().intervention.body).isEqualTo("AI body")
+        harness.aiTexts.purge("R2", null)
+        assertThat(harness.engine.pendingCards().getOrThrow().single().intervention.body).isEqualTo("A short walk helps.")
     }
 
     private companion object {

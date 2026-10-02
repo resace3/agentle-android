@@ -1,0 +1,10 @@
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid filter",
+    "status": "INVALID_ARGUMENT",
+    "details": [
+      {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "INVALID_DATA_POINT_FILTER_DATA_TYPE_MEMBER", "domain": "health.googleapis.com"}
+    ]
+  }
+}

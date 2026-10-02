@@ -23,9 +23,30 @@ class SyntheticUserTest {
     @Test
     fun `golden count and fingerprint of the typical user are pinned`() {
         // A change here is a reviewed change: every downstream golden (features, screenshots) must be re-recorded.
+        // testing-build-04: the values were recorded in a UTC JVM and the build runs every test JVM in
+        // America/St_Johns, so a read of the JVM default zone anywhere in the generator would change them.
         assertThat(events.size).isEqualTo(GOLDEN_COUNT)
         assertThat(SyntheticUser.fingerprint(events)).isEqualTo(GOLDEN_SHA256)
         assertThat(SyntheticUser.fingerprint(SyntheticUser.sequence(TYPICAL))).isEqualTo(GOLDEN_SHA256)
+    }
+
+    @Test
+    fun `testing-build-19 a spec anchored to now ends on the local date of now and keeps the trip in place`() {
+        // 2027-03-14 22:30 in New York.
+        val now = kotlin.time.Instant.parse("2027-03-15T02:30:00Z")
+        val spec = SynthSpec.endingAt(now, seed = 42)
+        assertThat(spec.firstDay).isEqualTo(LocalDate(2026, 12, 15))
+        assertThat(spec.days).isEqualTo(90)
+        assertThat(spec.windowStart).isLessThan(now)
+        assertThat(spec.windowEnd).isGreaterThan(now)
+        val trip = requireNotNull(spec.trip)
+        assertThat(trip.departure.toLocalDateTime(SynthSpec.NEW_YORK).date).isEqualTo(LocalDate(2027, 2, 24))
+        assertThat(trip.zone).isEqualTo(TimeZone.of("Europe/Berlin"))
+        assertThat(SynthSpec.endingAt(now, seed = 42, days = 30).trip).isNull()
+        val anchored = SyntheticUser.generate(spec)
+        assertThat(anchored).isNotEmpty()
+        assertThat(SyntheticUser.fingerprint(SyntheticUser.generate(SynthSpec.endingAt(now, seed = 42))))
+            .isEqualTo(SyntheticUser.fingerprint(anchored))
     }
 
     @Test

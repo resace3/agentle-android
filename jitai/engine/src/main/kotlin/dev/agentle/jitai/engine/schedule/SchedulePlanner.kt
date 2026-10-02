@@ -16,6 +16,7 @@ import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.minus
+import kotlinx.datetime.offsetAt
 import kotlinx.datetime.plus
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Duration
@@ -140,9 +141,12 @@ public object SchedulePlanner {
         val known = input.definitions.mapTo(hashSetOf()) { it.id }
         merged += input.existing.filter { it.kind == TimerKind.OUTCOME && it.jitaiId in known }
         backstop(effective, now, input, keepStored = !reason.external)?.let { merged += it }
+        val offset = zone.offsetAt(wall).totalSeconds
         return TimerPlan(
             reason = reason,
-            rows = merged.distinctBy { it.key }.sortedWith(compareBy<TimerRow>({ it.dueAt }, { it.key })),
+            rows = merged.distinctBy { it.key }
+                .map { it.copy(offsetSeconds = offset) }
+                .sortedWith(compareBy<TimerRow>({ it.dueAt }, { it.key })),
             unavailableTriggers = unavailableTriggers(effective, input.listenerConnected),
             intervalCadenceMinutes = intervalCadence(effective),
         )

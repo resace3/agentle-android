@@ -1,0 +1,10 @@
+# Added on top of detekt.yml for the Android modules' test sources (unit and instrumented), by build-logic
+# QualityConventionPlugin and by the JVM-only root detekt task. Android tests run on JUnit 4 (Robolectric,
+# AndroidJUnitRunner), so a JUnit Jupiter test there compiles and silently never runs (red team testing-build-03).
+# A list set here replaces the same rule's list from detekt.yml: keep ForbiddenImport here only, or merge both lists.
+style:
+  ForbiddenImport:
+    active: true
+    forbiddenImports:
+      - value: 'org.junit.jupiter.*'
+        reason: 'Android tests run on JUnit 4: a JUnit Jupiter test compiles and never runs. Use org.junit.Test.'

@@ -108,6 +108,19 @@ public class InMemoryJitaiRepository(
         return Outcome.success(Unit)
     }
 
+    /** `jitaiId -> issue codes` of every definition paused by [pauseInvalid]. */
+    public val invalidPaused: MutableMap<String, List<String>> = Collections.synchronizedMap(linkedMapOf())
+
+    override suspend fun pauseInvalid(jitaiId: String, codes: List<String>, at: Instant): Outcome<Unit> {
+        synchronized(byId) {
+            val current = byId[jitaiId] ?: return Outcome.failure(AppError.DatabaseError("not_found"))
+            byId[jitaiId] = current.copy(status = JitaiStatus.PAUSED, modifiedAt = at)
+            invalidPaused[jitaiId] = codes
+        }
+        onChange(jitaiId)
+        return Outcome.success(Unit)
+    }
+
     override suspend fun pauseForBackoff(jitaiId: String, consecutiveIgnored: Int, at: Instant): Outcome<Unit> {
         if (failNext.remove("pause")) return Outcome.failure(AppError.DatabaseError("injected"))
         val changed = synchronized(byId) {
@@ -423,7 +436,10 @@ public class InMemoryTriggerEventFeed(private val onIngest: suspend () -> Unit =
     }
 }
 
-/** The pooled `ai_text` items, keyed by the rule's content hash; a used item leaves the pool (never shown twice). */
+/**
+ * The pooled `ai_text` items, keyed by the rule's content hash. A used item is no longer [pooled] (never shown twice) but
+ * [get] still returns it until it is purged, so a pending in-app card can render it.
+ */
 public class InMemoryAiTextPool(items: List<PooledText> = emptyList()) : AiTextPoolPort {
     private val pool = LinkedHashMap<String, PooledText>()
     private val usedItems = LinkedHashMap<String, String>()
@@ -442,13 +458,12 @@ public class InMemoryAiTextPool(items: List<PooledText> = emptyList()) : AiTextP
     }
 
     override suspend fun pooled(contentHash: String): Outcome<List<PooledText>> =
-        Outcome.success(synchronized(pool) { pool.values.filter { it.contentHash == contentHash } })
+        Outcome.success(synchronized(pool) { pool.values.filter { it.contentHash == contentHash && it.id !in usedItems } })
 
     override suspend fun get(itemId: String): Outcome<PooledText?> = Outcome.success(synchronized(pool) { pool[itemId] })
 
     override suspend fun markUsed(itemId: String, decisionKey: String): Outcome<Unit> {
         synchronized(pool) {
-            pool.remove(itemId)
             usedItems[itemId] = decisionKey
         }
         return Outcome.success(Unit)

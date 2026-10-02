@@ -25,8 +25,65 @@ object ModuleGraphRules {
         ":jitai:engine" to setOf(":interventions", ":ai:chatgpt"),
     )
 
+    const val TASK_NAME: String = "verifyModuleGraph"
+
     fun register(project: Project) {
-        project.gradle.projectsEvaluated { check(project) }
+        val task = project.tasks.register(TASK_NAME) {
+            group = "verification"
+            description = "Applies the module-graph rules to the resolved compile and runtime classpaths."
+        }
+        project.tasks.matching { it.name == "check" }.configureEach { dependsOn(task) }
+        project.gradle.projectsEvaluated {
+            check(project)
+            registerResolvedCheck(project, task)
+        }
+    }
+
+    /**
+     * The same rules on resolved classpaths (red team testing-build-13): an `api` re-export or any transitive path
+     * cannot bypass them. Resolution results are providers, so the task stays configuration-cache safe.
+     */
+    private fun registerResolvedCheck(project: Project, task: org.gradle.api.tasks.TaskProvider<org.gradle.api.Task>) {
+        val androidPaths = project.rootProject.allprojects.filter { isAndroid(it) }.map { it.path }.toSet()
+        val jvmModule = !isAndroid(project)
+        val path = project.path
+        val roots = project.configurations.filter { conf ->
+            conf.isCanBeResolved && !isTestConfiguration(conf.name) &&
+                (conf.name.endsWith("CompileClasspath") || conf.name.endsWith("RuntimeClasspath") ||
+                    conf.name == "compileClasspath" || conf.name == "runtimeClasspath")
+        }.map { it.name to it.incoming.resolutionResult.rootComponent }
+        val forbidden = forbiddenEdges[path].orEmpty()
+        task.configure {
+            doLast {
+                val violations = roots.flatMap { (conf, root) ->
+                    reachableProjects(root.get()).filter { it != path }.mapNotNull { target ->
+                        when {
+                            jvmModule && target in androidPaths -> "JVM modules never depend on Android modules"
+                            target == ":fakes" && !(path == ":app" && conf.startsWith("fake")) -> "fakes only via app fake* classpaths or tests"
+                            path.startsWith(":feature:") && target in featureForbidden -> "UI modules must go through :data ports"
+                            target in forbidden -> "the engine decides; delivery and AI calls live elsewhere"
+                            else -> null
+                        }?.let { "$path reaches $target on $conf ($it)" }
+                    }
+                }.distinct()
+                if (violations.isNotEmpty()) {
+                    throw GradleException("Forbidden module dependencies on resolved classpaths:\n" + violations.joinToString("\n") { "  - $it" })
+                }
+            }
+        }
+    }
+
+    private fun reachableProjects(root: org.gradle.api.artifacts.result.ResolvedComponentResult): Set<String> {
+        val seen = mutableSetOf<org.gradle.api.artifacts.result.ResolvedComponentResult>()
+        val paths = mutableSetOf<String>()
+        val queue = ArrayDeque(listOf(root))
+        while (queue.isNotEmpty()) {
+            val component = queue.removeFirst()
+            if (!seen.add(component)) continue
+            (component.id as? org.gradle.api.artifacts.component.ProjectComponentIdentifier)?.let { paths += it.projectPath }
+            component.dependencies.filterIsInstance<org.gradle.api.artifacts.result.ResolvedDependencyResult>().forEach { queue += it.selected }
+        }
+        return paths
     }
 
     /** Configurations that never reach a shipped artifact: tests and coverage aggregation. */

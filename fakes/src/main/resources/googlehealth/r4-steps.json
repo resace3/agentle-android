@@ -1,0 +1,80 @@
+{
+  "dataPoints": [
+    {
+      "dataSource": {
+        "recordingMethod": "MANUALLY_ENTERED",
+        "device": {"formFactor": "GLASSES", "displayName": "Charge 6", "firmware": "1.2"},
+        "platform": "WEAR_OS",
+        "dataSourceId": "ds-9"
+      },
+      "steps": {
+        "interval": {
+          "startTime": "2026-09-30T13:02:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T13:03:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9, "minutes": 2}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9, "minutes": 3}},
+          "timeZoneId": "America/New_York"
+        },
+        "count": "61"
+      },
+      "qualityFlags": ["INTERPOLATED"]
+    },
+    {
+      "dataSource": {"recordingMethod": "PASSIVELY_MEASURED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+      "stepsV2": {
+        "interval": {
+          "startTime": "2026-09-30T13:01:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T13:02:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9, "minutes": 1}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9, "minutes": 2}}
+        },
+        "count": "5"
+      }
+    },
+    {
+      "dataSource": {"recordingMethod": "PASSIVELY_MEASURED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+      "steps": {
+        "interval": {
+          "startTime": "2026-09-30T13:00:30Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T13:01:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9, "seconds": 30}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9, "minutes": 1}}
+        },
+        "count": "7"
+      },
+      "distance": {
+        "interval": {
+          "startTime": "2026-09-30T13:00:30Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T13:01:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9, "seconds": 30}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9, "minutes": 1}}
+        },
+        "millimeters": "5000"
+      }
+    },
+    {
+      "dataSource": {"recordingMethod": "PASSIVELY_MEASURED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+      "steps": {
+        "interval": {
+          "startTime": "2026-09-30T13:00:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T13:00:30Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 9, "seconds": 30}}
+        },
+        "count": 42
+      }
+    }
+  ],
+  "nextPageToken": "",
+  "unreachableSources": ["NEST"]
+}

@@ -157,6 +157,9 @@ public enum class ResponseStatus {
 
     /** A snooze without an option, or with an option the rule's snooze policy does not offer: nothing was written. */
     INVALID_OPTION,
+
+    /** The decision was never shown (DECIDED, or an in-app card not displayed yet): nothing was written. */
+    NOT_DISPLAYED,
 }
 
 /**

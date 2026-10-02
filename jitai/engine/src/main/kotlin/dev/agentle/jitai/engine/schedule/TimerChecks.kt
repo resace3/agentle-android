@@ -6,6 +6,7 @@ import dev.agentle.jitai.dsl.rule.ClockTime
 import dev.agentle.jitai.engine.decision.DecisionKeys
 import dev.agentle.jitai.engine.decision.ReasonCode
 import dev.agentle.jitai.engine.decision.TriggerKind
+import dev.agentle.jitai.engine.time.LocalWindow
 import kotlinx.datetime.TimeZone
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -62,7 +63,10 @@ public object TimerChecks {
 
             // A slot evaluated early (coalesced) is checked against the window at its own time.
             DailyAtSlots.Timing.ON_TIME -> if (Effectiveness.windowOpen(definition, maxOf(now, at), zone)) {
-                TimerVerdict.Evaluate(key, TriggerKind.DAILY_AT, at, at + trigger.maxLatenessMinutes.minutes)
+                // Deferrals stay inside the active window, so a deferred point ends with its real gate reason.
+                val windowEnd = definition.activeWindow?.let { LocalWindow.of(it)?.instanceAt(maxOf(now, at), zone)?.end }
+                val lateness = at + trigger.maxLatenessMinutes.minutes
+                TimerVerdict.Evaluate(key, TriggerKind.DAILY_AT, at, windowEnd?.let { minOf(lateness, it - 1.milliseconds) } ?: lateness)
             } else {
                 TimerVerdict.Missed(key, TriggerKind.DAILY_AT, at, ReasonCode.OUTSIDE_WINDOW)
             }

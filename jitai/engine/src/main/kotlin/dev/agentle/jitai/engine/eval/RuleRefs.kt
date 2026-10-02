@@ -1,6 +1,7 @@
 package dev.agentle.jitai.engine.eval
 
 import dev.agentle.analytics.features.FeatureRef
+import dev.agentle.analytics.features.bindSelf
 import dev.agentle.jitai.dsl.model.JitaiDefinition
 import dev.agentle.jitai.dsl.rule.Condition
 import dev.agentle.jitai.dsl.rule.children
@@ -21,13 +22,9 @@ public object RuleRefs {
 
     /**
      * [ref] with `{jitai: self}` replaced by [jitaiId], the canonical rule-id selector the DSL accepts (R10 §4.5); any
-     * other reference unchanged. Null [jitaiId] leaves `self` unbound.
-     *
-     * Engine copy of `FeatureRef.bindSelf(jitaiId)`, which the realtime team is adding to
-     * `dev.agentle.analytics.features.FeatureDefinition.kt`: once it is on main, this body becomes that call.
+     * other reference unchanged. Null [jitaiId] leaves `self` unbound. Delegates to the shared [FeatureRef.bindSelf].
      */
-    public fun bindSelf(ref: FeatureRef, jitaiId: String?): FeatureRef =
-        if (jitaiId != null && ref.args[JITAI_ARG] == SELF) ref.copy(args = ref.args + (JITAI_ARG to jitaiId)) else ref
+    public fun bindSelf(ref: FeatureRef, jitaiId: String?): FeatureRef = if (jitaiId == null) ref else ref.bindSelf(jitaiId)
 
     /** The reference [leaf] reads inside the rule [jitaiId]. */
     public fun ref(leaf: Condition.FeatureLeaf, jitaiId: String?): FeatureRef = bindSelf(leaf.ref, jitaiId)

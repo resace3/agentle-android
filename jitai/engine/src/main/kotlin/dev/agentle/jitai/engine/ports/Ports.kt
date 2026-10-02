@@ -1,5 +1,6 @@
 package dev.agentle.jitai.engine.ports
 
+import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.model.DataCategory
 import dev.agentle.jitai.dsl.model.DeliveryChannel
@@ -18,9 +19,10 @@ import kotlin.time.Instant
  * The JITAI definitions (`jitai_definition`, ANDROID-DATA's `JitaiRepository`).
  *
  * Every change of a definition (save of a new version, enable, disable, delete, a status change, and the two changes the
- * engine itself requests below) deletes that JITAI's timer rows in the **same transaction** as the change; the engine
- * re-plans afterwards (jitai-correctness-05/07). A timer row that survives anyway is caught by the version check of the
- * firing timer.
+ * engine itself requests below) deletes that JITAI's timer rows in the **same transaction** as the change, except its
+ * OUTCOME rows: outcomes of decisions already made are still measured after a pause or edit (a deleted definition's
+ * OUTCOME rows are dropped by the engine when they fire). The engine re-plans afterwards (jitai-correctness-05/07). A
+ * timer row that survives anyway is caught by the version check of the firing timer.
  */
 public interface JitaiRepositoryPort {
     /** The current version of every stored definition that is not ARCHIVED; the engine selects the effective ones. */
@@ -34,6 +36,13 @@ public interface JitaiRepositoryPort {
      * notification, what to do.
      */
     public suspend fun pauseForBackoff(jitaiId: String, consecutiveIgnored: Int, at: Instant): Outcome<Unit>
+
+    /**
+     * After an app upgrade the stored definition failed `RuleValidator.revalidate` with [codes]: pause it
+     * (`LifecycleEvent.PAUSE`), delete its timer rows and show an in-app notice. Content-free: only issue codes.
+     */
+    public suspend fun pauseInvalid(jitaiId: String, codes: List<String>, at: Instant): Outcome<Unit> =
+        Outcome.failure(AppError.Unexpected("pause_invalid_unsupported"))
 }
 
 /**
@@ -245,8 +254,10 @@ public interface AiTextPoolPort {
     /** The items generated for the rule content [contentHash]. */
     public suspend fun pooled(contentHash: String): Outcome<List<PooledText>>
 
+    /** The item [itemId], used or not, until it is purged (an in-app card renders its item later). */
     public suspend fun get(itemId: String): Outcome<PooledText?>
 
+    /** Marks [itemId] used by [decisionKey]: [pooled] no longer lists it, [get] still returns it. */
     public suspend fun markUsed(itemId: String, decisionKey: String): Outcome<Unit>
 
     /** Deletes the items of [jitaiId] whose content hash is not [keepContentHash] (all of them when it is null). */

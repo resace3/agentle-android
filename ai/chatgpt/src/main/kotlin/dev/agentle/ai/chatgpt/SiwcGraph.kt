@@ -1,5 +1,6 @@
 package dev.agentle.ai.chatgpt
 
+import dev.agentle.ai.api.AiSendVerifier
 import dev.agentle.core.common.Logger
 import dev.agentle.core.oauth.BrowserLauncher
 import dev.agentle.core.oauth.OAuthRandom
@@ -15,7 +16,7 @@ import java.security.SecureRandom
  * `FakeChatGptServer`, so the real authorizer and session manager run in journeys (red team oauth-security-14).
  *
  * @param http the three HTTP profiles; tests may wrap them (for example to simulate TLS interception).
- * @param egressCheck the AI-CONTEXT consent check on the exact request bytes.
+ * @param sendVerifier the AI-CONTEXT check of the digest of the exact request bytes.
  */
 public class SiwcGraph(
     public val config: SiwcConfig,
@@ -24,7 +25,7 @@ public class SiwcGraph(
     browser: BrowserLauncher,
     clock: AgentleClock,
     scope: CoroutineScope,
-    egressCheck: EgressCheck,
+    sendVerifier: AiSendVerifier,
     accountChanges: AccountChangeListener = AccountChangeListener.NONE,
     logger: Logger = Logger.NONE,
     http: SiwcHttpClients = SiwcHttpClients.create(config, clock, logger),
@@ -39,5 +40,5 @@ public class SiwcGraph(
     public val signIn: SignInCoordinator = SignInCoordinator(authorizer, session, clock, scope, logger)
     public val responses: ResponsesClient = ResponsesClient(config, http.stream, clock, logger)
     public val models: ModelCatalog = ModelCatalog(config, http.api, session, clock, logger)
-    public val provider: ChatGptAiProvider = ChatGptAiProvider(session, responses, models, egressCheck, scope, logger = logger)
+    public val provider: ChatGptAiProvider = ChatGptAiProvider(session, responses, models, sendVerifier, scope, logger = logger)
 }

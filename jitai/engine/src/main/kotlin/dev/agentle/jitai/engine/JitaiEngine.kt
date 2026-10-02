@@ -13,9 +13,11 @@ import dev.agentle.core.time.AgentleClock
 import dev.agentle.jitai.dsl.codec.RuleCodec
 import dev.agentle.jitai.dsl.model.JitaiCategory
 import dev.agentle.jitai.dsl.model.JitaiDefinition
+import dev.agentle.jitai.dsl.model.JitaiStatus
 import dev.agentle.jitai.dsl.model.OutcomeRole
 import dev.agentle.jitai.dsl.model.SnoozeOption
 import dev.agentle.jitai.dsl.model.Trigger
+import dev.agentle.jitai.dsl.validation.RuleValidator
 import dev.agentle.jitai.engine.content.ContentRenderer
 import dev.agentle.jitai.engine.decision.DecisionKeys
 import dev.agentle.jitai.engine.decision.DecisionRecord
@@ -201,6 +203,9 @@ public class JitaiEngine(
 
             !Nonces.matches(record.nonce, nonce) -> ResponseReport(ResponseStatus.REJECTED)
 
+            record.state == DecisionState.DECIDED || record.state == DecisionState.CARD_PENDING ->
+                ResponseReport(ResponseStatus.NOT_DISPLAYED)
+
             else -> {
                 val context = context()
                 val definition = context.byId[record.jitaiId]
@@ -244,6 +249,29 @@ public class JitaiEngine(
                 .getOrNull() ?: 0
             DefinitionChangeReport(cancelled, purged, reconcile(context, ReplanReason.DEFINITION_CHANGED))
         }
+    }
+
+    /**
+     * After an app upgrade: re-validates every stored definition that is not paused already with
+     * `RuleValidator.revalidate`; each failing one is paused with a notice ([JitaiRepositoryPort.pauseInvalid]) and goes
+     * through [onDefinitionChanged]. Returns how many were paused.
+     */
+    public suspend fun revalidateStoredDefinitions(): Outcome<Int> = guard("revalidate") {
+        val now = clock.now().wall
+        val failing = ports.repository.definitions().getOrThrow()
+            .filter { it.status != JitaiStatus.PAUSED && it.status != JitaiStatus.ARCHIVED }
+            .map { RuleValidator.revalidate(it) }
+            .filterNot { it.isValid }
+        failing.forEach { verdict ->
+            ports.repository.pauseInvalid(verdict.jitaiId, verdict.codes.map { it.name }, now).getOrThrow()
+            onDefinitionChanged(verdict.jitaiId).getOrThrow()
+        }
+        failing.size
+    }
+
+    /** The UTC offset in seconds the current timer plan was made with (null: no plan); drives DST checks below API 37. */
+    public suspend fun plannedOffsetSeconds(): Outcome<Int?> = guard("planned_offset") {
+        ports.store.timers().getOrThrow().firstNotNullOfOrNull { it.offsetSeconds }
     }
 
     /** Retention (R10 §8.8): ledger 400 days, evaluation log 30 days, full traces 90 days; pooled AI texts 24 hours. */

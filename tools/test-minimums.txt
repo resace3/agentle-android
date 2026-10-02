@@ -1,0 +1,19 @@
+# Minimum number of distinct tests per suite, checked by tools/junit_summary.py --expect-file (the file
+# :writeExpectedSuites writes from this one). One `<suite> <minimum>` per line; `#` starts a comment.
+#
+# A suite that runs fewer distinct tests than its minimum fails CI: tests that silently stopped running (a JUnit
+# Jupiter test in an Android module, a deleted test class, a broken filter) cannot pass as green. A distinct test
+# counts once however many Robolectric SDKs ran it; each parameterized invocation has its own name and counts once.
+#
+# Raise a minimum when you add tests. Lower it only when you delete tests on purpose, and say why in the commit.
+# Suites without a line here need at least one test once their module has unit-test sources.
+# Seeded from main at 0b41a41 plus the test-infra branch.
+:analytics:features:test 11
+:app:testFakeDebugUnitTest 2
+:app:testProdDebugUnitTest 2
+:connectors:api:test 7
+:core:common:test 15
+:core:model:test 9
+:core:network:test 47
+:core:testing:test 22
+:core:time:test 17
