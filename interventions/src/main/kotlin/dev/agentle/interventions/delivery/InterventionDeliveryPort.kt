@@ -3,7 +3,6 @@ package dev.agentle.interventions.delivery
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Logger
 import dev.agentle.core.common.Outcome
-import dev.agentle.core.common.getOrNull
 import dev.agentle.core.common.outcomeOf
 import dev.agentle.core.time.AgentleClock
 import dev.agentle.interventions.card.InterventionCard
@@ -89,6 +88,7 @@ class InterventionDeliveryPort(
         val key = prepared.intervention.decisionKey
         return when (val existing = cards.get(key)) {
             is Outcome.Failure -> existing.also { logger.w(COMPONENT, "card not read", it.error) }
+
             is Outcome.Success -> if (existing.value != null) {
                 Outcome.success(Unit)
             } else {
