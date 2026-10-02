@@ -16,6 +16,8 @@ import dev.agentle.analytics.features.realtime.UsageEventKind
 import dev.agentle.core.model.ActivityTransitionPayload
 import dev.agentle.core.model.AppUsagePayload
 import dev.agentle.core.model.ConnectorIds
+import dev.agentle.core.model.DataSourceId
+import dev.agentle.core.model.EventPayload
 import dev.agentle.core.model.EventType
 import dev.agentle.core.model.HeartRatePayload
 import dev.agentle.core.model.NotificationPayload
@@ -95,53 +97,44 @@ public class InMemoryRealtimeInputs(public val log: ReadLog = ReadLog()) {
         for (event in events) add(event)
     }
 
-    @Suppress("CyclomaticComplexMethod")
     private fun add(event: PersonalEvent) {
+        val kind = USAGE_KINDS[event.type]
         val payload = event.payload
+        when {
+            kind != null -> usage.rows += UsageEvent(event.startTime, kind)
+
+            event.type == EventType.SCREEN_SESSION -> session(
+                event,
+                UsageEventKind.SCREEN_INTERACTIVE,
+                UsageEventKind.SCREEN_NON_INTERACTIVE,
+            )
+
+            payload is AppUsagePayload -> appEvent(event, payload)
+
+            payload is NotificationPayload && event.type == EventType.NOTIFICATION_POSTED ->
+                notifications.rows +=
+                    notification(event, payload)
+
+            payload is ActivityTransitionPayload ->
+                activity.rows +=
+                    ActivityTransition(event.startTime, payload.activity, payload.transition)
+
+            payload is StepsPayload && event.type == EventType.STEP_SAMPLE -> stepEvent(event, payload)
+
+            else -> healthEvent(event, payload)
+        }
+    }
+
+    private fun healthEvent(event: PersonalEvent, payload: EventPayload) {
         val source = event.source.value
-        when (event.type) {
-            EventType.APP_FOREGROUND, EventType.APP_BACKGROUND, EventType.APP_SESSION -> if (payload is AppUsagePayload) {
-                appEvent(
-                    event,
-                    payload,
-                )
-            }
+        when {
+            payload is SleepSessionPayload && source == sleep.source -> sleep.rows += sleepRecord(event, payload)
 
-            EventType.SCREEN_ON -> usage.rows += UsageEvent(event.startTime, UsageEventKind.SCREEN_INTERACTIVE)
-
-            EventType.SCREEN_OFF -> usage.rows += UsageEvent(event.startTime, UsageEventKind.SCREEN_NON_INTERACTIVE)
-
-            EventType.SCREEN_SESSION -> session(event, UsageEventKind.SCREEN_INTERACTIVE, UsageEventKind.SCREEN_NON_INTERACTIVE, null)
-
-            EventType.DEVICE_UNLOCK -> usage.rows += UsageEvent(event.startTime, UsageEventKind.KEYGUARD_HIDDEN)
-
-            EventType.DEVICE_LOCK -> usage.rows += UsageEvent(event.startTime, UsageEventKind.KEYGUARD_SHOWN)
-
-            EventType.SHUTDOWN -> usage.rows += UsageEvent(event.startTime, UsageEventKind.DEVICE_SHUTDOWN)
-
-            EventType.BOOT_COMPLETED -> usage.rows += UsageEvent(event.startTime, UsageEventKind.DEVICE_STARTUP)
-
-            EventType.NOTIFICATION_POSTED -> if (payload is NotificationPayload) notifications.rows += notification(event, payload)
-
-            EventType.ACTIVITY -> if (payload is ActivityTransitionPayload) {
-                activity.rows += ActivityTransition(event.startTime, payload.activity, payload.transition)
-            }
-
-            EventType.STEP_SAMPLE -> if (payload is StepsPayload) stepEvent(event, payload)
-
-            EventType.SLEEP_SESSION -> if (payload is SleepSessionPayload &&
-                source == sleep.source
-            ) {
-                sleep.rows += sleepRecord(event, payload)
-            }
-
-            EventType.RESTING_HEART_RATE -> if (payload is RestingHeartRatePayload && source == dailySummaries.source) {
+            payload is RestingHeartRatePayload && source == dailySummaries.source ->
                 dailySummaries.put(DailyMetric.RESTING_HEART_RATE, payload.date, payload.bpm.roundToLong())
-            }
 
-            EventType.HEART_RATE -> if (payload is HeartRatePayload && source == heartRate.source) {
+            payload is HeartRatePayload && source == heartRate.source ->
                 heartRate.rows += HeartRateSample(event.startTime, payload.bpm.roundToLong())
-            }
 
             else -> Unit
         }
@@ -153,11 +146,12 @@ public class InMemoryRealtimeInputs(public val log: ReadLog = ReadLog()) {
         when (event.type) {
             EventType.APP_FOREGROUND -> usage.rows += UsageEvent(event.startTime, UsageEventKind.ACTIVITY_RESUMED, packageName)
             EventType.APP_BACKGROUND -> usage.rows += UsageEvent(event.startTime, UsageEventKind.ACTIVITY_PAUSED, packageName)
-            else -> session(event, UsageEventKind.ACTIVITY_RESUMED, UsageEventKind.ACTIVITY_PAUSED, packageName)
+            EventType.APP_SESSION -> session(event, UsageEventKind.ACTIVITY_RESUMED, UsageEventKind.ACTIVITY_PAUSED, packageName)
+            else -> Unit
         }
     }
 
-    private fun session(event: PersonalEvent, on: UsageEventKind, off: UsageEventKind, packageName: String?) {
+    private fun session(event: PersonalEvent, on: UsageEventKind, off: UsageEventKind, packageName: String? = null) {
         usage.rows += UsageEvent(event.startTime, on, packageName)
         event.endTime?.let { usage.rows += UsageEvent(it, off, packageName) }
     }
@@ -171,11 +165,9 @@ public class InMemoryRealtimeInputs(public val log: ReadLog = ReadLog()) {
     )
 
     private fun stepEvent(event: PersonalEvent, payload: StepsPayload) {
+        if (payload.count < 0) return
         val source = event.source.value
-        if (steps.sources.none { it.id == source }) {
-            // The Google Health API writes true zeros (R05 §5.4); other sources omit zero minutes.
-            steps.sources += StepSourceSpec(source, reportsTrueZeros = event.source.connectorId == ConnectorIds.GOOGLE_HEALTH)
-        }
+        if (steps.sources.none { it.id == source }) steps.sources += stepSource(event.source)
         steps.add(source, StepInterval(event.startTime, event.endTime ?: event.startTime, payload.count))
     }
 
@@ -184,14 +176,14 @@ public class InMemoryRealtimeInputs(public val log: ReadLog = ReadLog()) {
         val end = event.endTime ?: event.startTime
         // Health Connect has no main-sleep or nap flag: the 3-hour rule applies (R10 §5.4 G).
         val flagged = event.source.connectorId != ConnectorIds.HEALTH_CONNECT
+        val stages = payload.stages.mapNotNull { span(it, it.stage) } +
+            payload.outOfBedSegments.mapNotNull { span(it, SleepStageKind.OUT_OF_BED) }
         return SleepSessionRecord(
             start = event.startTime,
             end = end,
             startOffset = payload.startUtcOffsetSeconds?.let { UtcOffset(seconds = it) } ?: zone.offsetAt(event.startTime),
             endOffset = payload.endUtcOffsetSeconds?.let { UtcOffset(seconds = it) } ?: zone.offsetAt(end),
-            stages =
-            payload.stages.mapNotNull { span(it, it.stage) } +
-                payload.outOfBedSegments.mapNotNull { span(it, SleepStageKind.OUT_OF_BED) },
+            stages = stages,
             minutesAsleep = payload.minutesAsleep,
             mainSleep = payload.isMainSleep.takeIf { flagged },
             nap = payload.isNap.takeIf { flagged },
@@ -208,37 +200,42 @@ public class InMemoryRealtimeInputs(public val log: ReadLog = ReadLog()) {
     public companion object {
         /**
          * Inputs holding [events]. The canonical sleep, resting-heart-rate and heart-rate sources are the first of the
-         * events' sources by connector priority (Google Health API, Health Connect, then the rest), so one source per
-         * metric is read (R05 §7.7).
+         * events' sources by connector priority (Google Health API, Health Connect, then the rest by id), so one source
+         * per metric is read (R05 §7.7). The step sources are the events' step sources in the same order.
          */
         public fun fromEvents(events: List<PersonalEvent>, log: ReadLog = ReadLog()): InMemoryRealtimeInputs =
             InMemoryRealtimeInputs(log).apply {
-                canonical(events, EventType.SLEEP_SESSION)?.let { sleep.source = it }
-                canonical(events, EventType.RESTING_HEART_RATE)?.let { dailySummaries.source = it }
-                canonical(events, EventType.HEART_RATE)?.let { heartRate.source = it }
+                sourcesOf(events, EventType.SLEEP_SESSION).firstOrNull()?.let { sleep.source = it.value }
+                sourcesOf(events, EventType.RESTING_HEART_RATE).firstOrNull()?.let { dailySummaries.source = it.value }
+                sourcesOf(events, EventType.HEART_RATE).firstOrNull()?.let { heartRate.source = it.value }
+                steps.sources.clear()
+                sourcesOf(events, EventType.STEP_SAMPLE).forEach { steps.sources += stepSource(it) }
                 addEvents(events)
             }
 
+        private val USAGE_KINDS = mapOf(
+            EventType.SCREEN_ON to UsageEventKind.SCREEN_INTERACTIVE,
+            EventType.SCREEN_OFF to UsageEventKind.SCREEN_NON_INTERACTIVE,
+            EventType.DEVICE_UNLOCK to UsageEventKind.KEYGUARD_HIDDEN,
+            EventType.DEVICE_LOCK to UsageEventKind.KEYGUARD_SHOWN,
+            EventType.SHUTDOWN to UsageEventKind.DEVICE_SHUTDOWN,
+            EventType.BOOT_COMPLETED to UsageEventKind.DEVICE_STARTUP,
+        )
+
         private val CONNECTOR_PRIORITY = listOf(ConnectorIds.GOOGLE_HEALTH, ConnectorIds.HEALTH_CONNECT)
 
-        private fun canonical(events: List<PersonalEvent>, type: EventType): String? = events.asSequence()
+        private fun priority(source: DataSourceId): Int =
+            CONNECTOR_PRIORITY.indexOf(source.connectorId).takeIf { it >= 0 } ?: CONNECTOR_PRIORITY.size
+
+        private fun sourcesOf(events: List<PersonalEvent>, type: EventType): List<DataSourceId> = events.asSequence()
             .filter { it.type == type }
             .map { it.source }
             .distinct()
-            .sortedWith(
-                compareBy({
-                    CONNECTOR_PRIORITY.indexOf(it.connectorId).let { i ->
-                        if (i <
-                            0
-                        ) {
-                            Int.MAX_VALUE
-                        } else {
-                            i
-                        }
-                    }
-                }, { it.value }),
-            )
-            .firstOrNull()
-            ?.value
+            .sortedWith(compareBy<DataSourceId>({ priority(it) }, { it.value }))
+            .toList()
+
+        /** The Google Health API writes true zeros (R05 §5.4); other step sources omit zero minutes. */
+        private fun stepSource(source: DataSourceId) =
+            StepSourceSpec(source.value, reportsTrueZeros = source.connectorId == ConnectorIds.GOOGLE_HEALTH)
     }
 }
