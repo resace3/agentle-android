@@ -39,6 +39,7 @@ import org.robolectric.shadows.ShadowNotificationManager
 
 /** ShadowNotificationManager has no `areNotificationsPaused`. */
 @Implements(NotificationManager::class)
+@Suppress("ProtectedMemberInFinalClass")
 class PausableShadowNotificationManager : ShadowNotificationManager() {
     @Implementation(minSdk = Build.VERSION_CODES.Q)
     protected fun areNotificationsPaused(): Boolean = paused

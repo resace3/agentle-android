@@ -51,8 +51,13 @@ class PureLogicTest {
     fun `eviction takes expired first and never pending`() {
         val now = Instant.parse("2026-10-01T10:00:00Z")
         fun c(id: String, mib: Long, pending: Boolean = false, expires: Instant? = null) = EvictionCandidate(
-            id = id, kind = MediaKind.IMAGE, sizeBytes = mib * 1024 * 1024, createdAt = now - 2.days,
-            lastUsedAt = now - (mib).hours, pending = pending, expiresAt = expires,
+            id = id,
+            kind = MediaKind.IMAGE,
+            sizeBytes = mib * 1024 * 1024,
+            createdAt = now - 2.days,
+            lastUsedAt = now - (mib).hours,
+            pending = pending,
+            expiresAt = expires,
         )
         val chosen = MediaEvictionPolicy.select(
             listOf(c("expired", 1, expires = now - 1.hours), c("old", 40), c("pending", 40, pending = true)),
