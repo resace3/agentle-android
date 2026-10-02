@@ -17,6 +17,7 @@ import dev.agentle.fakes.browser.FakeBrowserLauncher
 import dev.agentle.fakes.chatgpt.ChatGptScenario
 import dev.agentle.fakes.chatgpt.FakeChatGptServer
 import dev.agentle.fakes.chatgpt.FakeRoute
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -63,7 +64,7 @@ class RecordingSecureRandom(seed: Long) : SecureRandom() {
  * 127.0.0.1, with [FakeBrowserLauncher] playing the browser. Fake and client share one [TestAgentleClock] (red team
  * testing-build-19), whose zone is deliberately not UTC (testing-build-04): nothing here may depend on a zone.
  */
-abstract class SiwcFakeTest(tokenPrefix: String = "", clockOffset: Duration = Duration.ZERO) {
+open class SiwcFakeTest(tokenPrefix: String = "", clockOffset: Duration = Duration.ZERO) {
     protected val clock: TestAgentleClock = TestAgentleClock(zone = TimeZone.of("Asia/Kathmandu"))
     protected val server: FakeChatGptServer = FakeChatGptServer(clock, tokenPrefix, clockOffset = clockOffset).start()
     protected val store: InMemoryCredentialStore = InMemoryCredentialStore()
@@ -128,10 +129,10 @@ abstract class SiwcFakeTest(tokenPrefix: String = "", clockOffset: Duration = Du
     protected fun calls(route: FakeRoute): Int = server.requests().count { it.route == route }
 
     /** Waits in real time (not the test's virtual time) for work on other threads, such as a revocation in flight. */
-    protected suspend fun eventually(what: String, condition: () -> Boolean) {
+    protected suspend fun eventually(what: String, realTime: CoroutineDispatcher = Dispatchers.Default, condition: () -> Boolean) {
         repeat(WAIT_STEPS) {
             if (condition()) return
-            withContext(Dispatchers.Default) { delay(WAIT_STEP) }
+            withContext(realTime) { delay(WAIT_STEP) }
         }
         fail("timed out waiting for $what")
     }

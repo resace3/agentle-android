@@ -33,7 +33,7 @@ internal class FakeRequest(val recorded: RecordedRequest, val scenario: ChatGptS
     fun query(name: String): String? = recorded.url.queryParameterValues(name).singleOrNull()
 
     val parameterNames: Set<String>
-        get() = recorded.url.queryParameterNames + (form?.keys ?: emptySet())
+        get() = recorded.url.queryParameterNames + form?.keys.orEmpty()
 
     private fun parseForm(text: String): Map<String, List<String>>? = try {
         text.split('&').filter { it.isNotEmpty() }.groupBy(

@@ -7,6 +7,7 @@ import dev.agentle.core.network.HttpClientConfig
 import dev.agentle.core.network.HttpClientFactory
 import dev.agentle.core.network.withAccessToken
 import dev.agentle.core.testing.TestAgentleClock
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -68,7 +69,11 @@ class RotatingTokenSourceTest {
         server.start(InetAddress.getByName("127.0.0.1"), 0)
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    /** Real threads: these tests block on latches and real sockets, which virtual time cannot run in parallel. */
+    private class Threads(val io: CoroutineDispatcher = Dispatchers.IO, val cpu: CoroutineDispatcher = Dispatchers.Default)
+
+    private val threads = Threads()
+    private val scope = CoroutineScope(SupervisorJob() + threads.io)
 
     @AfterEach
     fun stop() {
@@ -115,7 +120,7 @@ class RotatingTokenSourceTest {
         val seen = java.util.concurrent.ConcurrentLinkedQueue<String>()
         coroutineScope {
             repeat(50) {
-                launch(Dispatchers.Default) {
+                launch(threads.cpu) {
                     seen += (source.accessToken() as Outcome.Success).value
                 }
             }
@@ -188,8 +193,8 @@ class RotatingTokenSourceTest {
         gate = received to release
         val store = InMemoryTokenSetStore(tokens(0.seconds))
         val source = source(store)
-        val owner = launch(Dispatchers.Default) { source.accessToken() }
-        withContext(Dispatchers.IO) { received.await(10, TimeUnit.SECONDS) }
+        val owner = launch(threads.cpu) { source.accessToken() }
+        withContext(threads.io) { received.await(10, TimeUnit.SECONDS) }
         owner.cancelAndJoin()
         release.countDown()
         assertThat(source.accessToken()).isEqualTo(Outcome.Success("at_2"))

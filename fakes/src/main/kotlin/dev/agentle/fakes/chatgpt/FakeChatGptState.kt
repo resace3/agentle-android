@@ -119,7 +119,7 @@ internal object FakeResponses {
 }
 
 /** The injected clock shifted by [offset]: the server's view of time when the device clock is wrong. */
-internal class OffsetClock(private val base: AgentleClock, private val offset: () -> Duration) : AgentleClock {
+internal class OffsetClock(private val base: AgentleClock, offset: () -> Duration) : AgentleClock {
     override val wall: Clock = object : Clock {
         override fun now(): Instant = base.now() + offset()
     }

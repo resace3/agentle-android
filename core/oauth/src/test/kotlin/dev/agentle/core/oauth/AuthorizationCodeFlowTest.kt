@@ -4,6 +4,7 @@ import com.google.common.truth.Truth.assertThat
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.testing.TestAgentleClock
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -28,10 +29,10 @@ class AuthorizationCodeFlowTest {
     private var lastPort = -1
 
     /** Plays the authorization server and the browser: sends the redirect the server would send. */
-    private fun browser(answer: (state: String) -> String) = BrowserLauncher { url ->
+    private fun browser(io: CoroutineDispatcher = Dispatchers.IO, answer: (state: String) -> String) = BrowserLauncher { url ->
         val redirect = url.queryParameter("redirect_uri")!!.toHttpUrl()
         lastPort = redirect.port
-        withContext(Dispatchers.IO) { RawHttp.get(redirect.port, "${redirect.encodedPath}?${answer(url.queryParameter("state")!!)}") }
+        withContext(io) { RawHttp.get(redirect.port, "${redirect.encodedPath}?${answer(url.queryParameter("state")!!)}") }
         Outcome.Success(Unit)
     }
 

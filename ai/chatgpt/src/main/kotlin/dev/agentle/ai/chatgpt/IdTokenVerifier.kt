@@ -59,8 +59,8 @@ public sealed interface IdTokenCheck {
  */
 public class IdTokenVerifier(
     private val config: SiwcConfig,
-    private val discovery: SiwcDiscovery,
-    private val tokenClient: TokenClient,
+    discovery: SiwcDiscovery,
+    tokenClient: TokenClient,
     private val clock: AgentleClock,
     private val logger: Logger = Logger.NONE,
 ) {

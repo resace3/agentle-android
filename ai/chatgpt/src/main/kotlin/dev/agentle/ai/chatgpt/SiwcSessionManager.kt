@@ -321,18 +321,18 @@ public class SiwcSessionManager(
     /** R06 §2.11: terminal codes clear the tokens (keeping client id, `sub`, label); everything else keeps them. */
     private suspend fun refreshFailed(generation: Long, failure: OAuthFailure): StepResult {
         val mapped = SiwcErrorMapper.refresh(failure, clock.now())
-        val clear = mapped.status?.state == SiwcState.REAUTH_REQUIRED
+        val terminal = mapped.status?.takeIf { it.state == SiwcState.REAUTH_REQUIRED }
         mutex.withLock {
             val current = vault.registration
             if (vault.generation == generation && current != null) {
-                if (clear) {
-                    val unusable = current.unusable || mapped.status?.reason == SiwcReason.REGISTRATION_INVALID
+                if (terminal != null) {
+                    val unusable = current.unusable || terminal.reason == SiwcReason.REGISTRATION_INVALID
                     epoch += 1
                     commit(
                         vault.copy(
                             generation = generation + 1,
                             registration = current.copy(tokens = null, pendingRotation = null, unusable = unusable),
-                            status = mapped.status ?: vault.status,
+                            status = terminal,
                         ),
                     )
                 } else {
@@ -340,7 +340,8 @@ public class SiwcSessionManager(
                 }
             }
         }
-        logger.w(COMPONENT, "refresh failed", mapped.error, mapOf("outcome" to TokenClient.describe(failure), "cleared" to clear))
+        val cleared = terminal != null
+        logger.w(COMPONENT, "refresh failed", mapped.error, mapOf("outcome" to TokenClient.describe(failure), "cleared" to cleared))
         return StepResult.Done(Outcome.Failure(mapped.error))
     }
 

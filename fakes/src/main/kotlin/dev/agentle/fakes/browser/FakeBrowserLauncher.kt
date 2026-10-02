@@ -4,6 +4,7 @@ import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.network.TransportSecurityInterceptor
 import dev.agentle.core.oauth.BrowserLauncher
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
@@ -18,7 +19,8 @@ import java.util.concurrent.CopyOnWriteArrayList
  * redirects, reads `Location`, and sends that GET to the app's real loopback listener, so the real authorizer runs end
  * to end without a device browser. It only ever talks to loopback hosts.
  */
-public class FakeBrowserLauncher(private val client: OkHttpClient = DEFAULT_CLIENT) : BrowserLauncher {
+public class FakeBrowserLauncher(private val client: OkHttpClient = DEFAULT_CLIENT, private val io: CoroutineDispatcher = Dispatchers.IO) :
+    BrowserLauncher {
     /** What the simulated user and browser do with the next launch. */
     public enum class Behavior {
         /** Authenticate, consent and follow the redirect to the app (the happy path). */
@@ -52,7 +54,7 @@ public class FakeBrowserLauncher(private val client: OkHttpClient = DEFAULT_CLIE
         urls += url
         return when (behavior) {
             Behavior.FOLLOW -> {
-                statuses += withContext(Dispatchers.IO) { follow(url) }
+                statuses += withContext(io) { follow(url) }
                 Outcome.Success(Unit)
             }
 

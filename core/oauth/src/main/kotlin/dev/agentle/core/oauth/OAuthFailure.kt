@@ -9,12 +9,12 @@ import kotlin.time.Duration
  * rules (docs/research/06 §5.5: classify OAuth errors by the `error` string, never by the HTTP status), and every
  * variant still maps to an [AppError] through [appError]. No variant carries server-provided free text.
  */
-public sealed class OAuthFailure {
-    public abstract val appError: AppError
+public sealed interface OAuthFailure {
+    public val appError: AppError
 
     /** The server answered with an OAuth error code (`{"error":"x"}` or `{"error":{"code":"x"}}`). */
     public data class ErrorResponse(val error: String, val httpStatus: Int, val shape: BodyShape, val requestId: String? = null) :
-        OAuthFailure() {
+        OAuthFailure {
         override val appError: AppError get() = OAuthErrorCodes.toAppError(error, httpStatus)
     }
 
@@ -24,7 +24,7 @@ public sealed class OAuthFailure {
         val shape: BodyShape,
         val retryAfter: Duration? = null,
         val requestId: String? = null,
-    ) : OAuthFailure() {
+    ) : OAuthFailure {
         override val appError: AppError
             get() = when {
                 httpStatus == TOO_MANY_REQUESTS -> AppError.RateLimited(retryAfter, "oauth_http_$httpStatus")
@@ -33,29 +33,27 @@ public sealed class OAuthFailure {
     }
 
     /** The request never got an HTTP answer: DNS, connect, TLS, timeout, connection reset. [kind] is a stable code. */
-    public data class Network(val kind: String) : OAuthFailure() {
+    public data class Network(val kind: String) : OAuthFailure {
         override val appError: AppError get() = AppError.NetworkUnavailable(kind)
     }
 
     /** A 2xx answer that violates the protocol (bad JSON, `token_type` not bearer, no access token, ...). */
-    public data class InvalidResponse(val reason: String, val httpStatus: Int) : OAuthFailure() {
+    public data class InvalidResponse(val reason: String, val httpStatus: Int) : OAuthFailure {
         override val appError: AppError get() = AppError.ParsingError("oauth_invalid_response:$reason")
     }
 
     /** A 3xx answer. Token and revocation calls never follow redirects (docs/research/06 §8.3). */
-    public data class Redirected(val httpStatus: Int) : OAuthFailure() {
+    public data class Redirected(val httpStatus: Int) : OAuthFailure {
         override val appError: AppError get() = AppError.RemoteServerError(httpStatus, "oauth_redirect_refused")
     }
 
     /** The request was refused locally before it left the device (for example cleartext to a non-loopback host). */
-    public data class Blocked(val reason: String) : OAuthFailure() {
+    public data class Blocked(val reason: String) : OAuthFailure {
         override val appError: AppError get() = AppError.Unexpected("oauth_blocked:$reason")
     }
-
-    private companion object {
-        const val TOO_MANY_REQUESTS = 429
-    }
 }
+
+private const val TOO_MANY_REQUESTS = 429
 
 /** The result of an OAuth endpoint call: a value, or an [OAuthFailure] that callers can map with [toOutcome]. */
 public sealed interface OAuthResult<out T> {

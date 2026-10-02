@@ -72,7 +72,7 @@ public class FakeChatGptServer(
     /** The API base (R06 §9.1), without a trailing slash. */
     public fun apiBaseUrl(scenario: ChatGptScenario? = null): String = base(scenario) + "/api/v1"
 
-    private fun base(scenario: ChatGptScenario?): String = "http://127.0.0.1:$port" + (scenario?.let { "$SCENARIO_PREFIX${it.id}" } ?: "")
+    private fun base(scenario: ChatGptScenario?): String = "http://127.0.0.1:$port" + scenario?.let { "$SCENARIO_PREFIX${it.id}" }.orEmpty()
 
     /** Refresh-token grant requests received (R08 §5.7 T-TOK-01: exactly one for 50 concurrent callers). */
     public fun refreshCount(): Int = synchronized(state.lock) { state.refreshCount }

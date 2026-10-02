@@ -9,6 +9,7 @@ import dev.agentle.core.oauth.blockedReason
 import dev.agentle.core.oauth.bodyUpTo
 import dev.agentle.core.oauth.transportFailureKind
 import dev.agentle.core.time.AgentleClock
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
@@ -100,7 +101,7 @@ public object RequestFieldGuard {
         return fields + listOfNotNull(
             "store".takeIf { store != "false" },
             "stream".takeIf { stream != "true" },
-            "input".takeIf { roles == null || roles.isEmpty() || roles.any { role -> InputRole.entries.none { it.wire == role } } },
+            "input".takeIf { roles.isNullOrEmpty() || roles.any { role -> InputRole.entries.none { it.wire == role } } },
         )
     }
 }
@@ -192,7 +193,7 @@ public class ResponsesClient(
  * Reads a response body off the caller's thread; cancelling the caller (or a disconnect) cancels the call, which
  * unblocks the read.
  */
-internal suspend fun <T> readCancellably(call: Call, read: () -> T): T = coroutineScope {
+internal suspend fun <T> readCancellably(call: Call, io: CoroutineDispatcher = Dispatchers.IO, read: () -> T): T = coroutineScope {
     val watcher = launch {
         try {
             awaitCancellation()
@@ -201,7 +202,7 @@ internal suspend fun <T> readCancellably(call: Call, read: () -> T): T = corouti
         }
     }
     try {
-        withContext(Dispatchers.IO) { read() }
+        withContext(io) { read() }
     } finally {
         watcher.cancel()
     }
