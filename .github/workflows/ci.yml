@@ -132,6 +132,21 @@ jobs:
           { echo "## Android CI mode: $mode"; echo; echo "- Robolectric SDKs: $sdks"; echo "- Lint tasks: $lint";
             echo "- Event: $EVENT_NAME, ref: $GIT_REF"; } >> "$GITHUB_STEP_SUMMARY"
           echo "Android CI mode: $mode (Robolectric SDKs $sdks; lint: $lint)"
+      - name: Robolectric version
+        id: robolectric
+        shell: bash
+        run: |
+          v=$(sed -nE 's/^robolectric[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' gradle/libs.versions.toml)
+          if [ -z "$v" ]; then echo "::error::robolectric version not found in gradle/libs.versions.toml"; exit 1; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      # Robolectric 4.17 downloads android-all-instrumented jars at test time into ~/.m2/repository (its
+      # MavenDependencyResolver) and reuses any jar found there. Saved only when the job succeeds.
+      - name: Cache Robolectric android-all jars
+        uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-${{ runner.os }}-${{ steps.robolectric.outputs.version }}-sdk${{ steps.mode.outputs.sdks }}
+          restore-keys: robolectric-${{ runner.os }}-${{ steps.robolectric.outputs.version }}-
       - name: Accept SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
       - name: Record start
