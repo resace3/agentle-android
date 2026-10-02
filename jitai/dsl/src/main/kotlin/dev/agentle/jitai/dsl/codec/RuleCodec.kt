@@ -200,7 +200,7 @@ public object RuleCodec {
         }
     }
 
-    /** UTF-8 length without allocating the encoded bytes. */
+    /** UTF-8 length without allocating the encoded bytes; a lone surrogate counts as U+FFFD (3 bytes), never less. */
     internal fun utf8Length(text: String): Int {
         var bytes = 0
         var i = 0

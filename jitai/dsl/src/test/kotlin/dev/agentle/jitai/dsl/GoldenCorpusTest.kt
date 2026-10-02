@@ -30,6 +30,7 @@ class GoldenCorpusTest {
     @ValueSource(
         strings = [
             "definition-3-1.json",
+            "definition-12-r1.json",
             "definition-13-6-1.json",
             "definition-13-6-2.json",
             "definition-13-6-3.json",

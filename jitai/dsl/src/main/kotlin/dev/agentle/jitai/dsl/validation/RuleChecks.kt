@@ -319,11 +319,18 @@ internal class RuleChecks(
             val target = existing[id]
             val reason = when {
                 index >= RuleLimits.MAX_SUPPRESSION_JITAI_IDS -> "is beyond the limit of ${RuleLimits.MAX_SUPPRESSION_JITAI_IDS} targets"
+
                 !seenIds.add(id) -> "is listed more than once"
+
                 id == view.id -> "is this rule itself"
-                !scope.existingRulesKnown -> null
+
+                // Re-validation does not know the other rules: a target only has to be a rule id (lowercase UUID).
+                !scope.existingRulesKnown -> if (CheckScope.UUID.matches(id)) null else "is not a rule id"
+
                 target == null -> "does not exist"
+
                 target.kind == JitaiKind.SUPPRESSION -> "is itself a blocking rule"
+
                 else -> null
             }
             if (reason != null) target(path, id, reason)
