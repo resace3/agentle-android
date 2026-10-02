@@ -1,35 +1,24 @@
 package dev.agentle.app.staging
 
 import android.content.Intent
-import androidx.paging.PagingData
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
-import dev.agentle.core.model.PersonalEvent
-import dev.agentle.core.time.AgentleClock
-import dev.agentle.core.time.SystemAgentleClock
 import dev.agentle.feature.hub.port.CapabilityItem
 import dev.agentle.feature.hub.port.DashboardData
 import dev.agentle.feature.hub.port.DashboardPort
 import dev.agentle.feature.hub.port.DataSourceItem
 import dev.agentle.feature.hub.port.DataSourcesPort
-import dev.agentle.feature.hub.port.DayCoverage
-import dev.agentle.feature.hub.port.HubClockPort
 import dev.agentle.feature.hub.port.PermissionCenterPort
-import dev.agentle.feature.hub.port.TimelineFilter
-import dev.agentle.feature.hub.port.TimelinePort
 import dev.agentle.feature.onboarding.port.OnboardingPort
 import dev.agentle.feature.onboarding.port.OnboardingProgress
 import dev.agentle.feature.onboarding.port.OnboardingSource
 import dev.agentle.feature.onboarding.port.OnboardingStep
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.datetime.LocalDate
-import javax.inject.Singleton
-import kotlin.time.Instant
 
 /** Placeholder bindings for UI-HUB's ports until APP-WIRING implements them. No data, every action unsupported. */
 @Module
@@ -46,15 +35,6 @@ internal object UiHubStagingModule {
 
     @Provides
     fun permissionCenterPort(): PermissionCenterPort = UnavailablePermissionCenterPort
-
-    @Provides
-    fun timelinePort(): TimelinePort = UnavailableTimelinePort
-
-    @Provides
-    @Singleton
-    fun hubClockPort(): HubClockPort = object : HubClockPort {
-        override val clock: AgentleClock = SystemAgentleClock()
-    }
 }
 
 private fun unavailable(feature: String): Outcome<Nothing> = Outcome.Failure(AppError.UnsupportedFeature(feature))
@@ -110,10 +90,3 @@ internal object UnavailablePermissionCenterPort : PermissionCenterPort {
     override fun settingsIntent(capabilityId: String): Intent? = null
 }
 
-internal object UnavailableTimelinePort : TimelinePort {
-    override fun events(filter: TimelineFilter, upperBound: Instant): Flow<PagingData<PersonalEvent>> = flowOf(PagingData.empty())
-
-    override fun dayCoverage(from: LocalDate, to: LocalDate): Flow<Map<LocalDate, DayCoverage>> = flowOf(emptyMap())
-
-    override val sources: Flow<List<String>> = flowOf(emptyList())
-}

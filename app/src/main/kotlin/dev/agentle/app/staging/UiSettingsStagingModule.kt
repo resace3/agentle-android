@@ -35,10 +35,8 @@ import dev.agentle.feature.settings.port.RetentionPort
 import dev.agentle.feature.settings.port.RetentionSettings
 import dev.agentle.feature.settings.port.SystemSettingsPort
 import dev.agentle.feature.settings.port.SystemSettingsTarget
-import dev.agentle.feature.settings.port.UserTimeZonePort
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.datetime.TimeZone
 import kotlin.time.Duration
 
 /**
@@ -52,9 +50,6 @@ import kotlin.time.Duration
 object UiSettingsStagingModule {
     @Provides
     fun systemSettingsPort(): SystemSettingsPort = UnavailableSystemSettingsPort
-
-    @Provides
-    fun userTimeZonePort(): UserTimeZonePort = UnavailableUserTimeZonePort
 
     @Provides
     fun retentionPort(): RetentionPort = UnavailableRetentionPort
@@ -88,9 +83,6 @@ private object UnavailableSystemSettingsPort : SystemSettingsPort {
  * Not a time source: the zone the screens format times in. UTC is a neutral placeholder (the default zone may not be
  * read); with every other port unavailable, no time is shown.
  */
-private object UnavailableUserTimeZonePort : UserTimeZonePort {
-    override fun zone(): TimeZone = TimeZone.UTC
-}
 
 private object UnavailableRetentionPort : RetentionPort {
     private const val FEATURE = "settings.retention"
