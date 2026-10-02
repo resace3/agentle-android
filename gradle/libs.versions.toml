@@ -115,6 +115,7 @@ compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
+compose-ui-test-junit4-accessibility = { module = "androidx.compose.ui:ui-test-junit4-accessibility" }
 compose-material3 = { module = "androidx.compose.material3:material3" }
 
 # ---------------------------------------------------------------- DI (Hilt / Dagger)
@@ -139,6 +140,7 @@ androidx-datastore-preferences = { module = "androidx.datastore:datastore-prefer
 androidx-datastore = { module = "androidx.datastore:datastore", version.ref = "datastore" }    # typed (serialized) stores
 androidx-paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "paging" }
 androidx-paging-compose = { module = "androidx.paging:paging-compose", version.ref = "paging" }
+androidx-paging-testing = { module = "androidx.paging:paging-testing", version.ref = "paging" }
 
 # ---------------------------------------------------------------- Background work
 androidx-work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }
