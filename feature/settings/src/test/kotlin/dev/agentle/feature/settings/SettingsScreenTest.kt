@@ -42,8 +42,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
+// The accessibility checks capture the screen, which needs native graphics under Robolectric.
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [37])
 class SettingsScreenTest {
     @get:Rule
