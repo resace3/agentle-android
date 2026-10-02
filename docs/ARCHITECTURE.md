@@ -80,7 +80,7 @@ at the edges. JVM modules never depend on Android modules.
 
 | Module | Type | Responsibility |
 |---|---|---|
-| `:core:model` | JVM | `PersonalEvent` + typed payloads, `EventType`, `DataSourceId`, `Insight`, `CapabilityDescriptor`, `PermissionState`, `ConnectorState`, `DataCategory` and source families, lineage, `UntrustedText`, media artifact model, user goals. kotlinx.serialization types. |
+| `:core:model` | JVM | `PersonalEvent` + typed payloads, `EventType`, `DataSourceId`, `Insight`, `CapabilityDescriptor`, `PermissionState`, `ConnectorState`, `DataCategory`, `SourceFamily` and `Lineage` (§9.2), `UntrustedText`, media artifact model, user goals. kotlinx.serialization types. |
 | `:core:common` | JVM | `AppError` hierarchy + `Outcome`, dispatcher qualifiers, `Logger` facade with `Redactor`, `SingleFlight` (a cancelled caller never cancels the shared run; with a scope, the run is detached from every caller), ids. |
 | `:core:time` | JVM | `AgentleClock` (wall + zone + monotonic), `EngineDay` (04:00 rollover), DST-safe day bounds and windows. |
 | `:core:network` | JVM | OkHttp factory with the egress allow-list (`HttpClientConfig.allowedHosts`), JSON config, error-body sniffing (Content-Type check), retry/backoff policy, `AccessTokenSource` + `withAccessToken` (one refresh after 401), sliding-window rate limiter. |
@@ -650,10 +650,12 @@ returns `AppError.AuthenticationRequired` without network).
 - A normative table maps every capability id (`docs/research/capabilities.json`) and every catalog feature to data
   categories (such as SCREEN_TIME_TOTALS, APP_IDENTITY, NOTIFICATION_COUNTS, NOTIFICATION_TEXT, CALENDAR_BUSY,
   CALENDAR_TEXT, LOCATION_CLASS, ACTIVITY, STEPS, SLEEP, HEART, BODY, USER_TEXT, GOALS; reconciled additively with
-  `DataCategory` in `:core:model`) and to source families (`GH_API`, `HEALTH_CONNECT`, `ON_DEVICE`).
+  `DataCategory` in `:core:model`) and to source families (`SourceFamily` in `:core:model`: `GH_API`,
+  `HEALTH_CONNECT`, `ON_DEVICE`; a source's family follows from its connector id).
 - The lineage of a derived artifact (daily row, rolling window, insight, proposal evidence, snapshot value) is the
-  union of its inputs' categories and families; unknown lineage counts as every category. The gate requires every
-  category and every source family in the lineage to be allowed.
+  union of its inputs' categories and families (`Lineage` in `:core:model`). Unknown lineage (`Lineage.UNKNOWN`)
+  counts as every category and every source family; an insight without recorded lineage counts as every family. The
+  gate requires every category and every source family in the lineage to be allowed.
 - `GH_API` values are denied to AI in v1, because Google's terms for sending Health API data to a third party are
   unresolved (§18).
 - Aggregates come only from the active Google Health account's rows and never sum a metric across sources.
