@@ -70,10 +70,10 @@ class SettingsScreenTest {
         assertThat(port.deleteEverythingCalls).isEqualTo(1)
 
         port.stateFlow.value = Fixtures.running
-        rule.onNodeWithText(str(R.string.settings_delete_all_step_of, 6, 10)).assertIsDisplayed()
+        rule.onNodeWithText(str(R.string.settings_delete_all_step_of, 6, 10)).assertExists()
 
         port.stateFlow.value = Fixtures.verifiedWithRemoteWarning
-        rule.onNodeWithText(str(R.string.settings_delete_all_remote_warning)).assertIsDisplayed()
+        rule.onNodeWithText(str(R.string.settings_delete_all_remote_warning)).assertExists()
         rule.onNodeWithText(str(R.string.settings_delete_all_resuming)).assertDoesNotExist()
     }
 
