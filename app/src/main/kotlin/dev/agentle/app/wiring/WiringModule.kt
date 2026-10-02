@@ -5,8 +5,11 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import dev.agentle.ai.api.AiPurpose
 import dev.agentle.background.port.Collectors
 import dev.agentle.background.port.Maintenance
+import dev.agentle.core.datastore.ConsentVocabulary
+import dev.agentle.core.model.AiDataCategory
 import dev.agentle.core.time.AgentleClock
 import dev.agentle.core.time.SystemAgentleClock
 import dev.agentle.feature.hub.port.DashboardPort
@@ -39,6 +42,16 @@ internal interface WiringModule {
         /** The one wall clock of the app; tests and debug builds replace it through their own bindings. */
         @Provides @Singleton
         fun clock(): AgentleClock = SystemAgentleClock()
+
+        /** What AI consent can name: every AI data category and purpose, under consent terms version 1. */
+        @Provides @Singleton
+        fun consentVocabulary(): ConsentVocabulary = ConsentVocabulary(
+            categories = AiDataCategory.entries.map { it.name }.toSet(),
+            purposes = AiPurpose.entries.map { it.name }.toSet(),
+            termsVersion = CONSENT_TERMS_VERSION,
+        )
+
+        private const val CONSENT_TERMS_VERSION = 1
 
         @Provides @Singleton
         fun hubClock(appClock: AgentleClock): HubClockPort = object : HubClockPort {
