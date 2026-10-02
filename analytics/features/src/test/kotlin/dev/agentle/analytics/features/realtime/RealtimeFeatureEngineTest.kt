@@ -26,17 +26,7 @@ class RealtimeFeatureEngineTest {
     private val jitaiId = "11111111-1111-4111-8111-111111111111"
 
     /** One valid ref of every catalog feature. */
-    private val everyFeature: List<FeatureRef> = RealtimeFeatureCatalog.all.map { definition ->
-        val args = definition.args.associate { arg ->
-            arg.name to when (arg.name) {
-                "since" -> "22:00"
-                "package" -> INSTAGRAM
-                "category" -> "SOCIAL"
-                else -> jitaiId
-            }
-        }
-        FeatureRef(definition.id, args)
-    }
+    private val everyFeature: List<FeatureRef> = everyCatalogRef(jitaiId)
 
     // ------------------------------------------------------------------ availability, API level, arguments
 

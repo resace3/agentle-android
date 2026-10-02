@@ -6,6 +6,7 @@ import dev.agentle.analytics.features.FeatureSnapshot
 import dev.agentle.analytics.features.FeatureValue
 import dev.agentle.analytics.features.MissingReason
 import dev.agentle.analytics.features.Quality
+import dev.agentle.analytics.features.RealtimeFeatureCatalog
 import dev.agentle.analytics.features.realtime.testing.HealthSources
 import dev.agentle.analytics.features.realtime.testing.InMemoryRealtimeInputs
 import dev.agentle.analytics.features.realtime.testing.StepSourceSpec
@@ -101,6 +102,37 @@ internal class RealtimeFixture(
     }
 
     fun stepsCoverage(source: String, through: String) = inputs.sourceCoverage.set(source, HealthMetric.STEPS, local(through))
+}
+
+/** One valid ref of every catalog feature (`since` 22:00, Instagram, SOCIAL, the history args bound to [jitaiId]). */
+internal fun everyCatalogRef(jitaiId: String = "11111111-1111-4111-8111-111111111111"): List<FeatureRef> =
+    RealtimeFeatureCatalog.all.map { definition ->
+        val args = definition.args.associate { arg ->
+            arg.name to when (arg.name) {
+                "since" -> "22:00"
+                "package" -> INSTAGRAM
+                "category" -> "SOCIAL"
+                else -> jitaiId
+            }
+        }
+        FeatureRef(definition.id, args)
+    }
+
+/**
+ * A JVM default zone far from every zone the tests use (+14:00, no DST). Test JVMs run in UTC today and will run in
+ * America/St_Johns; the engine must only ever use the clock's zone (testing-build-04).
+ */
+internal const val HOSTILE_JVM_ZONE = "Pacific/Kiritimati"
+
+/** Runs [block] with the JVM default time zone set to [zoneId], then restores it. */
+internal inline fun <T> withJvmDefaultZone(zoneId: String, block: () -> T): T {
+    val saved = java.util.TimeZone.getDefault()
+    java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zoneId))
+    try {
+        return block()
+    } finally {
+        java.util.TimeZone.setDefault(saved)
+    }
 }
 
 internal fun knownInt(value: Long, asOf: Instant, quality: Quality = Quality.FINAL): FeatureValue =
