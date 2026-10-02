@@ -1,7 +1,9 @@
 package dev.agentle.core.model
 
+import kotlinx.datetime.LocalDate
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.time.Instant
 
 /**
  * Typed event payloads. Serialized with a `kind` discriminator (see [EventCodec]); every class has a stable
@@ -89,9 +91,17 @@ public data class DistancePayload(val meters: Double) : EventPayload
 @SerialName("floors")
 public data class FloorsPayload(val floors: Double) : EventPayload
 
+/** What a calorie value covers: [ACTIVE] excludes the basal burn (Google Health `active-energy-burned`). */
+@Serializable
+public enum class EnergyBasis { ACTIVE, TOTAL, BASAL }
+
 @Serializable
 @SerialName("calories")
-public data class CaloriesPayload(val kilocalories: Double) : EventPayload
+public data class CaloriesPayload(
+    val kilocalories: Double,
+    /** Null when the source does not say (older rows); consumers must not sum different bases. */
+    val basis: EnergyBasis? = null,
+) : EventPayload
 
 @Serializable
 public enum class ActivityKind { STILL, WALKING, RUNNING, ON_BICYCLE, IN_VEHICLE, ON_FOOT, TILTING, UNKNOWN }
@@ -103,26 +113,93 @@ public enum class TransitionKind { ENTER, EXIT }
 @SerialName("activity_transition")
 public data class ActivityTransitionPayload(val activity: ActivityKind, val transition: TransitionKind) : EventPayload
 
+/** One exercise event (start, stop, pause, resume, ...), kept as the upstream type name. */
+@Serializable
+public data class ExerciseEventEntry(val eventType: String, val epochMs: Long, val utcOffsetSeconds: Int? = null)
+
 @Serializable
 @SerialName("exercise")
 public data class ExercisePayload(
+    /** Upstream exercise type (e.g. `RUNNING`); `UNKNOWN` when the value is not in the known set (see [rawExerciseType]). */
     val exerciseType: String,
     val durationMs: Long,
     val distanceMeters: Double? = null,
     val kilocalories: Double? = null,
     val averageHeartRate: Double? = null,
     val steps: Long? = null,
+    /** The upstream value when [exerciseType] is `UNKNOWN`, so nothing is lost. */
+    val rawExerciseType: String? = null,
+    /** Duration excluding pauses. */
+    val activeDurationMs: Long? = null,
+    val displayName: String? = null,
+    /** Personal text: free-form notes the user typed when logging manually. */
+    val notes: String? = null,
+    val hasGps: Boolean? = null,
+    val elevationGainMeters: Double? = null,
+    val activeZoneMinutes: Long? = null,
+    val averagePaceSecondsPerMeter: Double? = null,
+    /** Seconds per heart-rate zone (keys as upstream, e.g. `light`, `moderate`, `vigorous`, `peak`). */
+    val heartRateZoneSeconds: Map<String, Long> = emptyMap(),
+    val events: List<ExerciseEventEntry> = emptyList(),
+    val startUtcOffsetSeconds: Int? = null,
+    val endUtcOffsetSeconds: Int? = null,
+    /** Upstream last-modified time, when the source reports one. */
+    val upstreamUpdatedAt: Instant? = null,
 ) : EventPayload
 
 @Serializable
 @SerialName("heart_rate")
-public data class HeartRatePayload(val bpm: Double) : EventPayload
+public data class HeartRatePayload(
+    val bpm: Double,
+    /** Upstream motion context (e.g. `SEDENTARY`, `ACTIVE`), when reported. */
+    val motionContext: String? = null,
+    /** Upstream sensor location (e.g. `WRIST`), when reported. */
+    val sensorLocation: String? = null,
+) : EventPayload
+
+/**
+ * A daily resting heart rate. [date] is the civil date in the user's time zone as the source reports it; it is the
+ * authoritative key and is never derived from the event's instants.
+ */
+@Serializable
+@SerialName("resting_heart_rate")
+public data class RestingHeartRatePayload(val bpm: Double, val date: LocalDate, val calculationMethod: String? = null) : EventPayload
+
+/** Metrics a source reports as per-civil-day totals. */
+@Serializable
+public enum class DailyTotalMetric { STEPS, DISTANCE_METERS, FLOORS, TOTAL_CALORIES_KCAL, ACTIVE_CALORIES_KCAL }
+
+/**
+ * A per-civil-day total computed by the source (Google Health `:dailyRollUp`). [date] is authoritative; a day without
+ * data has no event at all (absent is not zero). Never sum these with the interval samples of the same metric.
+ */
+@Serializable
+@SerialName("daily_total")
+public data class DailyTotalPayload(val date: LocalDate, val metric: DailyTotalMetric, val value: Double) : EventPayload
 
 @Serializable
 public enum class SleepStageKind { AWAKE, LIGHT, DEEP, REM, ASLEEP_UNSPECIFIED, OUT_OF_BED, RESTLESS, UNKNOWN }
 
 @Serializable
-public data class SleepStage(val stage: SleepStageKind, val startEpochMs: Long, val endEpochMs: Long)
+public data class SleepStage(
+    val stage: SleepStageKind,
+    val startEpochMs: Long,
+    val endEpochMs: Long,
+    /** Offsets of the user's local time at the stage boundaries; they differ when a stage spans a DST change. */
+    val startUtcOffsetSeconds: Int? = null,
+    val endUtcOffsetSeconds: Int? = null,
+    /** The upstream stage name when [stage] is [SleepStageKind.UNKNOWN]. */
+    val rawStage: String? = null,
+)
+
+/** Upstream per-stage totals, stored as given (never recomputed). */
+@Serializable
+public data class SleepStageSummary(
+    val stage: SleepStageKind,
+    val minutes: Long? = null,
+    val count: Long? = null,
+    val rawStage: String? = null,
+)
 
 @Serializable
 @SerialName("sleep_session")
@@ -132,11 +209,34 @@ public data class SleepSessionPayload(
     val minutesAsleep: Long? = null,
     val minutesAwake: Long? = null,
     val isMainSleep: Boolean = true,
+    val isNap: Boolean = false,
+    /** False while the source is still computing stages; the session is re-read later. Null if unknown. */
+    val processed: Boolean? = null,
+    /** Upstream sleep type, e.g. `STAGES` or `CLASSIC`. */
+    val sleepType: String? = null,
+    /** Upstream stage-processing status, e.g. `SUCCEEDED`, `REJECTED_NAP`. */
+    val stagesStatus: String? = null,
+    val minutesInSleepPeriod: Long? = null,
+    val minutesToFallAsleep: Long? = null,
+    val minutesAfterWakeUp: Long? = null,
+    val stageSummaries: List<SleepStageSummary> = emptyList(),
+    /** Short awake segments; they may overlap [stages] and are kept separately (stages are never split). */
+    val shortAwakenings: List<SleepStage> = emptyList(),
+    val outOfBedSegments: List<SleepStage> = emptyList(),
+    val manuallyEdited: Boolean? = null,
+    val startUtcOffsetSeconds: Int? = null,
+    val endUtcOffsetSeconds: Int? = null,
+    /** Upstream last-modified time, when the source reports one. */
+    val upstreamUpdatedAt: Instant? = null,
 ) : EventPayload
 
 @Serializable
 @SerialName("weight")
-public data class WeightPayload(val kilograms: Double) : EventPayload
+public data class WeightPayload(
+    val kilograms: Double,
+    /** Personal text: notes typed when the weight was logged manually. */
+    val notes: String? = null,
+) : EventPayload
 
 @Serializable
 @SerialName("body_fat")
@@ -149,6 +249,10 @@ public data class WearableDevicePayload(
     val model: String? = null,
     val batteryPercent: Int? = null,
     val lastSyncEpochMs: Long? = null,
+    /** Upstream device type, e.g. `TRACKER` or `SCALE`. */
+    val deviceType: String? = null,
+    /** Upstream battery bucket, e.g. `High`, `Low`. */
+    val batteryStatus: String? = null,
 ) : EventPayload
 
 @Serializable
