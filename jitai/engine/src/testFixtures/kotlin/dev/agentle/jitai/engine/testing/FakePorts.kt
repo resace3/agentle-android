@@ -119,6 +119,12 @@ public class FakeDeliveryPort : DeliveryPort {
     /** Runs at the start of every [prepare] (for example to read the row state before the claim). */
     public var onPrepare: (suspend (RenderedIntervention) -> Unit)? = null
 
+    /** Runs at the start of every [post], after the claim (for example to race another worker). */
+    public var onPost: (suspend (PreparedDelivery) -> Unit)? = null
+
+    /** [isActive] throws instead of answering (a crashing platform call). */
+    public var isActiveThrows: Boolean = false
+
     public fun activeTags(): Set<String> = active.keys.toSet()
 
     public fun activeNotification(tag: String): RenderedIntervention? = active[tag]
@@ -145,6 +151,7 @@ public class FakeDeliveryPort : DeliveryPort {
 
     override suspend fun post(prepared: PreparedDelivery): PostResult {
         yield()
+        onPost?.invoke(prepared)
         if (throwOnPost) throw IllegalStateException("post failed")
         if (blocked) return PostResult.Blocked
         failCode?.let { return PostResult.Failed(it) }
@@ -160,6 +167,7 @@ public class FakeDeliveryPort : DeliveryPort {
     }
 
     override suspend fun isActive(tag: String): Outcome<Boolean> {
+        check(!isActiveThrows) { "active notifications unavailable" }
         if (isActiveFails) return Outcome.failure(AppError.Unexpected("injected"))
         return Outcome.success(tag in active)
     }
