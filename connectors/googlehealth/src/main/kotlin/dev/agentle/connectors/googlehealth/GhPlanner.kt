@@ -38,10 +38,11 @@ internal data class GhPlan(
  *   15 minutes ago;
  * - a stored cursor more than 5 minutes after now (the clock moved back) restarts at now minus the overlap; a window
  *   never has start >= end;
- * - the weekly deep re-sync reaches 30 days back; backfill walks down in 30-day steps (one per scheduled run, all on a
- *   BACKFILL run) to min(horizon, retention);
+ * - the weekly deep re-sync reaches 30 days back; backfill walks down in 30-day steps (one per scheduled run after the
+ *   hot load, all at once on a BACKFILL run) to min(horizon, retention);
  * - every window start is clamped to the store's import floor (retention or the last deletion);
- * - windows are cut to the stream's cap; daily streams use whole civil days in the account zone.
+ * - windows are cut to the stream's cap; daily streams use whole civil days in the account zone; rollup windows start
+ *   and end on whole minutes, because `:rollUp` buckets start at the range start and their bounds are the dedup key.
  */
 internal object GhPlanner {
     /** A cursor this far after now means the clock moved back. */
@@ -52,6 +53,9 @@ internal object GhPlanner {
 
     /** Margin before the tracker's last upload when it bounds the overlap. */
     val DEVICE_MARGIN: Duration = 1.hours
+
+    /** Rollup windows (and so their 60-second buckets) are aligned to this. */
+    val ROLLUP_ALIGN: Duration = 1.minutes
 
     @Suppress("CyclomaticComplexMethod", "LongParameterList")
     fun plan(
@@ -64,6 +68,8 @@ internal object GhPlanner {
         config: GoogleHealthConfig,
     ): GhPlan {
         val lowest = floor ?: Instant.DISTANT_PAST
+        val aligned = stream.kind == GhKind.ROLL_UP
+        val end = if (aligned) floorTo(now, ROLLUP_ALIGN) else now
         val stored = state.through
         val firstSync = stored == null
         val jumpedBack = stored != null && stored > now + CLOCK_SKEW
@@ -80,17 +86,21 @@ internal object GhPlanner {
         if (deep) start = minOf(start, now - config.deepResyncWindow)
         if (stream.kind == GhKind.SLEEP) start -= GhFetcher.SESSION_LEAD
         start = maxOf(start, lowest)
+        if (aligned) start = ceilTo(start, ROLLUP_ALIGN)
         val forward = if (stream.civilDays) {
             splitDays(alignDay(start, zone, floor), nextDayStart(now, zone), zone, stream.chunk)
         } else {
-            split(start, now, stream.chunk)
+            split(start, end, stream.chunk)
         }.let { if (deep) it else it.take(config.maxChunksPerRun) }
 
         val from = minOf(state.backfilledFrom ?: forward.firstOrNull()?.start ?: start, forward.firstOrNull()?.start ?: start)
-        val horizon = maxOf(now - config.backfillHorizon, lowest)
-        val target = when (trigger) {
-            SyncTrigger.BACKFILL -> horizon
-            SyncTrigger.SCHEDULED -> maxOf(horizon, from - config.backfillChunk)
+        val horizon = maxOf(now - config.backfillHorizon, lowest).let { if (aligned) ceilTo(it, ROLLUP_ALIGN) else it }
+        val target = when {
+            trigger == SyncTrigger.BACKFILL -> horizon
+
+            // The run that hot-loads stays short; scheduled runs then walk down one chunk each.
+            trigger == SyncTrigger.SCHEDULED && !firstSync -> maxOf(horizon, from - config.backfillChunk)
+
             else -> null
         }
         val backward = when {
@@ -171,6 +181,18 @@ internal object GhPlanner {
     fun dayStart(at: Instant, zone: TimeZone): Instant = at.toLocalDateTime(zone).date.atStartOfDayIn(zone)
 
     fun nextDayStart(at: Instant, zone: TimeZone): Instant = at.toLocalDateTime(zone).date.plus(DatePeriod(days = 1)).atStartOfDayIn(zone)
+
+    /** [at] rounded down to a whole multiple of [step] since the epoch. */
+    fun floorTo(at: Instant, step: Duration): Instant {
+        val ms = step.inWholeMilliseconds
+        return Instant.fromEpochMilliseconds(Math.floorDiv(at.toEpochMilliseconds(), ms) * ms)
+    }
+
+    /** [at] rounded up to a whole multiple of [step] since the epoch. */
+    fun ceilTo(at: Instant, step: Duration): Instant {
+        val down = floorTo(at, step)
+        return if (down == at) at else down + step
+    }
 
     /** Whole seconds: filter literals carry no fractions. */
     fun truncate(at: Instant): Instant = Instant.fromEpochSeconds(at.epochSeconds)

@@ -51,9 +51,12 @@ internal data class GhDevice(val deviceType: String?, val lastSync: Instant?)
  * Maps Google Health points to [PersonalEvent]s (docs/research/05 §4, §5.4, §5.9, §5.10):
  * - every key and id is scoped by [accountId] (a hash of `healthUserId`, round-2 correction 3), and resource names are
  *   stored as `users/me/...`, so no raw user id is persisted;
- * - dedup keys: `gh|<account>|<stream>|<point id>` for identifiable points, else the interval or sample time plus a
- *   source key from the client-provided `dataSource` fields (`recordingMethod`, `device`); the output-only `platform`
- *   and `application` never enter a key or a hash (round-2 correction 4);
+ * - dedup keys: `gh|<account>|<stream>|<point id>` for identifiable points; for `:reconcile` points (one deduplicated
+ *   stream without `dataSource`) the interval alone; else the interval or sample time plus a source key from the
+ *   client-provided `dataSource` fields (`recordingMethod`, `device`); the output-only `platform` and `application`
+ *   never enter a key or a hash (round-2 correction 4);
+ * - `:reconcile` points have no provenance: no single device or recording method produced them (the connector is the
+ *   event source, `googlehealth.<stream>`);
  * - a true zero (an interval without its value field) is 0; absence is no event;
  * - instants are kept as instants, each record's own offset gives its zone; civil-date values keep their `LocalDate`.
  */
@@ -68,7 +71,7 @@ internal class GhMapper(private val accountId: String, private val accountZone: 
         if (unionKeys.size != 1 || unionKeys[0] != stream.unionKey) return Mapped.Skip("union")
         val value = point.obj(stream.unionKey) ?: return Mapped.Skip("union")
         val upstreamId = (point.string("name") ?: point.string("dataPointName"))?.let(::normalizedName)
-        val provenance = provenance(point.obj("dataSource"))
+        val provenance = if (stream.method == GhMethod.RECONCILE) null else provenance(point.obj("dataSource"))
         return when (stream.kind) {
             GhKind.INTERVAL -> interval(stream, value, provenance, upstreamId)
             GhKind.SAMPLE -> sample(stream, value, provenance, upstreamId)
@@ -89,8 +92,12 @@ internal class GhMapper(private val accountId: String, private val accountZone: 
             "activeEnergyBurned" -> CaloriesPayload(amount(value, "kcal", MAX_KCAL) ?: return Mapped.Skip("value"), EnergyBasis.ACTIVE)
             else -> return Mapped.Skip("type")
         }
-        val key = upstreamId?.let { "${prefix(stream)}|${it.substringAfterLast('/')}" }
-            ?: "${prefix(stream)}|${time.start.toEpochMilliseconds()}|${time.end.toEpochMilliseconds()}|${sourceKey(provenance)}"
+        val interval = "${prefix(stream)}|${time.start.toEpochMilliseconds()}|${time.end.toEpochMilliseconds()}"
+        val key = when {
+            upstreamId != null -> "${prefix(stream)}|${upstreamId.substringAfterLast('/')}"
+            stream.method == GhMethod.RECONCILE -> interval
+            else -> "$interval|${sourceKey(provenance)}"
+        }
         return Mapped.Event(event(stream, time.start, time.end, time.startOffset, payload, key, provenance, upstreamId, null))
     }
 

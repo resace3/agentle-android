@@ -78,6 +78,19 @@ internal data class GhStream(
     val pageSizeCapped: Boolean get() = kind == GhKind.SLEEP || kind == GhKind.EXERCISE
 }
 
+/**
+ * The stream catalog and the API method behind each stream (docs/research/05 §5.3):
+ * - steps, distance, active energy and floors: `:reconcile` with the interval start-time filter. These minute-level
+ *   values are summed downstream, and `list` "returns all stored records as uploaded without deduplication", so a walk
+ *   recorded by a watch and by the phone would count twice; `:reconcile` "deduplicates overlapping records across
+ *   devices and sync sessions into a single continuous stream". Its points carry no `dataSource`, so they have no
+ *   provenance and are keyed by their interval alone (plus the account);
+ * - heart rate: 60-second `:rollUp` windows (raw `list` samples only when opted in);
+ * - daily totals: `:dailyRollUp`, the source of truth for days;
+ * - sleep, exercise, daily resting heart rate, weight and body fat: `list`, which keeps the provenance; their records
+ *   are identified by `name` (or are one value per day) and are never summed per minute;
+ * - paired devices: `pairedDevices.list`.
+ */
 internal object GhStreams {
     private val INTERVAL_CHUNK = 24.hours
     private val RAW_SAMPLE_CHUNK = 6.hours
@@ -107,10 +120,10 @@ internal object GhStreams {
                 GoogleHealthStreams.SLEEP, "sleep", "sleep", GhMethod.LIST, GhKind.SLEEP, EventType.SLEEP_SESSION,
                 GoogleHealthScopes.SLEEP, SESSION_CHUNK, SESSION_OVERLAP, GhDeviceClass.TRACKER, identifiable = true,
             ),
-            interval(GoogleHealthStreams.STEPS, "steps", "steps", EventType.STEP_SAMPLE),
-            interval(GoogleHealthStreams.DISTANCE, "distance", "distance", EventType.DISTANCE_SAMPLE),
-            interval(GoogleHealthStreams.ACTIVE_ENERGY, "active-energy-burned", "activeEnergyBurned", EventType.CALORIES_SAMPLE),
-            interval(GoogleHealthStreams.FLOORS, "floors", "floors", EventType.FLOORS_SAMPLE, GhMethod.RECONCILE),
+            reconciled(GoogleHealthStreams.STEPS, "steps", "steps", EventType.STEP_SAMPLE),
+            reconciled(GoogleHealthStreams.DISTANCE, "distance", "distance", EventType.DISTANCE_SAMPLE),
+            reconciled(GoogleHealthStreams.ACTIVE_ENERGY, "active-energy-burned", "activeEnergyBurned", EventType.CALORIES_SAMPLE),
+            reconciled(GoogleHealthStreams.FLOORS, "floors", "floors", EventType.FLOORS_SAMPLE),
             heartRate,
             GhStream(
                 GoogleHealthStreams.EXERCISE, "exercise", "exercise", GhMethod.LIST, GhKind.EXERCISE, EventType.EXERCISE_SESSION,
@@ -145,9 +158,10 @@ internal object GhStreams {
         return all
     }
 
-    private fun interval(id: String, dataType: String, unionKey: String, type: EventType, method: GhMethod = GhMethod.LIST) = GhStream(
-        id, dataType, unionKey, method, GhKind.INTERVAL, type, GoogleHealthScopes.ACTIVITY, INTERVAL_CHUNK, SAMPLE_OVERLAP,
-        GhDeviceClass.TRACKER, deviceBoundOverlap = true,
+    /** A minute-level interval type read through `:reconcile` (one deduplicated stream across devices). */
+    private fun reconciled(id: String, dataType: String, unionKey: String, type: EventType) = GhStream(
+        id, dataType, unionKey, GhMethod.RECONCILE, GhKind.INTERVAL, type, GoogleHealthScopes.ACTIVITY, INTERVAL_CHUNK,
+        SAMPLE_OVERLAP, GhDeviceClass.TRACKER, deviceBoundOverlap = true,
     )
 
     private fun daily(id: String, dataType: String, unionKey: String, metric: DailyTotalMetric) = GhStream(

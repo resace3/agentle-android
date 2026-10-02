@@ -87,6 +87,14 @@ public sealed interface GoogleHealthConnectResult {
  *
  * The production API is used only when [GoogleHealthConfig.liveApiEnabled] is set; a loopback base URL (fake flavor,
  * tests) is always allowed.
+ *
+ * Methods per data type (docs/research/05 §5.3): steps, distance, active energy and floors through `:reconcile` (one
+ * deduplicated stream across devices, so a walk recorded by a watch and a phone counts once), heart rate through
+ * 60-second `:rollUp` windows, daily totals through `:dailyRollUp`, and sleep, exercise, resting heart rate, weight and
+ * body fat through `list` (with provenance). Reconciled points carry no `dataSource`, so the API-side skip of points
+ * imported from Health Connect (§5.9, §7.7) cannot apply to them, and no row is ever dropped because another source is
+ * connected: when Health Connect is also read directly, double counting is resolved downstream by the per-minute
+ * source fusion, which keeps one source per minute.
  */
 public class GoogleHealthConnector(
     private val config: GoogleHealthConfig,
