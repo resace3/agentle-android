@@ -211,6 +211,12 @@ public enum class IssueCode(public val title: String, public val severity: Issue
     ),
     ;
 
+    /**
+     * A plain-language sentence for the user without parameters (review R2-5): the "could not turn this into a safe
+     * rule" list shows these; the parameterized [format] text goes only to the model in the repair round.
+     */
+    public val plainText: String get() = PLAIN[name] ?: plainByGroup(name)
+
     /** Number of message templates (variants) of this code. */
     public val variantCount: Int get() = templates.size
 
@@ -235,5 +241,35 @@ public enum class IssueCode(public val title: String, public val severity: Issue
             i = close + 1
         }
         return out.toString()
+    }
+
+    private companion object {
+        val PLAIN: Map<String, String> = mapOf(
+            "E002" to "The rule was too long.",
+            "E026" to "The rule would remind you even when its data is missing.",
+            "E027" to "The rule's conditions can never all be true.",
+            "E028" to "The rule needs a capability this phone does not offer.",
+            "E042" to "The rule would remind you too often in a day.",
+            "E043" to "The rule would remind you too often in a week.",
+            "E045" to "The rule asked for a higher priority than allowed.",
+            "E046" to "The rule must have an end date.",
+            "E061" to "The text contained a link, email address or phone number.",
+            "E062" to "The text contained wording that is not allowed.",
+            "E066" to "The text contained hidden or control characters.",
+            "E099" to "Something went wrong while checking the rule.",
+        )
+
+        fun plainByGroup(name: String): String {
+            val number = name.drop(1).toIntOrNull() ?: return "The rule is not valid."
+            return when (number) {
+                in 1..9, in 90..98 -> "The reply was not a valid rule."
+                in 10..29 -> "One of the rule's conditions is not valid."
+                in 30..39 -> "The rule's timing is not valid."
+                in 40..49 -> "The rule's limits are not valid."
+                in 50..58 -> "The rule's structure is not valid."
+                in 60..69 -> "The notification text is not valid."
+                else -> "The rule's app or outcome settings are not valid."
+            }
+        }
     }
 }

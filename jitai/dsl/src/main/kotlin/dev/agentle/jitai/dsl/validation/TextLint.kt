@@ -63,8 +63,15 @@ public object TextLint {
     private val DOMAIN = Regex(
         "(?<![\\p{L}\\p{N}_-])[\\p{L}\\p{N}-]+(?:\\.[\\p{L}\\p{N}-]+)*\\.(?:${TLDS.joinToString("|")})(?![\\p{L}\\p{N}_-])",
     )
-    private val EMAIL = Regex("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")
-    private val PHONE = Regex("\\d(?:[ .()\\-]*\\d){6,}")
+
+    /** Starts only at a token start and takes the local part possessively, so a long token is matched in linear time. */
+    private val EMAIL = Regex("(?<![^\\s@])[^\\s@]++@[^\\s@]*\\.[^\\s@]+")
+
+    /** Any decimal digit; separators include the Unicode hyphens U+2010-2015 and the minus sign U+2212. */
+    private val PHONE = Regex("\\p{Nd}(?:[ .()\\-\\u2010-\\u2015\\u2212]*\\p{Nd}){6,}")
+
+    /** Ideographic, halfwidth and small full stops read as "." in a link or address (L1, L2). */
+    private val DOTS = Regex("[\\u3002\\uFF61\\uFE52]")
     private val MARKUP = Regex("<[\\p{L}/]|\\]\\(|`|\\*\\*")
     private val MEDICAL = Regex("(?<![\\p{L}\\p{N}])(?:${MEDICAL_STEMS.joinToString("|")})[\\p{L}\\p{N}]*")
     private val CAUSAL = Regex(
@@ -79,7 +86,7 @@ public object TextLint {
     public fun check(text: String): List<LintFinding> {
         val findings = ArrayList<LintFinding>()
         invisible(text)?.let { findings += it }
-        val folded = fold(text)
+        val folded = fold(text).replace(DOTS, ".")
         firstMatch(URL, folded)?.let { findings += LintFinding(LintCheck.L1, it) }
             ?: firstMatch(DOMAIN, folded)?.let { findings += LintFinding(LintCheck.L1, it) }
         firstMatch(EMAIL, folded)?.let { findings += LintFinding(LintCheck.L2, it) }
@@ -102,7 +109,7 @@ public object TextLint {
         var i = 0
         while (i < text.length) {
             val cp = text.codePointAt(i)
-            if (isControlOrInvisible(cp)) {
+            if (isControlOrInvisible(cp) && !allowedInEmoji(text, i, cp)) {
                 return LintFinding(LintCheck.L5, String(Character.toChars(cp)), "%04X".format(Locale.ROOT, cp))
             }
             i += Character.charCount(cp)
@@ -113,13 +120,45 @@ public object TextLint {
     /** NFKC and case folding (lower case in the root locale), the form L1-L4, L6 and L7 run on. */
     public fun fold(text: String): String = Normalizer.normalize(text, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
 
-    private fun isControlOrInvisible(cp: Int): Boolean = Character.getType(cp) == Character.CONTROL.toInt() ||
-        cp in 0x200B..0x200D ||
-        cp == 0x2028 ||
-        cp == 0x2029 ||
-        cp in 0x202A..0x202E ||
-        cp in 0x2066..0x2069 ||
-        cp == 0xFEFF
+    /**
+     * L5 (review R2-1): every Cc, Cf, Cs, Co and Cn code point, the line and paragraph separators, and every
+     * Default_Ignorable_Code_Point. ZWJ (U+200D) is allowed only between two emoji and VS16 (U+FE0F) only after one.
+     */
+    private fun isControlOrInvisible(cp: Int): Boolean = when (Character.getType(cp)) {
+        Character.CONTROL.toInt(), Character.FORMAT.toInt(), Character.SURROGATE.toInt(), Character.PRIVATE_USE.toInt(),
+        Character.UNASSIGNED.toInt(), Character.LINE_SEPARATOR.toInt(), Character.PARAGRAPH_SEPARATOR.toInt(),
+        -> true
+
+        else -> DEFAULT_IGNORABLE.any { cp in it }
+    }
+
+    private fun allowedInEmoji(text: String, i: Int, cp: Int): Boolean {
+        if (cp != ZWJ && cp != VS16) return false
+        val before = if (i > 0) text.codePointBefore(i) else return false
+        val previousIsEmoji = isEmoji(before) || (before == VS16 && i >= 2 && isEmoji(text.codePointBefore(i - 1)))
+        if (cp == VS16) return isEmoji(before)
+        val after = i + 1 < text.length && isEmoji(text.codePointAt(i + 1))
+        return previousIsEmoji && after
+    }
+
+    private fun isEmoji(cp: Int): Boolean = EMOJI.any { cp in it }
+
+    private const val ZWJ = 0x200D
+    private const val VS16 = 0xFE0F
+
+    /** Default_Ignorable_Code_Point (Unicode DerivedCoreProperties). */
+    private val DEFAULT_IGNORABLE: List<IntRange> = listOf(
+        0x00AD..0x00AD, 0x034F..0x034F, 0x061C..0x061C, 0x115F..0x1160, 0x17B4..0x17B5, 0x180B..0x180F,
+        0x200B..0x200F, 0x202A..0x202E, 0x2060..0x206F, 0x3164..0x3164, 0xFE00..0xFE0F, 0xFEFF..0xFEFF,
+        0xFFA0..0xFFA0, 0xFFF0..0xFFF8, 0x1BCA0..0x1BCA3, 0x1D173..0x1D17A, 0xE0000..0xE0FFF,
+    )
+
+    /** Pictographic ranges that ZWJ sequences and VS16 attach to. */
+    private val EMOJI: List<IntRange> = listOf(
+        0x00A9..0x00A9, 0x00AE..0x00AE, 0x203C..0x203C, 0x2049..0x2049, 0x2122..0x2122, 0x2139..0x2139,
+        0x2194..0x21AA, 0x2300..0x23FF, 0x24C2..0x24C2, 0x25AA..0x25FE, 0x2600..0x27BF, 0x2934..0x2935,
+        0x2B00..0x2BFF, 0x3030..0x3030, 0x303D..0x303D, 0x3297..0x3297, 0x3299..0x3299, 0x1F000..0x1FAFF,
+    )
 
     private fun firstMatch(regex: Regex, text: String): String? = regex.find(text)?.value
 }
