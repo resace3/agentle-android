@@ -162,16 +162,19 @@ class InterventionNotifier(
                 if (spec.video) R.string.interventions_action_watch else R.string.interventions_action_listen,
                 intents.open(intervention, autoplay = true) ?: return null,
             )
+
             is ActionSpec.Snooze -> Triple(
                 R.drawable.ic_intervention_snooze,
                 snoozeLabel(spec.option),
                 intents.action(intervention, NotificationVerb.SNOOZE, spec.option),
             )
+
             ActionSpec.NotNow -> Triple(
                 R.drawable.ic_intervention_snooze,
                 R.string.interventions_action_not_now,
                 intents.action(intervention, NotificationVerb.NOT_NOW),
             )
+
             ActionSpec.Stop -> Triple(
                 R.drawable.ic_intervention_stop,
                 R.string.interventions_action_stop,

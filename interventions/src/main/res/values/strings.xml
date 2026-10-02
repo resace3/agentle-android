@@ -11,7 +11,7 @@
 
     <!-- The lock-screen (public) version: always generic. -->
     <string name="interventions_public_title">Agentle</string>
-    <string name="interventions_public_text">New nudge</string>
+    <string name="interventions_public_text">Agentle has a suggestion</string>
 
     <!-- Notification actions. -->
     <string name="interventions_action_listen">Listen</string>

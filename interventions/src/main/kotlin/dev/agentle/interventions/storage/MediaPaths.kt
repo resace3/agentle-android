@@ -83,7 +83,7 @@ class BundledMedia(private val assets: AssetManager) {
 
     fun open(path: String): InputStream = assets.open(path)
 
-    private fun exists(path: String): Boolean = try {
+    fun exists(path: String): Boolean = try {
         assets.open(path).close()
         true
     } catch (expected: IOException) {

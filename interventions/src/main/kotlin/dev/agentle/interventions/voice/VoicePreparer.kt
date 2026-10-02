@@ -42,6 +42,7 @@ class VoicePreparer(
         val target = library.newTarget(MediaKind.VOICE, WAV)
         return when (val result = synthesizer.synthesize(text, locale, target.file, allowed)) {
             is TtsResult.Failure -> unavailable(result.failure.code)
+
             is TtsResult.Success -> {
                 val spec = MediaSpec(
                     kind = MediaKind.VOICE,
@@ -52,7 +53,10 @@ class VoicePreparer(
                     expiresAfter = current.mediaExpiryDays.days,
                 )
                 when (val stored = library.register(target, spec)) {
-                    is Outcome.Success -> PrepareResult.Ready(PreparedDelivery(intervention, MediaRef.Stored(stored.value.artifact.id).encoded))
+                    is Outcome.Success -> PrepareResult.Ready(
+                        PreparedDelivery(intervention, MediaRef.Stored(stored.value.artifact.id).encoded),
+                    )
+
                     is Outcome.Failure -> unavailable(InterventionCodes.MEDIA_STORE_FAILED)
                 }
             }

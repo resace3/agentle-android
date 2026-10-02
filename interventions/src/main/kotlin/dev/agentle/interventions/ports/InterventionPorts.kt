@@ -101,7 +101,8 @@ fun interface JitaiStopper {
 
 /**
  * Intervention settings (DataStore, owned by the settings team). Defaults are the privacy defaults: no in-app card
- * fallback. Network voices are never used (privacy-ai-19), so there is no setting for them. What a post may show (detailed text, wearables) is not here: it arrives on every
+ * fallback. Network voices are never used (privacy-ai-19), so there is no setting for them.
+ * What a post may show (detailed text, wearables) is not here: it arrives on every
  * `RenderedIntervention` (`postedTitle`, `postedBody`, `detailed`, `localOnly`), from the engine's
  * `EngineSettings.notificationPrivacy`, so there is one source of truth.
  *

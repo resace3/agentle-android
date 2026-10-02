@@ -124,7 +124,14 @@ data class ImageRequest(val description: String, val size: CardSize)
 class ProviderImageGeneration(private val capabilities: () -> AiCapabilities) {
     @Suppress("UnusedParameter")
     suspend fun generate(request: ImageRequest): Outcome<File> {
-        val detail = if (capabilities().isAvailable(AiCapability.IMAGE_GENERATION)) "no image route in v1" else "provider lacks image generation"
+        val detail = if (capabilities().isAvailable(
+                AiCapability.IMAGE_GENERATION,
+            )
+        ) {
+            "no image route in v1"
+        } else {
+            "provider lacks image generation"
+        }
         return Outcome.failure(AppError.UnsupportedFeature(FEATURE, detail))
     }
 

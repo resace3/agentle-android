@@ -106,10 +106,12 @@ class InterventionCards(
             }
             when {
                 !keep -> drop(card)
+
                 card.decisionKey in pendingKeys && !card.confirmed -> {
                     store.put(card.copy(confirmed = true)).onFailure { logger.w(COMPONENT, "card not confirmed", it) }
                     false
                 }
+
                 else -> false
             }
         }
@@ -127,6 +129,7 @@ class InterventionCards(
             when (display) {
                 CardDisplay.SHOWN -> store.put(card.copy(confirmed = true, displayedAt = clock.now()))
                     .onFailure { logger.w(COMPONENT, "card display not stored", it) }
+
                 CardDisplay.GONE -> drop(card)
             }
             display
@@ -145,6 +148,7 @@ class InterventionCards(
         val response = InterventionResponse(card.decisionKey, card.nonce, action.kind, ResponseSurface.IN_APP_CARD, action.snooze)
         return when (val outcome = responses.apply(response)) {
             is Outcome.Failure -> CardResult.Failed(outcome.error)
+
             is Outcome.Success -> {
                 val route = AppRoute.InterventionDetail(card.decisionKey).takeIf { action == CardAction.Open && outcome.value.accepted }
                 CardResult.Done(outcome.value, route)

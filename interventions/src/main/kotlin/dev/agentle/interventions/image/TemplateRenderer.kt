@@ -97,13 +97,24 @@ class TemplateRenderer(private val context: Context) {
 
     /** PNG (lossless, no quality tuning), temp file, fsync and rename (R09 §6.2). Returns the file size. */
     fun writePng(bitmap: Bitmap, target: File): Long {
-        AtomicFiles.write(target) { out -> if (!bitmap.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, out)) throw IOException("png encode") }
+        AtomicFiles.write(target) { out ->
+            if (!bitmap.compress(Bitmap.CompressFormat.PNG, PNG_QUALITY, out)) throw IOException("png encode")
+        }
         return target.length()
     }
 
     private fun drawBackground(canvas: Canvas, width: Int, height: Int, theme: CardTheme, unit: Float) {
         val background = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), theme.backgroundTop, theme.backgroundBottom, Shader.TileMode.CLAMP)
+            shader =
+                LinearGradient(
+                    0f,
+                    0f,
+                    width.toFloat(),
+                    height.toFloat(),
+                    theme.backgroundTop,
+                    theme.backgroundBottom,
+                    Shader.TileMode.CLAMP,
+                )
         }
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), background)
         // One soft disc in the corner, so plain cards still look intentional.
@@ -119,7 +130,15 @@ class TemplateRenderer(private val context: Context) {
     }
 
     /** Draws the metric at the bottom; returns the new bottom edge of the text area. */
-    private fun drawMetric(canvas: Canvas, metric: CardMetric, width: Int, bottom: Float, pad: Float, unit: Float, theme: CardTheme): Float {
+    private fun drawMetric(
+        canvas: Canvas,
+        metric: CardMetric,
+        width: Int,
+        bottom: Float,
+        pad: Float,
+        unit: Float,
+        theme: CardTheme,
+    ): Float {
         val label = textPaint(theme.muted, unit * METRIC_LABEL_UNITS, bold = false)
         val value = textPaint(theme.onBackground, unit * METRIC_VALUE_UNITS, bold = true)
         val maxWidth = width - 2 * pad

@@ -60,7 +60,8 @@ class NotificationStateReader(private val context: Context, private val channels
     }
 
     /** `getCurrentInterruptionFilter()` for the engine's `NotificationSystemState` (G07); UNKNOWN counts as DND on. */
-    fun interruptionFilter(): InterruptionFilter = filterOf(context.getSystemService(NotificationManager::class.java).currentInterruptionFilter)
+    fun interruptionFilter(): InterruptionFilter =
+        filterOf(context.getSystemService(NotificationManager::class.java).currentInterruptionFilter)
 
     /**
      * `areNotificationsPaused()` (API 29: the package is suspended, "Pause app"). A failing system call counts as paused,

@@ -125,7 +125,9 @@ class TtsSynthesizer(
     /** Language check, then an on-device voice; null when the engine is ready. */
     private fun configure(tts: TextToSpeech, locale: Locale): TtsFailure? = when (tts.isLanguageAvailable(locale)) {
         TextToSpeech.LANG_MISSING_DATA -> TtsFailure.LanguageMissing
+
         TextToSpeech.LANG_NOT_SUPPORTED -> TtsFailure.LanguageUnsupported
+
         else -> {
             val voice = pickVoice(tts.voices.orEmpty(), locale)
             if (voice == null || tts.setVoice(voice) != TextToSpeech.SUCCESS) TtsFailure.NoOfflineVoice else null
@@ -143,7 +145,13 @@ class TtsSynthesizer(
             synthesizeChunk(tts, chunk, parts[i], pending)?.let { return TtsResult.Failure(it) }
         }
         val info = withContext(io) {
-            val joined = if (parts.size == 1) parts[0].takeIf { it.renameTo(staged) }?.let { Wav.parse(staged) } else Wav.concat(parts, staged)
+            val joined = if (parts.size ==
+                1
+            ) {
+                parts[0].takeIf { it.renameTo(staged) }?.let { Wav.parse(staged) }
+            } else {
+                Wav.concat(parts, staged)
+            }
             joined?.takeIf { it.isPcm16 && it.frameCount > 0 && staged.renameTo(out) }
         }
         return info?.let { TtsResult.Success(out, it, engine, tts.voice?.name) } ?: TtsResult.Failure(TtsFailure.InvalidOutput)
@@ -195,7 +203,13 @@ class TtsSynthesizer(
         }
 
         override fun onError(utteranceId: String?, errorCode: Int) {
-            val failure = if (errorCode == TextToSpeech.ERROR_NOT_INSTALLED_YET) TtsFailure.LanguageMissing else TtsFailure.SynthesisError(errorCode)
+            val failure = if (errorCode ==
+                TextToSpeech.ERROR_NOT_INSTALLED_YET
+            ) {
+                TtsFailure.LanguageMissing
+            } else {
+                TtsFailure.SynthesisError(errorCode)
+            }
             pending[utteranceId]?.complete(ChunkEnd.Failed(failure))
         }
 
@@ -222,7 +236,11 @@ class TtsSynthesizer(
             .filterNot { it.isNetworkConnectionRequired }
             .filterNot { TextToSpeech.Engine.KEY_FEATURE_NETWORK_SYNTHESIS in it.features.orEmpty() }
             .filterNot { TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED in it.features.orEmpty() }
-            .sortedWith(compareBy<Voice> { locale.country.isNotEmpty() && it.locale.country != locale.country }.thenByDescending { it.quality })
+            .sortedWith(
+                compareBy<Voice> {
+                    locale.country.isNotEmpty() && it.locale.country != locale.country
+                }.thenByDescending { it.quality },
+            )
             .firstOrNull()
     }
 }

@@ -210,7 +210,9 @@ class InterventionPlayer(
             library.touch(parsed.id)
             library.fileOf(record)?.let(Uri::fromFile)
         }
+
         is MediaRef.Bundled -> parsed.assetPath.takeIf(bundled::exists)?.let { Uri.parse("asset:///$it") }
+
         null -> null
     }
 
