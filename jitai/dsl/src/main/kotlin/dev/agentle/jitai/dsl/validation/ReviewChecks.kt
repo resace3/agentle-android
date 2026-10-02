@@ -64,8 +64,9 @@ internal class ReviewChecks(private val sink: IssueSink, private val view: RuleV
         return labels
     }
 
-    /** W02 and W03 per dependency (first leaf of each feature; each access named once). */
+    /** W02 and W03 per dependency (first leaf of each feature; each data label and each access named once). */
     private fun featureAccess() {
+        val reportedLabels = HashSet<String>()
         val reportedAccess = HashSet<String>()
         val firstLeafByFeature = LinkedHashMap<String, String>()
         leaves.forEach { (path, info) -> firstLeafByFeature.putIfAbsent(info.featureId, path) }
@@ -73,7 +74,8 @@ internal class ReviewChecks(private val sink: IssueSink, private val view: RuleV
             val definition = RealtimeFeatureCatalog[featureId]?.takeIf { it.isAvailable } ?: continue
             when (val status = context.featureAccess.statusOf(definition)) {
                 is FeatureStatus.Unsupported -> {
-                    add(IssueCode.W02, path, "feature" to FeatureLabels.capitalized(FeatureLabels.labelOrId(featureId)))
+                    val label = FeatureLabels.capitalized(FeatureLabels.labelOrId(featureId))
+                    if (reportedLabels.add(label)) add(IssueCode.W02, path, "feature" to label)
                 }
 
                 is FeatureStatus.NeedsAccess -> if (reportedAccess.add(status.access)) {

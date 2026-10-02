@@ -3,6 +3,7 @@ package dev.agentle.jitai.dsl.model
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.time.AgentleClock
+import dev.agentle.jitai.dsl.render.RuleRenderer
 import dev.agentle.jitai.dsl.validation.StoredRuleVerdict
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.TimeZone
@@ -57,6 +58,18 @@ public object JitaiLifecycle {
     /** [AppError.ValidationError] code of a renewal without a valid trial length (1-90 days). */
     public const val INVALID_RENEWAL: String = "INVALID_RENEWAL"
 
+    /** [AppError.ValidationError] code of an APPROVE without a passing validation verdict for this rule. */
+    public const val VALIDATION_REQUIRED: String = "VALIDATION_REQUIRED"
+
+    /** [AppError.ValidationError] code of an AI_DISCOVERED approval that would not end (R10 E046). */
+    public const val EXPIRY_REQUIRED: String = "EXPIRY_REQUIRED"
+
+    /** [AppError.ValidationError] code of SAVE on an AI-written rule: AI rules become ACTIVE only by APPROVE. */
+    public const val APPROVAL_REQUIRED: String = "APPROVAL_REQUIRED"
+
+    /** [AppError.ValidationError] code of SAVE or RESUME on a rule whose `expiresAt` has passed (renew it instead). */
+    public const val RULE_EXPIRED: String = "RULE_EXPIRED"
+
     private val RENEW_DAYS = 1..90
 
     /** The status after [event] from [from], or null when the transition is illegal. */
@@ -88,17 +101,18 @@ public object JitaiLifecycle {
         clock: AgentleClock,
         approvedRendering: String? = null,
         renewDays: Int? = null,
+        verdict: StoredRuleVerdict? = null,
     ): Outcome<JitaiDefinition> {
         val to = next(definition.status, event)
-            ?: return Outcome.failure(AppError.ValidationError(listOf(ILLEGAL_TRANSITION), "${definition.status} on $event"))
         val now = Instant.fromEpochSeconds(clock.now().epochSeconds)
+        val refused = if (to == null) ILLEGAL_TRANSITION else refusal(definition, event, now, verdict)
+        if (to == null || refused != null) {
+            return Outcome.failure(AppError.ValidationError(listOfNotNull(refused), "${definition.status} on $event"))
+        }
         val base = definition.copy(status = to, enabled = to == JitaiStatus.ACTIVE, modifiedAt = now)
         val updated = when (event) {
-            LifecycleEvent.APPROVE -> base.copy(
-                expiresAt = definition.provenance?.expiresInDays?.let { expiresAt(now, clock.zone(), it) } ?: definition.expiresAt,
-                provenance = approvedRendering?.let { (definition.provenance ?: Provenance()).copy(approvedRendering = it) }
-                    ?: definition.provenance,
-            )
+            LifecycleEvent.APPROVE -> approved(definition, base, now, clock, approvedRendering)
+                ?: return Outcome.failure(AppError.ValidationError(listOf(EXPIRY_REQUIRED), "$event"))
 
             LifecycleEvent.RENEW -> {
                 val days = renewDays ?: definition.provenance?.expiresInDays
@@ -114,6 +128,48 @@ public object JitaiLifecycle {
             else -> base
         }
         return Outcome.success(updated)
+    }
+
+    /** Why [event] is refused for [definition] beyond the transition table, or null. */
+    private fun refusal(definition: JitaiDefinition, event: LifecycleEvent, now: Instant, verdict: StoredRuleVerdict?): String? {
+        val expired = definition.expiresAt?.let { it <= now } == true
+        return when (event) {
+            LifecycleEvent.SAVE -> when {
+                RuleOrigin.of(definition.createdBy) == RuleOrigin.AI -> APPROVAL_REQUIRED
+                expired -> RULE_EXPIRED
+                else -> null
+            }
+
+            LifecycleEvent.RESUME -> RULE_EXPIRED.takeIf { expired }
+
+            LifecycleEvent.APPROVE -> VALIDATION_REQUIRED.takeUnless {
+                verdict != null && verdict.isValid && verdict.jitaiId == definition.id
+            }
+
+            else -> null
+        }
+    }
+
+    /** APPROVE: `expiresAt` from the trial length, and the approved sentence with the trial end; null when a required end is missing. */
+    private fun approved(
+        definition: JitaiDefinition,
+        base: JitaiDefinition,
+        now: Instant,
+        clock: AgentleClock,
+        approvedRendering: String?,
+    ): JitaiDefinition? {
+        val days = definition.provenance?.expiresInDays
+        val ends = days?.let { expiresAt(now, clock.zone(), it) } ?: definition.expiresAt
+        if (ends == null && definition.createdBy == CreatedBy.AI_DISCOVERED) return null
+        val withEnd = base.copy(expiresAt = ends)
+        val sentence = approvedRendering?.let { text ->
+            val pending = days?.let { " " + RuleRenderer.pendingExpiry(it) }
+            val stripped = pending?.let { text.removeSuffix(it) } ?: text
+            val end = RuleRenderer.expiry(withEnd, clock.zone())
+            if (end == null || stripped.endsWith(end)) stripped else "$stripped $end"
+        }
+        val provenance = sentence?.let { (definition.provenance ?: Provenance()).copy(approvedRendering = it) } ?: definition.provenance
+        return withEnd.copy(provenance = provenance)
     }
 
     /**

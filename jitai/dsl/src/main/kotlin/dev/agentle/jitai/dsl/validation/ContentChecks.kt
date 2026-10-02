@@ -164,14 +164,15 @@ internal class ContentChecks(
             if (n !in range) {
                 val params = mapOf("min" to range.first.toString(), "max" to range.last.toString(), "n" to n.toString())
                 sink.add(IssueCode.E060, Stage.S6, path, params)
+                return // No lint over a text that is already rejected for its length (review R2-7).
             }
             val findings = if (origin == RuleOrigin.AI) TextLint.check(value) else listOfNotNull(TextLint.invisible(value))
             for (finding in findings) {
                 val code = finding.check.code ?: continue
                 val params = when (code) {
                     IssueCode.E066 -> mapOf("hex" to finding.hex.orEmpty())
-                    IssueCode.E062 -> mapOf("category" to finding.check.category.orEmpty(), "match" to finding.match)
-                    else -> mapOf("match" to finding.match)
+                    IssueCode.E062 -> mapOf("category" to finding.check.category.orEmpty(), "match" to TextRules.snippet(finding.match, 0))
+                    else -> mapOf("match" to TextRules.snippet(finding.match, 0))
                 }
                 sink.add(code, Stage.S6, path, params)
             }

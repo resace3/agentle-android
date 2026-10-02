@@ -10,6 +10,7 @@ import dev.agentle.jitai.dsl.validation.IssueCode
 import dev.agentle.jitai.dsl.validation.IssueSeverity
 import dev.agentle.jitai.dsl.validation.IssueSink
 import dev.agentle.jitai.dsl.validation.Stage
+import dev.agentle.jitai.dsl.validation.ValidationIssue
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
@@ -53,32 +54,31 @@ public object RuleCodec {
     /** Properties left out of [contentHash] (see the KDoc there). */
     public val CONTENT_HASH_EXCLUDED: List<String> = listOf(
         "id", "version", "status", "enabled", "createdBy", "createdAt", "modifiedAt", "expiresAt",
-        "userConfirmedUnknownOverrides", "provenance",
+        "userConfirmedUnknownOverrides", "provenance", "name", "description",
     )
 
-    public fun encodeDefinition(definition: JitaiDefinition): String = json.encodeToString(JitaiDefinition.serializer(), definition)
+    public fun encodeDefinition(definition: JitaiDefinition): String = json.encodeToString(DslSerializers.definition, definition)
 
-    public fun decodeDefinition(text: String): Outcome<JitaiDefinition> = decode(text, Schemas.definition, JitaiDefinition.serializer())
+    public fun decodeDefinition(text: String): Outcome<JitaiDefinition> = decode(text, Schemas.definition, DslSerializers.definition)
 
     /** [decodeDefinition] with an explicit alias table (tests of a catalog rename). */
     internal fun decodeDefinition(text: String, aliases: Map<String, String>): Outcome<JitaiDefinition> =
-        decode(text, Schemas.definition, JitaiDefinition.serializer(), aliases)
+        decode(text, Schemas.definition, DslSerializers.definition, aliases)
 
     /** A condition tree in the stored form (sparse `args`, no `appLabel`). */
-    public fun encodeCondition(condition: Condition): String = json.encodeToString(Condition.serializer(), condition)
+    public fun encodeCondition(condition: Condition): String = json.encodeToString(DslSerializers.condition, condition)
 
-    public fun decodeCondition(text: String): Outcome<Condition> = decode(text, Schemas.storedCondition, Condition.serializer())
+    public fun decodeCondition(text: String): Outcome<Condition> = decode(text, Schemas.storedCondition, DslSerializers.condition)
 
     /** A model reply in JitaiProposalSchema v1 (R10 §13.3). */
-    public fun encodeProposal(proposal: JitaiProposal): String = json.encodeToString(JitaiProposal.serializer(), proposal)
+    public fun encodeProposal(proposal: JitaiProposal): String = json.encodeToString(DslSerializers.proposal, proposal)
 
-    public fun decodeProposal(text: String): Outcome<JitaiProposal> = decode(text, Schemas.proposal, JitaiProposal.serializer())
+    public fun decodeProposal(text: String): Outcome<JitaiProposal> = decode(text, Schemas.proposal, DslSerializers.proposal)
 
     /** An AI-discovered proposal (R10 §14.7). */
-    public fun encodeDiscovered(proposal: DiscoveredProposal): String = json.encodeToString(DiscoveredProposal.serializer(), proposal)
+    public fun encodeDiscovered(proposal: DiscoveredProposal): String = json.encodeToString(DslSerializers.discovered, proposal)
 
-    public fun decodeDiscovered(text: String): Outcome<DiscoveredProposal> =
-        decode(text, Schemas.discovered, DiscoveredProposal.serializer())
+    public fun decodeDiscovered(text: String): Outcome<DiscoveredProposal> = decode(text, Schemas.discovered, DslSerializers.discovered)
 
     /**
      * SHA-256 (lowercase hex) of the canonical JSON without the properties in [CONTENT_HASH_EXCLUDED] (R10 §3.1).
@@ -86,13 +86,16 @@ public object RuleCodec {
      * Deviation from R10 §3.1, which removes only `version`, `modifiedAt`, `enabled` and `status`: with `id` and
      * `createdAt` inside the hash, two rules could never share a hash, so W01 (duplicate) could never fire. The hash
      * therefore covers what the rule does (trigger, window, conditions, delivery, content, limits, outcome, targets,
-     * experiment) and not who made it or when.
+     * experiment) and not who made it, when, or what it is called (`name`, `description`; review R1-5).
      */
     public fun contentHash(definition: JitaiDefinition): String {
-        val element = json.encodeToJsonElement(JitaiDefinition.serializer(), definition).jsonObject
+        val element = json.encodeToJsonElement(DslSerializers.definition, definition).jsonObject
         val semantic = JsonObject(element.filterKeys { it !in CONTENT_HASH_EXCLUDED })
         return sha256Hex(json.encodeToString(JsonObject.serializer(), semantic))
     }
+
+    private fun safePath(issue: ValidationIssue): String =
+        if (issue.code == IssueCode.E006) issue.path.substringBeforeLast('/') + "/<unknown>" else issue.path
 
     /** Lowercase hex SHA-256 of the UTF-8 bytes of [text] (no `HexFormat`: it is missing on older Android). */
     internal fun sha256Hex(text: String): String {
@@ -122,7 +125,8 @@ public object RuleCodec {
             Outcome.success(value)
         } else {
             val errors = sink.sorted(IssueSeverity.ERROR)
-            val detail = errors.joinToString("; ") { "${it.code.name} ${it.path}" }
+            // Review R2-6: only codes and schema-known paths; an unknown key is written as "/<unknown>".
+            val detail = errors.joinToString("; ") { "${it.code.name} ${safePath(it)}" }
             Outcome.failure(AppError.ValidationError(errors.map { it.code.name }, detail))
         }
     }

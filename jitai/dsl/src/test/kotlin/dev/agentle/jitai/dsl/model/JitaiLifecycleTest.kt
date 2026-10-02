@@ -8,6 +8,7 @@ import dev.agentle.core.common.getOrThrow
 import dev.agentle.jitai.dsl.codec.RuleCodec
 import dev.agentle.jitai.dsl.testing.Fixtures
 import dev.agentle.jitai.dsl.validation.IssueCode
+import dev.agentle.jitai.dsl.validation.RuleValidator
 import dev.agentle.jitai.dsl.validation.StoredRuleVerdict
 import dev.agentle.jitai.dsl.validation.ValidationIssue
 import kotlinx.datetime.TimeZone
@@ -30,7 +31,13 @@ class JitaiLifecycleTest {
         val proposed = golden("definition-13-6-1.json")
         val clock = Fixtures.clock(Instant.parse("2026-10-01T16:00:00.750Z"))
 
-        val active = JitaiLifecycle.apply(proposed, LifecycleEvent.APPROVE, clock, approvedRendering = "Every 30 minutes ...").getOrThrow()
+        val active = JitaiLifecycle.apply(
+            proposed,
+            LifecycleEvent.APPROVE,
+            clock,
+            verdict = RuleValidator.revalidate(proposed),
+            approvedRendering = "Every 30 minutes ...",
+        ).getOrThrow()
 
         assertThat(proposed.kind).isEqualTo(JitaiKind.INTERVENTION)
         assertThat(proposed.status to proposed.enabled).isEqualTo(JitaiStatus.PROPOSED to false)
@@ -48,7 +55,12 @@ class JitaiLifecycleTest {
         val proposed = golden("definition-14-7.json")
         val clock = Fixtures.clock(Instant.parse("2026-10-01T16:00:00Z"), Fixtures.BERLIN)
 
-        val active = JitaiLifecycle.apply(proposed, LifecycleEvent.APPROVE, clock).getOrThrow()
+        val active = JitaiLifecycle.apply(
+            proposed,
+            LifecycleEvent.APPROVE,
+            clock,
+            verdict = RuleValidator.revalidate(proposed),
+        ).getOrThrow()
 
         assertThat(active.expiresAt).isEqualTo(Instant.parse("2026-10-28T23:00:00Z"))
         assertThat(active.provenance).isEqualTo(proposed.provenance)
@@ -59,9 +71,22 @@ class JitaiLifecycleTest {
         val proposed = golden("definition-13-6-2.json").copy(provenance = null)
         val clock = Fixtures.clock()
 
-        assertThat(JitaiLifecycle.apply(proposed, LifecycleEvent.APPROVE, clock).getOrThrow().provenance).isNull()
         assertThat(
-            JitaiLifecycle.apply(proposed, LifecycleEvent.APPROVE, clock, approvedRendering = "At 5:00 PM ...").getOrThrow().provenance,
+            JitaiLifecycle.apply(
+                proposed,
+                LifecycleEvent.APPROVE,
+                clock,
+                verdict = RuleValidator.revalidate(proposed),
+            ).getOrThrow().provenance,
+        ).isNull()
+        assertThat(
+            JitaiLifecycle.apply(
+                proposed,
+                LifecycleEvent.APPROVE,
+                clock,
+                verdict = RuleValidator.revalidate(proposed),
+                approvedRendering = "At 5:00 PM ...",
+            ).getOrThrow().provenance,
         )
             .isEqualTo(Provenance(approvedRendering = "At 5:00 PM ..."))
     }

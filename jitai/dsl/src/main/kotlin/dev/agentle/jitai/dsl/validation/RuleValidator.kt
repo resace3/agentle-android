@@ -3,6 +3,7 @@ package dev.agentle.jitai.dsl.validation
 import dev.agentle.analytics.features.RealtimeFeatureCatalog
 import dev.agentle.core.time.AgentleClock
 import dev.agentle.jitai.dsl.analysis.RuleAnalysis
+import dev.agentle.jitai.dsl.codec.DslSerializers
 import dev.agentle.jitai.dsl.codec.RuleCodec
 import dev.agentle.jitai.dsl.codec.Schemas
 import dev.agentle.jitai.dsl.model.JitaiDefinition
@@ -87,7 +88,7 @@ public object RuleValidator {
         val origin = RuleOrigin.of(definition.createdBy)
         if (tooDeep(sink, "", origin, definition.conditions, definition.contextRequirements)) return
         val text = RuleCodec.encodeDefinition(definition)
-        val decoded = RuleCodec.decodeInto(text, Schemas.definition, JitaiDefinition.serializer(), sink, Stage.S4) ?: return
+        val decoded = RuleCodec.decodeInto(text, Schemas.definition, DslSerializers.definition, sink, Stage.S4) ?: return
         val context = ValidationContext(clock = FixedClock(decoded.modifiedAt), mediaLibrary = mediaLibrary ?: MediaLibrary.EMPTY)
         val scope = CheckScope(existingRulesKnown = false, mediaLibrary = mediaLibrary)
         RuleChecks(sink, RuleView.of(decoded), origin, context, scope).check()
@@ -126,7 +127,7 @@ public object RuleValidator {
 }
 
 /** The time source of [RuleValidator.revalidate]: a fixed instant, so the verdict depends on the definition only. */
-internal class FixedClock(private val instant: Instant) : AgentleClock {
+internal class FixedClock(instant: Instant) : AgentleClock {
     override val wall: Clock = object : Clock {
         override fun now(): Instant = instant
     }

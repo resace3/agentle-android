@@ -85,7 +85,7 @@ class NlGoldensTest {
         assertThat(decision).isEqualTo(
             NlDecision.Failed(
                 "Agentle could not turn this into a safe rule",
-                listOf("maxPerDay must be 1-3 for AI rules; got 4.", "priority must be 0-60 for AI rules; got 80."),
+                listOf("The rule would remind you too often in a day.", "The rule asked for a higher priority than allowed."),
             ),
         )
     }

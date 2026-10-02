@@ -1,6 +1,7 @@
 package dev.agentle.jitai.dsl.validation
 
 import dev.agentle.jitai.dsl.analysis.RuleAnalysis
+import dev.agentle.jitai.dsl.model.RuleOrigin
 import dev.agentle.jitai.dsl.nl.AppResolution
 import dev.agentle.jitai.dsl.nl.InstalledApp
 import dev.agentle.jitai.dsl.rule.Condition
@@ -41,6 +42,7 @@ internal class AppResolutionStep(
     private fun label(label: String, path: String, args: Map<String, String>) {
         if (args.containsKey(ArgRules.PACKAGE) || TextRules.length(label) !in 1..ArgRules.MAX_APP_LABEL_LENGTH) return
         if (!handled.add(label)) return
+        if (lint(label, path)) return
         val apps = context.apps
         val chosen = selections[label]
         if (chosen != null && TypedLiterals.isPackageName(chosen) && (apps == null || apps.isLauncherVisible(chosen))) {
@@ -66,9 +68,35 @@ internal class AppResolutionStep(
         choices += AppChoice(pkg, path, emptyList())
     }
 
+    /**
+     * Review R2-3: an `appLabel` is linted like other rule text (L5 always, L1-L3 for AI rules); a hit is an error
+     * and the label is not resolved. Returns true on a hit.
+     */
+    private fun lint(label: String, path: String): Boolean {
+        val ai = RuleOrigin.of(view.createdBy) == RuleOrigin.AI
+        val findings = if (ai) TextLint.check(label).filter { it.check in AI_LABEL_CHECKS } else listOfNotNull(TextLint.invisible(label))
+        for (finding in findings) {
+            val code = finding.check.code ?: continue
+            val params = if (code ==
+                IssueCode.E066
+            ) {
+                mapOf("hex" to finding.hex.orEmpty())
+            } else {
+                mapOf("match" to TextRules.snippet(finding.match, 0))
+            }
+            sink.add(code, Stage.S6, path, params)
+        }
+        return findings.isNotEmpty()
+    }
+
+    /** Review R2-8: `provenance.appLabels` keeps the device label of the chosen package (NFC, trimmed). */
     private fun resolved(label: String, packageName: String) {
         packages[label] = packageName
-        labelsByPackage.putIfAbsent(packageName, label)
+        labelsByPackage.putIfAbsent(packageName, TextRules.normalize(context.apps?.labelOf(packageName) ?: label))
+    }
+
+    private companion object {
+        val AI_LABEL_CHECKS = setOf(LintCheck.L1, LintCheck.L2, LintCheck.L3, LintCheck.L5)
     }
 
     private fun ask(label: String, path: String, candidates: List<InstalledApp>) {

@@ -134,6 +134,7 @@ internal class StrictJsonReader private constructor(private val text: String, pr
             val c = text[pos]
             when {
                 c == '"' -> {
+                    if (hasUnpairedSurrogate(out)) fail()
                     pos++
                     return out.toString()
                 }
@@ -148,7 +149,7 @@ internal class StrictJsonReader private constructor(private val text: String, pr
                 }
             }
         }
-        return fail()
+        fail()
     }
 
     private fun readEscape(out: StringBuilder) {
@@ -173,12 +174,36 @@ internal class StrictJsonReader private constructor(private val text: String, pr
         if (pos + 6 > text.length) fail(pos + 2)
         var code = 0
         for (i in pos + 2 until pos + 6) {
-            val digit = Character.digit(text[i], HEX_RADIX)
+            val digit = asciiHex(text[i])
             if (digit < 0) fail(i)
             code = code * HEX_RADIX + digit
         }
         out.append(code.toChar())
         pos += 6
+    }
+
+    /** Review R2-9: `\\u` takes ASCII hex digits only (not fullwidth or other Unicode digits). */
+    private fun asciiHex(c: Char): Int = when (c) {
+        in '0'..'9' -> c - '0'
+        in 'a'..'f' -> c - 'a' + DECIMAL
+        in 'A'..'F' -> c - 'A' + DECIMAL
+        else -> -1
+    }
+
+    /** Review R2-9: a string (raw or escaped) with a lone high or low surrogate is a syntax error. */
+    private fun hasUnpairedSurrogate(value: CharSequence): Boolean {
+        var i = 0
+        while (i < value.length) {
+            val c = value[i]
+            if (Character.isHighSurrogate(c)) {
+                if (i + 1 >= value.length || !Character.isLowSurrogate(value[i + 1])) return true
+                i += 2
+            } else {
+                if (Character.isLowSurrogate(c)) return true
+                i++
+            }
+        }
+        return false
     }
 
     @OptIn(ExperimentalSerializationApi::class)
@@ -230,6 +255,7 @@ internal class StrictJsonReader private constructor(private val text: String, pr
 
     companion object {
         const val DEFAULT_MAX_DEPTH: Int = 20
+        private const val DECIMAL = 10
         private const val HEX_RADIX = 16
 
         /** Reads exactly one JSON value spanning the whole [text]. */
