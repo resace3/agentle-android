@@ -192,6 +192,13 @@ jobs:
           mkdir -p build && python3 tools/junit_summary.py --root . --expect-file build/expected-suites.txt
           --coverage-gates build/coverage-gates.txt
           --fresh-after "$START" --json build/junit-summary.json --markdown "$GITHUB_STEP_SUMMARY"
+      - name: Scan shipped artifacts for test code
+        if: always()
+        shell: bash
+        # No :fakes, :core:testing or test library class may ship: dex of the prodDebug APK, R8 mapping of prodRelease.
+        run: >-
+          python3 tools/scan_shipped.py --apk app/build/outputs/apk/prod/debug/app-prod-debug.apk
+          --mapping app/build/outputs/mapping/prodRelease/mapping.txt 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Failure digest
         if: failure()
         run: python3 tools/ci_digest.py build/gradle-output.log
