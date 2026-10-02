@@ -26,6 +26,7 @@ class CommitStressTest {
     private val e2 = Rules.rule("E2", Trigger.Event(listOf(JitaiEventType.POWER_CONNECTED)), category = JitaiCategory.GENERAL)
 
     @Test
+    @Suppress("InjectDispatcher") // Real threads are the point of this test (testing-build-01).
     fun `parallel passes on real threads never break the caps or the minimum gap`() = runBlocking {
         repeat(REPETITIONS) { rep ->
             val start = F0.local("2026-10-01T22:30")
