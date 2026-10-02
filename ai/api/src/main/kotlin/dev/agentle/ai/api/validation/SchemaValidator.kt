@@ -11,9 +11,14 @@ import kotlinx.serialization.json.JsonObject
  * What the output is checked against besides its schema. [requestCategories] are the AI categories the request sent
  * (an output may only name those, [OutputCodes.CATEGORY_NOT_IN_REQUEST]); [provenance] holds the numbers AI text may
  * use (check L9). A null value skips that check: use it only to re-check output that already passed with the request
- * context, for example before display.
+ * context, for example before display. [numbersForbidden] marks text generated ahead of delivery (pooled JITAI
+ * `ai_text`, jitai-correctness-17): every text field then fails on any digit or number word (check L13).
  */
-public data class OutputValidationContext(val requestCategories: Set<AiDataCategory>? = null, val provenance: NumberProvenance? = null) {
+public data class OutputValidationContext(
+    val requestCategories: Set<AiDataCategory>? = null,
+    val provenance: NumberProvenance? = null,
+    val numbersForbidden: Boolean = false,
+) {
     public companion object {
         /** Neither the category check nor L9 (display-time re-check of stored output). */
         public val DISPLAY_RECHECK: OutputValidationContext = OutputValidationContext()
@@ -24,6 +29,10 @@ public data class OutputValidationContext(val requestCategories: Set<AiDataCateg
          */
         public fun forEnvelope(envelope: AiRequestEnvelope, templates: Iterable<String> = emptyList()): OutputValidationContext =
             OutputValidationContext(envelope.categories, NumberProvenance.fromEnvelope(envelope) + NumberProvenance.fromTexts(templates))
+
+        /** The context of text generated for later delivery (pooled JITAI `ai_text`): no number of any kind. */
+        public fun forPooledText(envelope: AiRequestEnvelope): OutputValidationContext =
+            OutputValidationContext(envelope.categories, provenance = null, numbersForbidden = true)
     }
 }
 
@@ -53,12 +62,18 @@ internal val StrictJson: Json = Json {
     allowStructuredMapKeys = false
 }
 
-/** [AiTextPolicy] over every field; each failed check becomes one S6 issue carrying the check id. */
-public fun textPolicyIssues(fields: Iterable<TextField>, provenance: NumberProvenance?): List<ValidationIssue> = fields.flatMap { field ->
-    AiTextPolicy.check(field.text, field.rules, provenance).map { check ->
-        ValidationIssue(check.code, field.path, ValidationStage.S6_SEMANTIC, check.id)
+/**
+ * [AiTextPolicy] over every field with the provenance of [context]; each failed check becomes one S6 issue carrying the
+ * check id. When [OutputValidationContext.numbersForbidden], every field is checked as pooled text (L13, no
+ * placeholders).
+ */
+public fun textPolicyIssues(fields: Iterable<TextField>, context: OutputValidationContext): List<ValidationIssue> =
+    fields.flatMap { field ->
+        val rules = if (context.numbersForbidden) field.rules.copy(placeholdersAllowed = false, numbersForbidden = true) else field.rules
+        AiTextPolicy.check(field.text, rules, context.provenance).map { check ->
+            ValidationIssue(check.code, field.path, ValidationStage.S6_SEMANTIC, check.id)
+        }
     }
-}
 
 /**
  * A validator whose whole document is described by [root]: S4 walks [root] and stops on any issue, S5 decodes with the
@@ -86,3 +101,7 @@ public abstract class SchemaBackedValidator<T : Any>(
     /** S6 checks of a decoded value. Must cover every AI-written string with [textPolicyIssues]. */
     protected abstract fun semanticIssues(value: T, context: OutputValidationContext): List<ValidationIssue>
 }
+
+/** A string node with the length limits of [rules]: shown to the model in the rendered schema and checked at S4. */
+public fun textNode(rules: TextRules, nullable: Boolean = false): SchemaNode.StringNode =
+    SchemaNode.StringNode(minLength = rules.minChars, maxLength = rules.maxChars, nullable = nullable)

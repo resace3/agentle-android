@@ -6,7 +6,7 @@ import dev.agentle.core.common.Outcome
 
 /**
  * Error codes of AI output validation. Codes E001-E099 keep the meaning they have in the JITAI proposal validator
- * (docs/research/10-jitai-engine-design.md section 11.2), so one code means one defect in every schema; E101-E112 are
+ * (docs/research/10-jitai-engine-design.md section 11.2), so one code means one defect in every schema; E101-E113 are
  * the codes of this module's own checks. Failures are recorded as codes and JSON-pointer paths only, never with the
  * model's text.
  */
@@ -73,6 +73,9 @@ public object OutputCodes {
 
     /** A media prompt's narration is longer than a 90-second video allows. */
     public const val NARRATION_TOO_LONG: String = "E112"
+
+    /** A digit or number word in text generated ahead of delivery, such as pooled JITAI `ai_text` (check L13). */
+    public const val NUMBER_IN_POOLED_TEXT: String = "E113"
 }
 
 /** Pipeline stages, in order (R10 section 11.1). */
