@@ -32,4 +32,9 @@ public data class Insight(
     val categories: Set<DataCategory> = emptySet(),
     val createdAt: Instant,
     val state: InsightState = InsightState.ACTIVE,
+    /**
+     * Source families the insight was computed from (lineage, see [Lineage]). Defaults to every family: an insight
+     * whose lineage was not recorded must be deleted with any family and gated as if it used all of them.
+     */
+    val sourceFamilies: Set<SourceFamily> = SourceFamily.entries.toSet(),
 )
