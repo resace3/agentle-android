@@ -57,7 +57,9 @@ public class FakeGoogleHealthServer(
     private val injections = ArrayList<Injection>()
 
     @Volatile private var effective: FakeGoogleHealthConfig = config
-    private val engine = ModelEngine({ this.dataset }, { effective }, { clock.now() })
+
+    @Volatile private var effectiveData: FakeDataset = dataset
+    private val engine = ModelEngine({ effectiveData }, { effective }, { clock.now() })
     private var server: MockWebServer? = null
 
     /** Starts a MockWebServer bound to 127.0.0.1 (never a public interface). */
@@ -188,6 +190,7 @@ public class FakeGoogleHealthServer(
         val count = (scenarioCounts[req.scenario] ?: 0) + 1
         scenarioCounts[req.scenario] = count
         effective = scenario.configure(config)
+        effectiveData = scenario.dataset(dataset)
         val route = FakeRoutes.match(req.method, req.path, effective.healthUserId)
         val response = if (route == null) {
             GoogleHealthFixtures.error("E404-HTML", path = req.path)

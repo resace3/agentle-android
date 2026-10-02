@@ -68,6 +68,13 @@ public data class FakeSource(
             wearable = false,
         )
         public val SCALE: FakeSource = FakeSource("ACTIVELY_MEASURED", "FITBIT", "Aria Air", "Fitbit", "SCALE", wearable = false)
+
+        /** A second wearable on the same account (docs/research/05 §5.3: `list` may return overlapping records). */
+        public val WATCH: FakeSource = FakeSource("PASSIVELY_MEASURED", "FITBIT", "Pixel Watch 3", "Google", "WATCH")
+
+        /** The phone's own step counter uploading through the Fitbit app (not a wearable). */
+        public val PHONE_TRACKER: FakeSource =
+            FakeSource("PASSIVELY_MEASURED", "FITBIT", "Pixel 9", "Google", "PHONE", wearable = false)
         public val MANUAL: FakeSource = FakeSource("MANUAL", "FITBIT", deviceName = null, wearable = false)
 
         internal fun parse(json: JsonObject?): FakeSource? {

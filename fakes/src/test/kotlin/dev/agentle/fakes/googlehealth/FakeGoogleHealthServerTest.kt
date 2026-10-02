@@ -223,6 +223,43 @@ class FakeGoogleHealthServerTest {
     }
 
     @Test
+    fun `R05 5 3 R6a overlapping devices - list returns both records, reconcile and the rollups keep one`() {
+        val scenario = "${FakeGoogleHealthServer.PREFIX}/scenario/overlapping-devices"
+        val walk = "steps.interval.start_time >= \"2026-09-30T16:00:00Z\" AND steps.interval.start_time < \"2026-09-30T17:00:00Z\""
+        assertThat(get("$scenario$steps?filter=$walk").points().counts()).containsExactly("3000", "2800")
+        val reconciled = get("$scenario$steps:reconcile?filter=$walk").points()
+        assertThat(reconciled.counts()).containsExactly("3000")
+        assertThat(reconciled.single().jsonObject["dataSource"]).isNull()
+        val hour = """{"range":{"startTime":"2026-09-30T16:00:00Z","endTime":"2026-09-30T17:00:00Z"},"windowSize":"3600s"}"""
+        assertThat(post("$scenario$steps:rollUp", hour).points("rollupDataPoints").counts(field = "countSum")).containsExactly("3000")
+        // 9/30 local: 0 + 87 + 98 + 112 from the tracker (the overlapping phone point is merged away) plus the walk.
+        val days = post("$scenario$steps:dailyRollUp", dailyBody).points("rollupDataPoints")
+        assertThat(days.counts(field = "countSum")).containsExactly("3297")
+        // Other scenarios do not have the walk.
+        assertThat(get("$steps?filter=$walk").body).isEqualTo("{}")
+    }
+
+    @Test
+    fun `R05 5 3 reconciliation does not depend on the request window`() {
+        fake.dataset = FakeDataset(
+            listOf(
+                FakePoint(GhDataTypes.STEPS, Instant.parse("2026-09-30T11:58:00Z"), Instant.parse("2026-09-30T12:02:00Z"), amount = 50.0),
+                FakePoint(
+                    GhDataTypes.STEPS,
+                    Instant.parse("2026-09-30T12:00:00Z"),
+                    Instant.parse("2026-09-30T12:03:00Z"),
+                    amount = 70.0,
+                    source = FakeSource.PHONE_VIA_HEALTH_CONNECT,
+                ),
+            ),
+        )
+        val late = "steps.interval.start_time >= \"2026-09-30T12:00:00Z\" AND steps.interval.start_time < \"2026-09-30T13:00:00Z\""
+        assertThat(get("$steps?filter=$late").points().counts()).containsExactly("70")
+        // The phone point overlaps the tracker point of the previous window, so it is merged away here too.
+        assertThat(get("$steps:reconcile?filter=$late").body).isEqualTo("{}")
+    }
+
+    @Test
     fun `R05 8 3 V6 rollUp windows equal the documented rollups`() {
         val stepsRollUp = post(
             "$steps:rollUp",

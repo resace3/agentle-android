@@ -1,5 +1,7 @@
 package dev.agentle.fakes.googlehealth
 
+import kotlin.time.Instant
+
 /** What a scenario sees of a request: the request, its route, and how many requests the scenario has received. */
 public class ScenarioCall internal constructor(
     public val request: FakeRequest,
@@ -11,7 +13,8 @@ public class ScenarioCall internal constructor(
 /**
  * A named server behavior selected by URL prefix or `defaultScenario` (docs/research/08 §5.2). [fault] runs right
  * after routing (before auth, as injected faults do, docs/research/05 §8.1); [data] replaces the data step;
- * [after] post-processes every response (transport faults of docs/research/08 §5.5).
+ * [after] post-processes every response (transport faults of docs/research/08 §5.5); [dataset] extends the
+ * model-mode dataset for the scenario's requests.
  */
 public class FakeScenario(
     public val name: String,
@@ -21,11 +24,33 @@ public class FakeScenario(
     internal val fault: (ScenarioCall) -> FakeResponse? = { null },
     internal val data: (ScenarioCall) -> FakeResponse? = { null },
     internal val after: (ScenarioCall, FakeResponse) -> FakeResponse = { _, response -> response },
+    internal val dataset: (FakeDataset) -> FakeDataset = { it },
 )
 
 /** The scenario catalog: the 19 scenarios of docs/research/08 §5.3 plus a few for rows that table leaves out. */
 public object FakeScenarios {
     public const val HAPPY: String = "happy"
+
+    /**
+     * A 16:10-16:40 walk on 2026-09-30 recorded twice: by a watch (3,000 steps) and by the phone's own step counter
+     * (2,800), both on the Fitbit platform. `list` returns both records; `:reconcile` and the rollups keep the watch's.
+     */
+    public val OVERLAPPING_WALK: List<FakePoint> = listOf(
+        FakePoint(
+            GhDataTypes.STEPS,
+            Instant.parse("2026-09-30T16:10:00Z"),
+            Instant.parse("2026-09-30T16:40:00Z"),
+            amount = 3000.0,
+            source = FakeSource.WATCH,
+        ),
+        FakePoint(
+            GhDataTypes.STEPS,
+            Instant.parse("2026-09-30T16:10:00Z"),
+            Instant.parse("2026-09-30T16:40:00Z"),
+            amount = 2800.0,
+            source = FakeSource.PHONE_TRACKER,
+        ),
+    )
 
     private fun dataOnly(call: ScenarioCall, response: () -> FakeResponse): FakeResponse? = if (call.route.isData) response() else null
 
@@ -103,6 +128,7 @@ public object FakeScenarios {
         FakeScenario("legacy-forbidden", "S05", fault = { call -> dataOnly(call) { GoogleHealthFixtures.error("E403-LEGACY-B") } }),
         FakeScenario("daily-end-exclusive", "S11", configure = { it.copy(dailyRollUpEnd = DailyRollUpEnd.EXCLUSIVE) }),
         FakeScenario("ascending-pages", "R7a", configure = { it.copy(listOrder = ListOrder.ASCENDING) }),
+        FakeScenario("overlapping-devices", "R6a (two devices of one platform)", dataset = { it + OVERLAPPING_WALK }),
     )
 
     private val byName = ALL.associateBy { it.name }

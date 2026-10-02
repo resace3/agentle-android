@@ -16,6 +16,9 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import java.security.MessageDigest
+import java.util.Collections
+import java.util.IdentityHashMap
+import java.util.TreeMap
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.milliseconds
@@ -133,8 +136,9 @@ internal class ModelEngine(
         val key = queryKey(req)
         val offset = offsetOf(req.param("pageToken"), key) ?: return GoogleHealthFixtures.error("E400-PAGE-TOKEN")
         val reconcile = route.kind == RouteKind.RECONCILE
-        var points = visible(query.type).filter { familyAllows(query.family, it) && query.filter.matches(it) }
-        if (reconcile) points = reconciled(points)
+        val sourced = visible(query.type).filter { familyAllows(query.family, it) }
+        val matching = sourced.filter { query.filter.matches(it) }
+        val points = if (reconcile) reconciledSubset(sourced, matching) else matching
         // list: newest first (documented); :reconcile order is undocumented, the fake serves it ascending.
         val ordered = if (reconcile) points.sortedBy { it.start } else points.sortedByDescending { it.start }
         var page = ordered.drop(offset).take(query.pageSize)
@@ -180,7 +184,8 @@ internal class ModelEngine(
         val q = checked.value ?: return requireNotNull(checked.error)
         val offset = offsetOf(q.pageToken, q.key) ?: return GoogleHealthFixtures.error("E400-PAGE-TOKEN")
         val windowMs = q.window.inWholeMilliseconds
-        val points = reconciled(visible(q.type).filter { familyAllows(q.family, it) && it.start >= q.start && it.start < q.end })
+        val sourced = visible(q.type).filter { familyAllows(q.family, it) }
+        val points = reconciledSubset(sourced, sourced.filter { it.start >= q.start && it.start < q.end })
         val windows = points.groupBy { (it.start - q.start).inWholeMilliseconds / windowMs }.toSortedMap()
         val all = windows.entries.toList()
         val page = all.drop(offset).take(q.pageSize)
@@ -228,10 +233,9 @@ internal class ModelEngine(
     private fun daily(route: FakeRoute, req: FakeRequest): FakeResponse {
         val checked = dailyQuery(route, req)
         val q = checked.value ?: return requireNotNull(checked.error)
-        val points = reconciled(visible(q.type).filter { familyAllows(q.family, it) }).mapNotNull { p ->
-            val date = p.date ?: PointJson.localTime(p.start, p.startOffsetSeconds).date
-            if (date < q.first || date > q.last) null else (q.first.daysUntil(date) / q.windowDays) to p
-        }
+        val sourced = visible(q.type).filter { familyAllows(q.family, it) }
+        val dated = sourced.filter { dateOf(it) in q.first..q.last }
+        val points = reconciledSubset(sourced, dated).map { p -> (q.first.daysUntil(dateOf(p)) / q.windowDays) to p }
         val windows = points.groupBy({ it.first }, { it.second }).toSortedMap()
         if (windows.isEmpty()) return ok("{}")
         val body = buildJsonObject {
@@ -252,6 +256,9 @@ internal class ModelEngine(
         return ok(body)
     }
 
+    /** The local date a point counts for: its own date (daily types), else the date of its start in its own offset. */
+    private fun dateOf(p: FakePoint): LocalDate = p.date ?: PointJson.localTime(p.start, p.startOffsetSeconds).date
+
     private fun midnight(date: LocalDate): JsonObject = buildJsonObject {
         put("date", PointJson.date(date))
         put("time", JsonObject(emptyMap()))
@@ -266,31 +273,48 @@ internal class ModelEngine(
         return dataset().of(type).filter { p -> p.end <= now && (p.source?.wearable != true || p.end <= lagCut) }
     }
 
-    /** `:reconcile` and the rollups merge sources: a non-Fitbit point that overlaps a Fitbit point is dropped (§5.3). */
+    /**
+     * `:reconcile` and the rollups merge every source into one stream that "deduplicates overlapping records across
+     * devices and sync sessions" (§5.3): of points that overlap, only the one with the highest priority stays. The
+     * priority is modeled (the real rule is undocumented): the Fitbit platform first, then a wearable, then the earlier
+     * start, then dataset order. Points without a duration (samples) never overlap anything.
+     */
     private fun reconciled(points: List<FakePoint>): List<FakePoint> {
-        val fitbit = points.filter { it.isFitbit() }.sortedBy { it.start }
-        if (fitbit.size == points.size) return points
-        val starts = fitbit.map { it.start }
-        val maxEnd = ArrayList<Instant>(fitbit.size)
-        fitbit.forEach { p -> maxEnd += if (maxEnd.isEmpty()) p.end else maxOf(maxEnd.last(), p.end) }
-        return points.filter { p ->
-            if (p.isFitbit()) return@filter true
-            val idx = upperBound(starts, p.end) - 1
-            !(idx >= 0 && maxEnd[idx] > p.start)
+        if (points.size < 2) return points
+        val ranked = points.indices.sortedWith(
+            compareBy<Int>({ if (points[it].isFitbit()) 0 else 1 }, { if (points[it].source?.wearable == true) 0 else 1 })
+                .thenBy { points[it].start }
+                .thenBy { it },
+        )
+        val taken = TreeMap<Instant, Instant>()
+        val keep = BooleanArray(points.size)
+        for (i in ranked) {
+            val p = points[i]
+            if (p.end > p.start) {
+                val below = taken.floorEntry(p.start)
+                val above = taken.higherEntry(p.start)
+                if ((below != null && below.value > p.start) || (above != null && above.key < p.end)) continue
+                taken[p.start] = p.end
+            }
+            keep[i] = true
         }
+        return points.filterIndexed { i, _ -> keep[i] }
+    }
+
+    /**
+     * The points of [matching] that survive reconciliation with every point of [all] that could overlap them, so the
+     * result does not depend on the request window. Identical copies count once (identity, not equality).
+     */
+    private fun reconciledSubset(all: List<FakePoint>, matching: List<FakePoint>): List<FakePoint> {
+        if (matching.isEmpty()) return matching
+        val from = matching.minOf { it.start } - RECONCILE_MARGIN
+        val to = matching.maxOf { it.end } + RECONCILE_MARGIN
+        val kept = Collections.newSetFromMap(IdentityHashMap<FakePoint, Boolean>())
+        kept += reconciled(all.filter { it.end >= from && it.start <= to })
+        return matching.filter { it in kept }
     }
 
     private fun FakePoint.isFitbit(): Boolean = source == null || source.platform == null || source.platform == "FITBIT"
-
-    private fun upperBound(sorted: List<Instant>, value: Instant): Int {
-        var lo = 0
-        var hi = sorted.size
-        while (lo < hi) {
-            val mid = (lo + hi) ushr 1
-            if (sorted[mid] < value) lo = mid + 1 else hi = mid
-        }
-        return lo
-    }
 
     private fun familyAllows(family: String?, p: FakePoint): Boolean = when (family?.substringAfterLast('/')) {
         null, "all-sources", "google-sources" -> true
@@ -379,6 +403,9 @@ internal class ModelEngine(
     companion object {
         const val DEVICES_DEFAULT_PAGE = 5
         const val DEVICES_MAX_PAGE = 100
+
+        /** Reconciliation looks this far around a request's points, which covers every realistic record length. */
+        private val RECONCILE_MARGIN = 1.days
         const val FIXTURE_USER = "1234567890"
         const val FIXTURE_LEGACY_USER = "A1B2C3"
         private val TOKEN = Regex("""^pt(\d+)-([0-9a-f]{8})$""")
