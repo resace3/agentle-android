@@ -52,7 +52,10 @@ public enum class CoverageEndCause {
  * interval and [close] on a closed one change nothing. Implementations keep the last heartbeat of each open interval
  * so that a process that died without closing can be closed there later ([openIntervals]).
  *
- * [collector] is a stable collector id such as `android.usage` or `android.notifications`.
+ * [collector] is the collector's capability id ([CapabilityIds]), for example [CapabilityIds.APP_USAGE_EVENTS],
+ * [CapabilityIds.NOTIFICATION_EVENTS_METADATA] or [CapabilityIds.ACTIVITY_RECOGNITION_TRANSITIONS]: feature engines read
+ * coverage under these ids. Each capability id has exactly one collector that opens and heartbeats it, so one
+ * collector never closes an interval another one keeps open.
  */
 public interface CoverageRecorder {
     public suspend fun open(collector: String, at: Instant)

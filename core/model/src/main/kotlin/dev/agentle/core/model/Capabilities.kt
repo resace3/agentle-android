@@ -178,6 +178,12 @@ public enum class Blocker {
      * likely but does not guarantee: events of this source are best effort (red team lifecycle-battery-07).
      */
     LIVE_EVENTS_BEST_EFFORT,
+
+    /**
+     * `NotificationManager.areNotificationsPaused()`: the app is suspended (for example by a digital-wellbeing pause), so
+     * no JITAI notification can be shown until it ends (red team jitai-correctness-13).
+     */
+    NOTIFICATIONS_PAUSED,
 }
 
 /** Resolved live status of one capability. */

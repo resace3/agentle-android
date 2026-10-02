@@ -38,6 +38,11 @@ public data class CollectionSettings(
     val knownPlaces: List<KnownPlace> = emptyList(),
     /** Whether foreground location may use precise fixes; approximate by default. */
     val preciseLocation: Boolean = false,
+    /**
+     * Opt-in connectors the user turned on (for example `android.call`, which must never request `READ_PHONE_STATE`
+     * unless enabled, red team lifecycle-battery-19). Opt-in connectors are off until listed here.
+     */
+    val enabledOptInConnectors: Set<String> = emptySet(),
 )
 
 /** Read and update [CollectionSettings]. */
@@ -64,4 +69,17 @@ public interface PermissionRequestStore {
     public suspend fun settingsVisited(): Set<String>
 
     public suspend fun markSettingsVisited(specialAccess: String)
+
+    /**
+     * Runtime permissions whose last UI-derived verdict was DENIED_PERMANENTLY (red team testing-build-15). Only a pass
+     * with a resumed Activity can read `shouldShowRequestPermissionRationale`; background passes read this set and never
+     * change DENIED vs DENIED_PERMANENTLY themselves.
+     */
+    public suspend fun permanentlyDenied(): Set<String>
+
+    /**
+     * Stores the verdicts of a UI pass: `true` for DENIED_PERMANENTLY, `false` for DENIED (or granted again). Permissions
+     * not in [verdicts] keep their stored verdict.
+     */
+    public suspend fun recordUiVerdicts(verdicts: Map<String, Boolean>)
 }
