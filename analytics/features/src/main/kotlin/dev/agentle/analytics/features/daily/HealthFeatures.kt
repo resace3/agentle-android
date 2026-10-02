@@ -3,22 +3,13 @@ package dev.agentle.analytics.features.daily
 import dev.agentle.analytics.features.MissingReason
 import dev.agentle.core.model.DataSourceId
 import dev.agentle.core.model.HeartRatePayload
-import dev.agentle.core.model.PersonalEvent
-import dev.agentle.core.model.SleepSessionPayload
-import dev.agentle.core.model.SleepStage
-import dev.agentle.core.model.SleepStageKind
-import dev.agentle.core.model.SourceFamily
-import dev.agentle.core.model.family
 import dev.agentle.core.time.ClosedOpenRange
 import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
-import kotlinx.datetime.offsetAt
 import kotlinx.datetime.plus
 import kotlin.time.Duration.Companion.hours
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Instant
 
 private val SOURCE_ORDER: Comparator<DataSourceId> = compareBy { it.value }
 
@@ -108,76 +99,26 @@ internal class SleepFeatures(private val day: DayContext) {
             wakeDate.plus(DatePeriod(days = 1)).atStartOfDayIn(TimeZone.UTC) + MAX_OFFSET,
         )
         val candidates = day.events(DailyGroupQueries.SLEEP, range).filter { e ->
-            e.payload is SleepSessionPayload && day.policy.isEligible(MetricFamily.SLEEP, e.source) &&
-                e.interval().duration.isPositive() && localDateAt(e.interval().end, endOffset(e)) == wakeDate && !isNap(e)
+            SleepSessions.isSession(e) && day.policy.isEligible(MetricFamily.SLEEP, e.source) &&
+                SleepSessions.wakeDate(e) == wakeDate && !SleepSessions.isNap(e, day.config.healthConnectNapMaxDuration)
         }
         val source =
             day.policy.choose(MetricFamily.SLEEP, candidates.map { it.source }) ?: return IDS.map { day.rows.noSource(feature(it)) }
-        val main = candidates.filter { it.source == source }.sortedWith(MAIN_ORDER).first()
-        val p = main.payload as SleepSessionPayload
-        val session = main.interval()
-        val asleep = asleepMinutes(p, session)
-        val onset = asleepStages(p, session).minOfOrNull { it.start } ?: session.start
-        val onsetOffset = p.stages.filter { isAsleep(it.stage) }.minByOrNull { it.startEpochMs }?.startUtcOffsetSeconds
-            ?: p.startUtcOffsetSeconds ?: offsetAt(main, onset)
-        val endOffset = endOffset(main)
-        val mid = onset + ((session.end - onset).inWholeMilliseconds / 2).milliseconds
-        val midOffset = if (onsetOffset == endOffset) endOffset else offsetAt(main, mid)
+        val main = SleepSessions.read(candidates.filter { it.source == source }.sortedWith(SleepSessions.MAIN_ORDER).first())
         val values = mapOf(
-            "sleep_minutes" to asleep.takeIf { it in 0..MINUTES_PER_DAY.toLong() }?.toDouble(),
-            "bedtime" to nightMinute(minuteOfDayAt(onset, onsetOffset)).toDouble(),
-            "wake_time" to minuteOfDayAt(session.end, endOffset).toDouble(),
-            "sleep_midpoint" to nightMinute(minuteOfDayAt(mid, midOffset)).toDouble(),
+            "sleep_minutes" to main.asleepMinutes.takeIf { it in 0..MINUTES_PER_DAY.toLong() }?.toDouble(),
+            "bedtime" to main.bedtime.toDouble(),
+            "wake_time" to main.wakeTime.toDouble(),
+            "sleep_midpoint" to main.midpoint.toDouble(),
         )
-        return values.map { (id, value) -> day.rows.sourced(feature(id), id, value, setOf(source), pending = p.processed == false) }
+        return values.map { (id, value) -> day.rows.sourced(feature(id), id, value, setOf(source), pending = main.processed == false) }
     }
-
-    private fun isNap(e: PersonalEvent): Boolean {
-        val p = e.payload as SleepSessionPayload
-        return p.isNap || (e.source.family == SourceFamily.HEALTH_CONNECT && e.interval().duration < day.config.healthConnectNapMaxDuration)
-    }
-
-    /** Upstream minutes asleep; else the asleep-type stages; else the session minus out-of-bed segments; floored. */
-    private fun asleepMinutes(p: SleepSessionPayload, session: ClosedOpenRange): Long {
-        p.minutesAsleep?.let { return it }
-        val millis = if (p.stages.isNotEmpty()) {
-            IntervalMath.totalMillis(asleepStages(p, session))
-        } else {
-            session.duration.inWholeMilliseconds - IntervalMath.unionMillis(p.outOfBedSegments.mapNotNull { rangeOf(it) }, listOf(session))
-        }
-        return millis / IntervalMath.MS_PER_MINUTE
-    }
-
-    private fun asleepStages(p: SleepSessionPayload, session: ClosedOpenRange): List<ClosedOpenRange> =
-        IntervalMath.clip(p.stages.filter { isAsleep(it.stage) }.mapNotNull { rangeOf(it) }, listOf(session))
-
-    private fun endOffset(e: PersonalEvent): Int = (e.payload as SleepSessionPayload).endUtcOffsetSeconds ?: offsetAt(e, e.interval().end)
-
-    private fun offsetAt(e: PersonalEvent, at: Instant): Int = zoneOf(e).offsetAt(at).totalSeconds
 
     private companion object {
         val IDS = listOf("sleep_minutes", "bedtime", "wake_time", "sleep_midpoint")
 
         /** Local offsets lie within UTC-12 to UTC+14. */
         val MAX_OFFSET = 14.hours
-
-        /** Asleep stage types (docs/research/10 §5.4 G); `RESTLESS` is excluded (conservative, UNVERIFIED upstream). */
-        val ASLEEP = setOf(SleepStageKind.LIGHT, SleepStageKind.DEEP, SleepStageKind.REM, SleepStageKind.ASLEEP_UNSPECIFIED)
-
-        val MAIN_ORDER: Comparator<PersonalEvent> = compareBy<PersonalEvent>(
-            { !(it.payload as SleepSessionPayload).isMainSleep },
-            { -it.interval().duration.inWholeMilliseconds },
-            { it.startTime },
-            { it.dedupKey },
-        )
-
-        fun isAsleep(kind: SleepStageKind): Boolean = kind in ASLEEP
-
-        fun rangeOf(stage: SleepStage): ClosedOpenRange? = if (stage.endEpochMs > stage.startEpochMs) {
-            ClosedOpenRange(Instant.fromEpochMilliseconds(stage.startEpochMs), Instant.fromEpochMilliseconds(stage.endEpochMs))
-        } else {
-            null
-        }
     }
 }
 

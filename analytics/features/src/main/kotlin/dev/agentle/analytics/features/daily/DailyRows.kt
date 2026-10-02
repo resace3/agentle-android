@@ -37,7 +37,7 @@ public enum class DailyRowStatus {
  * @property source the source used, when exactly one was (a per-minute fused value may use several).
  * @property lineage categories and source families of the inputs (never empty for personal data).
  * @property catalogVersion the [DailyFeatureCatalog.VERSION] that computed the row; rows of another version are
- *   recomputed (`DailyFeatureEngine.recomputeAfterCatalogChange`).
+ *   recomputed (`DailyFeatureEngine.recomputeRecent` after a catalog-version change).
  */
 public data class DailySummaryRow(
     val date: LocalDate,
