@@ -21,3 +21,6 @@ secrets.properties
 signing.properties
 # QA scratch
 /qa-artifacts/tmp/
+.kotlin/
+build-logic/*/build/
+build-logic/*/.gradle/

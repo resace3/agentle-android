@@ -29,9 +29,12 @@ are listed in section 13.2.
    - JITAI VIDEO deliveries use bundled clips (doc 10 `local_media.assetId`), so generation is never on the delivery
      path.
    - The fallback is a raw `MediaCodec` + `MediaMuxer` encoder, which compiles here (section 4).
-3. **Images are offline template cards; AI image generation is off in v1.**
+3. **Images are bundled pictures or offline template cards; AI image generation is off in v1.**
    - Cards (quote, sparkline, stat) are drawn with `android.graphics` (StaticLayout, LinearGradient, Path) and saved as
      PNG. This works in a worker, and in Robolectric with Roborazzi `bitmap.captureRoboImage()`.
+   - Doc 10 currently allows JITAI IMAGE deliveries only with `local_media` (a bundled catalog image). Template cards
+     are used for video slides and share cards. A proposed doc 10 `card` content strategy would also allow them in
+     notifications (sections 6.3 and 13.2).
    - No v1 route exists for AI image generation:
      - Sign in with ChatGPT has no image generation [R06].
      - ML Kit GenAI (Gemini Nano) lists no image generation [AI-NANO].
@@ -600,8 +603,8 @@ Facts behind the choices:
   - Not private: `TYPE_BLE_SPEAKER`, and `TYPE_BLE_BROADCAST`, "a Bluetooth Low Energy (BLE) broadcast group", which has
     several receivers.
   - The reference describes `TYPE_BLE_HEARING_AID` as "a Bluetooth Low Energy (BLE) hearing aid" [ADI]. Without that
-    mapping, an Android 17 LE hearing aid would fall into `OTHER` and silence the "headphones only" option for
-    hearing-aid users.
+    mapping, an Android 17 LE hearing aid would fall into `OTHER`, and the "headphones only" option would then skip
+    speech for hearing-aid users.
   - A2DP is ambiguous. Car kits and speakers also report `TYPE_BLUETOOTH_A2DP`. Telling them apart needs
     `BluetoothDevice.getBluetoothClass()`, which the platform 37 SDK annotations (`data/annotations.zip`) mark
     `@RequiresPermission("android.permission.BLUETOOTH_CONNECT")` [SDK37]. Agentle does not request that permission, so
@@ -609,7 +612,7 @@ Facts behind the choices:
 - **Detection is for UI and the privacy option only.**
   - On 33+, `getAudioDevicesForAttributes(SPEECH_ATTRIBUTES)` returns the device(s) that would play this usage.
   - Before 33, `getDevices(GET_DEVICES_OUTPUTS)` lists *connected* outputs, not the active route. The heuristic
-    prefers a private sink. It can misreport when a Bluetooth device is connected but not active (UNVERIFIED edge
+    prefers any connected external sink. It can misreport when a Bluetooth device is connected but not active (UNVERIFIED edge
     case). So `isPrivate` is advisory before 33.
 - **During playback**, register `AudioManager.registerAudioDeviceCallback` (23) to refresh the "Playing on ..." label.
   A removed device is already handled by BECOMING_NOISY.
@@ -1177,7 +1180,8 @@ class I420 private constructor(val width: Int, val height: Int, private val y: B
   - `setHandleAudioBecomingNoisy(true)` pauses on unplug. The default is false (`exoplayer/.../ExoPlayer.java:852-860`).
 - **Formats.** ExoPlayer plays WAV and MP4 [EXO-FMT]. Generated assets are `file://` URIs in app-private storage.
   Bundled clips use `asset:///media/<name>.mp4`.
-  - `ExoPlayer.Builder(context)` defaults to `DefaultMediaSourceFactory(context, ...)` (`exoplayer/.../ExoPlayer.java:373`).
+  - `ExoPlayer.Builder(context)` defaults to `DefaultMediaSourceFactory(context, ...)`
+    (`exoplayer/.../ExoPlayer.java:373`).
   - Its `DefaultDataSource` sends the `asset` scheme ("e.g. `asset:///media.mp4`") and `file:///android_asset/` paths
     to `AssetDataSource` (`datasource/.../DefaultDataSource.java:42-43`, `:256-262`; sparse checkout added at the same
     1.11.1 tag).
@@ -1391,6 +1395,19 @@ object TemplateRenderer {
 
 ### 6.3 Template rules
 
+- **Use in JITAI deliveries.**
+  - Doc 10 section 3.3 allows IMAGE (and VIDEO) only with `local_media`, an `assetId` from the bundled catalog. E069
+    rejects IMAGE without it [R10].
+  - So in v1 as written, a notification picture is a bundled 2:1 image from `assets/media/`. Decode it at Render time
+    with `BitmapFactory` (`inJustDecodeBounds`, then `inSampleSize` to at most 1024 px wide).
+  - Template cards then serve video slides, share cards and the in-app intervention screen.
+  - **Proposal (13.2):** a `card` content strategy for IMAGE. Fields:
+    - `templateId`: `QUOTE`, `SPARKLINE`, `STAT` or `STREAK`;
+    - `fields`: with the same placeholder rules as `template`;
+    - `caption`;
+    - `altText`.
+  - The worker renders a `card` with `TemplateRenderer` during Render, so IMAGE deliveries can show the user's own data
+    without AI image generation. If doc 10 keeps v1 minimal, nothing here depends on the proposal.
 - **Templates.** v1 has `Quote`, `Sparkline` (with optional goal line) and, to add, `Stat` (one big number plus label)
   and `Streak` (N of M days). Each is a sealed `CardSpec`, so AI-written rules can only pick a template id and fill
   validated fields (doc 10 section 11). AI never supplies drawing code or colours.
@@ -1687,7 +1704,8 @@ Tests (Appendix A):
    - delete `*.tmp` older than 1 h;
    - mark rows whose file is missing as `MISSING`, and drop their deliveries' media (they fall back to text).
 7. **User deletion.**
-   - Settings, "Delete generated media": remove all rows except bundled ones, then the files, then `cacheDir/share/`.
+   - Settings, "Delete generated media": remove all `media_asset` rows and their files, then `cacheDir/share/`.
+     Bundled catalog assets live in the APK and have no rows.
    - Deleting a JITAI clears its refs. Its assets then become evictable at the next pass.
    - Any app-wide "delete my data" flow must include media. No sibling doc defines that flow yet; open item.
 
@@ -1850,8 +1868,17 @@ data class JitaiNotice(
 
 ## 11. Failure-state matrix
 
-The "Delivery" column uses doc 10's model: when a media part fails, the delivery downgrades to the text or template
-form and records a reason. Media failures never block a delivery.
+The "Delivery" column follows a proposed rule.
+- Doc 10 defines a fallback only for `ai_text`: the fallback template "is always delivered if generation is
+  unavailable, over budget or fails validation". It also uses `FAILED(reason)` for permanent errors such as
+  `NOTIFICATIONS_BLOCKED` [R10].
+- This doc applies the same idea to media. When a media part fails, the delivery is downgraded to NOTIFICATION. The
+  text comes from the VOICE text, or from the `local_media.caption` for IMAGE and VIDEO. The delivery records a reason:
+  - `TTS_UNAVAILABLE` (F1-F9);
+  - `MEDIA_QUOTA` (F23);
+  - `IMAGE_UNAVAILABLE` (F22);
+  - `VIDEO_UNAVAILABLE` (bundled clip missing; see F14).
+- Media failures never block a delivery. This rule is a change request for doc 10 (section 13.2).
 
 | # | Area | Failure | Detected by | Handling | Delivery | Lowest test level |
 |---|---|---|---|---|---|---|
@@ -1876,7 +1903,7 @@ form and records a reason. Media failures never block a delivery.
 | F19 | Video | User left the screen | coroutine cancellation | `Transformer.cancel()` on main; delete tmp; keep inputs | n/a | Emulator |
 | F20 | Video | Not enough storage | `getAllocatableBytes` < need | `ACTION_MANAGE_STORAGE` prompt; no export | n/a | Robolectric (fake `StorageChecker`) |
 | F21 | Fallback | No AVC/AAC encoder; codec or muxer error | `findEncoderForFormat` null; `CodecException`; `IOException` | `Failure(reason)`; offer audio-only | n/a | Emulator (+ Robolectric `ShadowMediaCodecList` for the "no encoder" branch) |
-| F22 | Images | Render or encode failed (OOM, `compress` false) | exception / `check` | Plain-text notification without picture | `IMAGE` downgraded to `NOTIFICATION` | Robolectric (NATIVE graphics) |
+| F22 | Images | Render, decode or encode failed (OOM, `compress` false, bundled asset missing or undecodable) | exception / `check` / `decodeStream` returns null | Plain-text notification without picture | `IMAGE` downgraded to `NOTIFICATION` | Robolectric (NATIVE graphics) |
 | F23 | Storage | Over quota and nothing evictable | `planAdmission(...).admitted == false` | Skip generation; reason `MEDIA_QUOTA` | text | JVM (`MediaEvictionPolicyTest`) |
 | F24 | Storage | Crash between rename and insert; late rename after cancel | Orphan sweep | Delete orphan files older than 1 h | - | Robolectric / JVM (pure reconcile function) |
 | F25 | Notify | `POST_NOTIFICATIONS` denied | `checkSelfPermission` | `PERMISSION_DENIED`; in-app notice | `FAILED(NOTIFICATIONS_BLOCKED)` | Robolectric (`shadowOf(app).denyPermissions`) |
@@ -1959,7 +1986,7 @@ class TtsSynthesizerTest {
         val tts = ShadowTextToSpeech.getLastTextToSpeechInstance()
         shadowOf(tts).onInitListener.onInit(TextToSpeech.SUCCESS)
         val result = job.await() as TtsOutcome.Success
-        assertThat(result.wav.durationUs).isEqualTo(100_000)
+        assertThat(result.wav.durationUs).isEqualTo(100_000L)
         assertThat(out.parentFile!!.listFiles()!!.filter { it.name.endsWith(".tmp") }).isEmpty()
     }
 }
@@ -2034,8 +2061,8 @@ Do not assert pixel-exact video frames or exact AAC durations across API levels.
   - delete the language data, then expect F3 and recover through the install intent;
   - airplane mode with a network voice selected, then expect F4/F6.
 - Bluetooth:
-  - A2DP headphones, an LE Audio earbud, a hearing aid if available (on Android 17, an LE Audio hearing aid should report
-    `TYPE_BLE_HEARING_AID`): "Playing on ..." label and the `isPrivate` rule;
+  - A2DP headphones, an LE Audio earbud, a hearing aid if available (on Android 17, an LE Audio hearing aid should
+    report `TYPE_BLE_HEARING_AID`): "Playing on ..." label and the `isPrivate` rule;
   - an LE Audio speaker: "headphones only" must skip speech;
   - disconnect while speaking: speech stops and does not continue on the speaker.
 - Video on a low-end device (2 GB RAM class): 60 s recap export time and file size, cancel and re-export, portrait
@@ -2079,7 +2106,9 @@ Do not assert pixel-exact video frames or exact AAC durations across API levels.
 6. **Images: offline templates only** (section 6).
    - `TemplateRenderer` with `android.graphics` is the only v1 image source.
    - Use a bundled font, and give every card alt text.
-   - Notification cards are 1024x512. Video slides are 720x1280.
+   - Notification pictures are 1024x512 (2:1). Video slides are 720x1280.
+   - JITAI IMAGE deliveries use bundled `local_media` images, as doc 10 defines today. Template cards appear in
+     notifications only if doc 10 adopts the `card` strategy (13.2).
    - Set `imageGeneration = false` for every v1 provider. Do not use the MediaPipe Image Generator in v1.
    - Keep the section 7 contract for a later provider.
 7. **Storage** (section 9).
@@ -2143,11 +2172,13 @@ Do not assert pixel-exact video frames or exact AAC durations across API levels.
 |---|---|---|
 | 10 (JITAI engine), section 8.5 step 4 | Replace "VOICE first posts a silent companion notification with the same tag, then speaks with `utteranceId = decisionKey`". New text: "VOICE: the WAV is synthesized during step 3. If synthesis fails, the delivery is downgraded to NOTIFICATION. Post the normal notification with a Listen action that opens the app. Never speak from the worker." | Android 17 silences background playback and fails focus requests [A17-BGA]. Since target 35, focus requests fail unless the app is the top app or runs an FGS [AF]. Doc 02: "Never touch audio from the background". |
 | 10, section 3.3 / DSL | No `ai_image` content strategy in v1. VIDEO uses `local_media` only. VOICE and VIDEO caps stay as defined (2 and 1 per day). | Sections 3.1, 7, 8 |
+| 10, section 8.5 (media fallback) | Add: "If a media part fails (TTS, image decode or render, quota, missing clip), deliver as NOTIFICATION with the text form (VOICE text or `local_media.caption`) and record the reason (`TTS_UNAVAILABLE`, `IMAGE_UNAVAILABLE`, `VIDEO_UNAVAILABLE`, `MEDIA_QUOTA`)". The cap check counts the delivery under its original channel. | Mirrors the `ai_text` fallback rule. Media failures must not block or silently drop a delivery (section 11). |
+| 10, section 3.3 / DSL (proposal, optional for v1) | Add a `card` content strategy for IMAGE: `templateId` (`QUOTE`, `SPARKLINE`, `STAT`, `STREAK`), `fields` (placeholder rules as for `template`), `caption`, `altText`. E069 would accept `card` for IMAGE. On a render failure the delivery downgrades to NOTIFICATION (F22). | Data-driven pictures without AI image generation (sections 6.2, 6.3) |
 | 07 (architecture and versions) | Add the `media3` version and libraries (section 1). Add the `media_asset` and `delivery_media` entities (section 9.2). Place `:interventions` media code in `media/{voice,video,image,storage,notify}`. | Single owner of the catalog and the schema |
 | 07 / 06 | Decide whether the Room database is in cloud backup. Auto Backup includes `getDatabasePath()` files by default [AUTOBACKUP]. A restored `media_asset` row then arrives without its file, because `noBackupFilesDir` is never restored. The reconcile pass marks such rows `MISSING`, so this is safe either way. Excluding the database avoids the churn. | Section 9.4 step 6 |
-| 06 / 07 | Whoever defines an app-wide "delete my data" flow must add: delete all non-bundled media rows and files, and `cacheDir/share/`. | Section 9.4 step 7 (open item) |
+| 06 / 07 | Whoever defines an app-wide "delete my data" flow must add: delete all `media_asset` rows and their files, and `cacheDir/share/`. | Section 9.4 step 7 (open item) |
 | 08 (testing) | Add Media3 test dependencies (`media3-test-utils`, `media3-inspector`) to androidTest. Add an emulator lane for the Transformer tests. Note that Media3 Transformer image and video tests cannot run in Robolectric. | Section 12 |
-| 01 (permissions) | Record that media needs no runtime permission beyond `POST_NOTIFICATIONS`: no `BLUETOOTH_CONNECT`, no `FOREGROUND_SERVICE_MEDIA_PROCESSING` or `_MEDIA_PLAYBACK`, no `USE_FULL_SCREEN_INTENT`. Record the `<queries>` entry for TTS. | Sections 2.2, 2.7, 10.1 |
+| 01 (permissions) | Record that media needs no permission beyond `POST_NOTIFICATIONS`: no `BLUETOOTH_CONNECT`, no `FOREGROUND_SERVICE_MEDIA_PROCESSING` or `_MEDIA_PLAYBACK`, no `USE_FULL_SCREEN_INTENT`. Record the `<queries>` entry for TTS. | Sections 2.2, 2.7, 10.1 |
 
 ## 14. Uncertainties / UNVERIFIED
 

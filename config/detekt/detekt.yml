@@ -1,0 +1,59 @@
+# Overrides on top of detekt's default config (buildUponDefaultConfig = true).
+naming:
+  FunctionNaming:
+    ignoreAnnotated: ['Composable']
+  MatchingDeclarationName:
+    active: false
+style:
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    maxLineLength: 140
+  ReturnCount:
+    max: 4
+  ThrowsCount:
+    max: 4
+  ForbiddenMethodCall:
+    active: true
+    # One time source: AgentleClock (docs/ARCHITECTURE.md rule 8). Exempt: :core:time and the app clock binding.
+    methods:
+      - value: 'java.lang.System.currentTimeMillis'
+        reason: 'Inject AgentleClock'
+      - value: 'java.lang.System.nanoTime'
+        reason: 'Inject AgentleClock (elapsed)'
+      - value: 'kotlin.time.Clock.System.now'
+        reason: 'Inject AgentleClock'
+      - value: 'java.time.Instant.now'
+        reason: 'Inject AgentleClock'
+      - value: 'java.time.LocalDate.now'
+        reason: 'Inject AgentleClock'
+      - value: 'java.time.LocalDateTime.now'
+        reason: 'Inject AgentleClock'
+      - value: 'java.time.ZonedDateTime.now'
+        reason: 'Inject AgentleClock'
+      - value: 'java.util.Calendar.getInstance'
+        reason: 'Inject AgentleClock'
+      - value: 'android.os.SystemClock.elapsedRealtime'
+        reason: 'Inject AgentleClock'
+      - value: 'kotlin.io.println'
+        reason: 'Use the Logger facade (sanitized)'
+complexity:
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 12
+  TooManyFunctions:
+    active: false
+  LongMethod:
+    allowedLines: 120
+  CyclomaticComplexMethod:
+    allowedComplexity: 25
+  NestedBlockDepth:
+    allowedDepth: 5
+  ComplexCondition:
+    allowedConditions: 6
+exceptions:
+  TooGenericExceptionCaught:
+    active: true
+    allowedExceptionNameRegex: '_|(ignore|expected|e|t|error).*'
+  SwallowedException:
+    active: true

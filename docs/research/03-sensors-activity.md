@@ -38,6 +38,7 @@ marked **UNVERIFIED**.
   - **UNVERIFIED**: plausible, not confirmed in a reachable source this session.
   - **design**: an Agentle recommendation, not a platform fact.
   - **estimate**: arithmetic on stated assumptions; numbers to be replaced by measurements.
+  - **inference**: reasoned from the cited sources, but not stated by them.
 - **API levels** come from the SDK database `/opt/android-sdk/platforms/android-37.1/data/api-versions.xml`
   [SDK]. Android 16 is API 36; Android 17 is API 37 (37.1 is QPR1, the stable target; 37.2 is the
   QPR2 beta).
@@ -88,7 +89,10 @@ marked **UNVERIFIED**.
 | RECAPI | https://developer.android.com/health-and-fitness/recording-api | `$A3/pages/recording_api.txt` | 2026-01-19 |
 | HC-READ | https://developer.android.com/health-and-fitness/health-connect/read-data | `$OLD/pages/g_hc_read.txt` | 2026-09-24 |
 | EMU-CON | https://developer.android.com/studio/run/emulator-console | `$A3/pages/emu_console.txt` | 2026-07-17 |
-| EMU-EXT | https://developer.android.com/studio/run/emulator-extended-controls | `$A3/pages/emu_extended.txt` | (not shown) |
+| EMU-EXT | https://developer.android.com/studio/run/emulator-extended-controls | `$A3/pages/emu_extended.txt` | 2026-04-20 |
+| EMU-BIN | Local Android Emulator 37.1.11 (build 15917651): `/opt/android-sdk/emulator/lib/hardware-properties.ini` and strings of `qemu/linux-x86_64/qemu-system-x86_64-headless` | `$A3/emu_strings.txt` | n/a |
+| EXACT-ALARM | https://developer.android.com/develop/background-work/services/alarms (the old `/alarms/schedule` path redirects here) | `$A3/pages/alarms_live.html`, `$OLD/pages/g_exact_alarms.txt` | 2026-10-01 |
+| R-SEL | https://developer.android.com/reference/android/hardware/SensorEventListener | `$A3/pages/ref_SensorEventListener.txt` | 2026-08-03 |
 | ROBO | Robolectric 4.17: `shadows-framework-4.17.jar` (javap) and `ShadowSensorManager.java` source; Maven Central `org/robolectric/robolectric/maven-metadata.xml` (`<release>4.17</release>`, lastUpdated 2026-09-10) | `$OLD/shadows-framework-4.17.jar`, `$OLD/agent1/robo/ShadowSensorManager.java` | n/a |
 | DOC01 / DOC02 / DOC05 / DOC08 / DOC10 | Sibling research docs in this folder | - | - |
 
@@ -105,7 +109,7 @@ marked **UNVERIFIED**.
 
   | Tier | When | FGS | Signals |
   |---|---|---|---|
-  | 0 "Passive" (default) | Always, in the background | none | Play services activity transitions (`ACTIVITY`), optional Sleep API (`SLEEP_SEGMENT`), steps from Health Connect or the Recording API (`STEP_SAMPLE`), sensor inventory (`SENSOR_INVENTORY`) |
+  | 0 "Passive" (default) | Always, in the background | none | Play services activity transitions (`ACTIVITY`), optional Sleep API (`SLEEP_SEGMENT`, `SLEEP_CLASSIFY`), steps from Health Connect or the Recording API (`interval_obs` rows, 5.3; not `STEP_SAMPLE`), sensor inventory (`SENSOR_INVENTORY`) |
   | 1 "Live" | Only while an Agentle screen is visible | none | Live step-counter number; optional short context snapshot (light, accelerometer) |
   | 2 "High-detail sensing" (opt-in, off by default) | User-started session with an ongoing notification | `health` | Duty-cycled windows: accelerometer, gyroscope (when moving), light, proximity (screen off only), pressure, step counter, significant motion |
 
@@ -124,11 +128,15 @@ marked **UNVERIFIED**.
   200 Hz cap that applies to apps targeting 31+ [SENS-OV]. `HIGH_SAMPLING_RATE_SENSORS` is **not**
   declared.
 - **D6. `TYPE_STEP_COUNTER` is not the step source of record.** In the background it gets no events
-  (D3). The steps of record come, in order, from Health Connect on-device steps (API 34 with SDK
-  extension 20+), then the Recording API (Play services), then Fitbit through the Google Health API
-  (doc 05). Health Connect's on-device counting "utilizes the `TYPE_STEP_COUNTER` sensor" [HC-READ], so
-  sensor-derived steps are never added to those totals (double counting). Sensor `STEP_SAMPLE`s exist
-  for the live number (Tier 1) and for per-window cadence (Tier 2).
+  (D3).
+  - Steps of record come from the one canonical step source chosen under doc 05 7.7: the Google Health
+    API for wearable data, or Health Connect, never summed.
+  - On the phone itself, Health Connect's on-device steps cover API 34 with SDK extension 20+. Below that,
+    the Recording API (Play services) fills the gap (section 5.3).
+  - Health Connect's on-device counting "utilizes the `TYPE_STEP_COUNTER` sensor" [HC-READ], so
+    sensor-derived steps are never added to those totals (double counting).
+  - Sensor `STEP_SAMPLE`s exist only for the live number (Tier 1), per-window cadence (Tier 2) and
+    diagnostics.
 - **D7. Activity context comes from the Transition API**, not from Agentle's own classifier: entry and
   exit of `IN_VEHICLE`, `ON_BICYCLE`, `RUNNING`, `STILL`, `WALKING` [AR-TRANS]. The PendingIntent is
   explicit and `FLAG_MUTABLE` (doc 02 section 6.9). Registrations are re-made after boot and app update,
@@ -137,17 +145,25 @@ marked **UNVERIFIED**.
   where such a feature constant exists, then `SensorManager.getDefaultSensor(type)`. For the step
   sensors, `null` can also mean "permission not granted": `getDefaultSensor` returns a sensor only "if
   one exists and the application has the necessary permissions" [R-SM]. Section 13.
-- **D9. Tier 2 budgets** (**design**, tunable): window 10 s; cadence 5 min while moving, 10 min while
-  the screen is on, 30 min while still with the screen off, then paused until significant motion or a
-  transition; at most 288 windows and 45 min of partial wake lock per day. Android vitals flags
-  partial wake locks of "2 or more hours in a 24-hour period", counting those held "when the app is in
-  the background or is running a foreground service" [VITALS-WL].
+- **D9. Tier 2 budgets** (**design**, tunable):
+  - **Window**: 10 s.
+  - **Cadence**: 5 min while moving, 10 min while the screen is on, 30 min while still with the screen off,
+    then paused until significant motion or a transition.
+  - **Daily caps**: at most 288 windows and 45 min of partial wake lock per day. Android vitals flags
+    partial wake locks of "2 or more hours in a 24-hour period", counting those held "when the app is in
+    the background or is running a foreground service" [VITALS-WL].
+  - **Window alarms**: the API 37 listener-based `setExactAndAllowWhileIdle` [SDK][A17-FEAT] on 37+,
+    `setAndAllowWhileIdle` with a PendingIntent below that. Neither needs `SCHEDULE_EXACT_ALARM` (10.3).
+  - **Expected cost**: about 16 min of wake lock and about 8-27 mAh on a typical day (**estimate**,
+    section 12).
 - **D10. Tests.** Robolectric 4.17 (latest on Maven Central [ROBO]) covers listener-based sensors through
   `ShadowSensorManager`, `SensorBuilder` and `SensorEventBuilder`. It does not shadow
   `requestTriggerSensor`, so trigger sensors are tested through an Agentle `SensorGateway` fake. The
   emulator covers accelerometer, magnetometer, proximity, light, pressure, humidity and temperature
   through `adb emu sensor set` and the Virtual sensors panel [EMU-CON][EMU-EXT]. Activity transitions,
   sleep and step counting need a physical phone (section 14).
+  - A JVM harness compiled this doc's sketches. The Android parts were compiled against android-37.1, and
+    the pure logic passed 20 unit tests, 0 failures (14.2).
 - **D11. Android 16 and 17 add no sensor-framework API.** The `android.hardware.Sensor*`,
   `SensorManager` and `TriggerEvent*` stubs are identical in API 34, 37.1 and 37.2-beta1 (normalized
   diff, [SDK]). The relevant changes are elsewhere: `health` FGS and heart-rate permissions (16), job
@@ -168,7 +184,7 @@ marked **UNVERIFIED**.
 | 34 | 14 | FGS types mandatory (`health` + `FOREGROUND_SERVICE_HEALTH`); mutable PendingIntent with implicit intent throws; Health Connect on-device steps with extension 20 | [FGS-TYPES][A14-TGT][HC-READ] |
 | 35 | 15 | `BOOT_COMPLETED` receivers may not start `dataSync`, `camera`, `mediaPlayback`, `phoneCall`, `mediaProjection`, `microphone` FGS (not `health`); `dataSync` 6 h timeout | [A15-TGT][FGS-TIMEOUT] |
 | 36 | 16 | `BODY_SENSORS` replaced by `android.permission.health.*` (affects `TYPE_HEART_RATE` and `health` FGS that relied on body sensors); jobs running alongside an FGS count against job quota | [A16-TGT][A16-ALL] |
-| 37 | 17 | No sensor change; app memory limits (`MemoryLimiter:AnonSwap` exit description) | [A17-ALL][A17-TGT][A17-FEAT] |
+| 37 | 17 | No sensor change; listener-based `setExactAndAllowWhileIdle` (new overload) for Tier 2 windows; app memory limits (`MemoryLimiter:AnonSwap` exit description) | [A17-ALL][A17-TGT][A17-FEAT][SDK] |
 
 ---
 
@@ -197,8 +213,8 @@ marked **UNVERIFIED**.
 
 | Mode (constant, API 21) | Meaning [R-SENSOR] | Agentle sensors |
 |---|---|---|
-| `REPORTING_MODE_CONTINUOUS` | "Events are reported at a constant rate which is set by the rate parameter"; faster if other apps ask for more | accelerometer, gyroscope, (pressure: **UNVERIFIED**, read `getReportingMode()` at runtime) |
-| `REPORTING_MODE_ON_CHANGE` | "Events are reported only when the value changes" | step counter ("defined as an `REPORTING_MODE_ON_CHANGE` sensor" [R-SENSOR]); light and proximity (**UNVERIFIED**, AOSP HAL docs unreachable; read at runtime) |
+| `REPORTING_MODE_CONTINUOUS` | "Events are reported at a constant rate which is set by the rate parameter"; faster if other apps ask for more | accelerometer, gyroscope, (pressure: **UNVERIFIED**, read `getReportingMode()` at runtime, E-S8) |
+| `REPORTING_MODE_ON_CHANGE` | "Events are reported only when the value changes" | step counter ("defined as an `REPORTING_MODE_ON_CHANGE` sensor" [R-SENSOR]); light and proximity (**UNVERIFIED**, AOSP HAL docs unreachable; read at runtime, device test E-S8) |
 | `REPORTING_MODE_ONE_SHOT` | "Upon detection of an event, the sensor deactivates itself and then sends a single event"; must use `requestTriggerSensor` | significant motion |
 | `REPORTING_MODE_SPECIAL_TRIGGER` | "Events are reported as described in the description of the sensor" | step detector ("defined as a `REPORTING_MODE_SPECIAL_TRIGGER` sensor" [R-SENSOR]) |
 
@@ -435,8 +451,9 @@ the app is visible or runs an FGS; Agentle does not rely on it.
   wake lock), not as WorkManager work.
 - **Android 17 memory limits**: limits "based on the device's total RAM"; an affected exit has
   `REASON_OTHER` with `"MemoryLimiter:AnonSwap"` in `ApplicationExitInfo.getDescription()`; test with
-  `am memory-limiter` [A17-ALL]. The sensing service holds no raw buffers beyond one window (about
-  500 x 4 floats), so this is a monitoring item, not a design driver.
+  `am memory-limiter` [A17-ALL]. The sensing service holds no raw buffers beyond one window (room for
+  1,000 samples of a timestamp and 3 floats, about 20 KB), so this is a monitoring item, not a design
+  driver.
 
 ### 4.3 Doze, alarms and wake locks
 
@@ -449,8 +466,17 @@ the app is visible or runs an FGS; Agentle does not rely on it.
   temporary power exemption list for approximately 10 seconds to allow that application to acquire
   further wake locks". Frequency: "not ... more than about every minute" normally; "when in low-power
   idle modes this duration may be significantly longer, such as 15 minutes" [R-ALARM].
-  `setExactAndAllowWhileIdle` needs `SCHEDULE_EXACT_ALARM` for apps targeting 31+ [R-ALARM]; Tier 2
-  does not need exactness.
+- The PendingIntent overload of `setExactAndAllowWhileIdle` needs `SCHEDULE_EXACT_ALARM` for apps
+  targeting 31+, "unless the app is exempt from battery restrictions". The reference adds "Exact alarms
+  should only be used for user-facing features" [R-ALARM].
+- Android 17 adds a listener overload, `setExactAndAllowWhileIdle(type, t, tag, Executor,
+  OnAlarmListener)` (API 37 [SDK]), which "reduces power consumption and long partial wakelocks for apps
+  (like medical monitors ...)" [A17-FEAT]. Listener-based exact alarms do not need `SCHEDULE_EXACT_ALARM`
+  [EXACT-ALARM]; the guide says so for `setExact`, and that it also covers this overload is an
+  **inference**.
+- Tier 2 uses the listener overload on 37+, with a fallback to `setAndAllowWhileIdle` on
+  `SecurityException` (10.3). The session is user-started and shown in an ongoing notification, so it is
+  a user-facing feature (**design**).
 - Whether partial wake locks held by an app with a running FGS are honored during Doze is
   **UNVERIFIED** (AOSP `PowerManagerService` unreachable). Tier 2 tolerates both outcomes: if a window
   is cut short, the summary records fewer samples (quality fields).
@@ -459,7 +485,6 @@ the app is visible or runs an FGS; Agentle does not rely on it.
   background or is running a foreground service"; audio, location and JobScheduler user-initiated
   wake locks are exempt [VITALS-WL]. Excessive partial wake locks are a core vital with a 5% bad
   behavior threshold [VITALS]. Tier 2 budgets 45 min per day (D9).
-
 
 ---
 
@@ -717,7 +742,7 @@ Rules (**design**):
 
 Health Connect's guide recommends the Recording API for older devices: "If your app has significant users
 on Android 13 and lower, we recommend also maintaining or adding an integration with the local Recording
-API" (quoted in DOC01 3.29 from [HC-READ]). Requesting `READ_STEPS` also turns on the on-device counting
+API" [HC-READ]. Requesting `READ_STEPS` also turns on the on-device counting
 itself, because counting "is active only when at least one application on the device has been granted the
 `READ_STEPS` permission" [HC-READ].
 
@@ -853,7 +878,8 @@ session. "Window" means a Tier 2 sampling window (10 s, section 10). Test ids ar
    - **No exact-alarm permission on either path**. `setAndAllowWhileIdle` is inexact [R-ALARM]. For the
      listener alarm: "If the exact alarm is set using an `OnAlarmListener` object ... the
      `SCHEDULE_EXACT_ALARM` permission isn't required" [EXACT-ALARM]. That note names `setExact`; that it
-     covers the API 37 overload is an **inference**, checked in E-S4.
+     covers the API 37 overload is an **inference**, checked in E-S4. The harness code catches
+     `SecurityException` and falls back to `setAndAllowWhileIdle`.
    - **Process requirement**: listener alarms "may be canceled by the Android system whenever the calling
      process no longer has any components running" [R-ALARM]. The running FGS is such a component.
 2. Acquire the partial wake lock with a timeout of `W + 2 s` (`acquire(long)`).
@@ -885,8 +911,9 @@ Sketch of the window sampler (compiled against android-37.1; abridged from the h
 fun SensorManager.signals(sensor: Sensor, samplingPeriodUs: Int, maxReportLatencyUs: Int, handler: Handler):
     Flow<SensorSignal> = callbackFlow {
     val listener = object : SensorEventListener2 {
-        override fun onSensorChanged(event: SensorEvent) =   // copy: the event object "may be reused" [R-SEL]
-            trySend(SensorSignal.Sample(event.sensor.type, event.timestamp, event.accuracy, event.values.copyOf())).let { }
+        override fun onSensorChanged(event: SensorEvent) {   // copy: the event object "may be reused" [R-SEL]
+            trySend(SensorSignal.Sample(event.sensor.type, event.timestamp, event.accuracy, event.values.copyOf()))
+        }
         override fun onAccuracyChanged(s: Sensor, accuracy: Int) { trySend(SensorSignal.AccuracyChanged(s.type, accuracy)) }
         override fun onFlushCompleted(s: Sensor) { trySend(SensorSignal.FlushCompleted(s.type)) }
     }
@@ -916,7 +943,7 @@ suspend fun SensorManager.awaitTrigger(sensor: Sensor): Long = suspendCancellabl
 | Stop | User Stop, the 24 h limit, permission loss, or `PAUSED_POWER` lasting more than 6 h (**design**). On stop: unregister listeners, `cancelTriggerSensor`, cancel alarms, close `collector_coverage("sensing_session")`, write `SENSING_SESSION.endReason` |
 | Restart policy | `START_NOT_STICKY`. After process death the session ends. The next app start closes the stale coverage interval with reason `SERVICE_KILLED`. No auto-resume after reboot (4.2) |
 | Threads | Sensor callbacks on a `HandlerThread`. Agentle never reflects on `MessageQueue`, so the target-37 lock-free `MessageQueue` [A17-TGT] does not affect it |
-| Memory | One window holds about 500 x 3 floats plus timestamps (about 20 KB), well inside Android 17's RAM-based limits [A17-ALL] |
+| Memory | One window buffer has room for 1,000 samples (a `Long` timestamp and 3 floats each, about 20 KB; 10 s at 50 Hz fills about half). That is negligible next to Android 17's RAM-based limits [A17-ALL] (**inference**) |
 | Play | FGS type declaration in Play Console for target 34+ [FGS-TYPES]. Acceptance of a `health` FGS for this use is **UNVERIFIED**. To lower the review risk, the Play build's Tier 2 can restrict itself to motion and steps, the fitness purpose, and keep light, proximity and pressure in internal builds (**design**) |
 
 ### 10.5 Which modes need an FGS
@@ -1049,9 +1076,9 @@ Sizes are UTF-8 JSON bytes of realistic payloads, measured by `PayloadSizeTest` 
 | Raw accelerometer + gyroscope | x 2 | 173-432 MB | 5-13 GB |
 | Tier 2 summaries, budget cap (288 windows, all five events, measured 1,074 B + about 40 B row overhead per event) | 288 x (1,074 + 5 x 40) B | about 0.37 MB | about 11 MB |
 | Tier 2 summaries, typical day (about 80 windows, 12.2) | 80 x 1,274 B | about 0.10 MB | about 3 MB |
-| Tier 0 (`ACTIVITY` 20-60 per day at 144 B; optional `SLEEP_CLASSIFY` at 65 B, cadence **UNVERIFIED**, 144 per day assumed) | | 3-19 KB | 0.1-0.6 MB |
+| Tier 0 (`ACTIVITY` 20-60 per day at 144 B; optional `SLEEP_CLASSIFY` at 65 B, cadence **UNVERIFIED**, 144 per day assumed; plus about 40 B row overhead each) | 20-60 x 184 B + 144 x 105 B | about 4-26 KB | about 0.1-0.8 MB |
 
-Summaries are about 0.1-0.4% of the raw volume. That is the main reason for D1.
+Summaries are about 0.1-0.4% of the packed raw accelerometer volume. That is the main reason for D1.
 
 ### 12.2 Battery (estimate; replace with E-S5 measurements)
 
@@ -1150,3 +1177,263 @@ sensors without any API saying so.
   still runs (motion only).
 - No accelerometer: Tier 2 is hidden.
 - No significant motion: `PAUSED_STILL` falls back to the 60-minute alarm (10.2).
+
+---
+
+## 14. Testing
+
+### 14.1 Where each part is tested (doc 08 tiers)
+
+| Part | Tier | How |
+|---|---|---|
+| Step bookkeeping, summarizers, Tier 2 policy, availability resolution, payload JSON | Pure JVM (JUnit 6) | 14.2. Runs in this container |
+| Listener registration, window lifecycle, unregister-on-cancel, wake lock and alarm calls, PendingIntent flags | Robolectric 4.17 (JUnit 4) | 14.3. Needs Google Maven artifacts, so it cannot run in this container (DOC08 key finding 1) |
+| Sensor injection end to end | Emulator | 14.5 |
+| Background delivery, Doze, reboot, Play services, battery | Physical devices | 14.4 |
+
+### 14.2 JVM harness (run on 2026-10-02)
+
+- **Location**: `$A3/sensorcheck` (scratch).
+- **Toolchain**: Gradle 9.7.1, Kotlin 2.4.20, JDK 21 toolchain (bytecode 17), kotlinx-serialization 1.11.0,
+  kotlinx-coroutines 1.11.0, JUnit Jupiter 6.1.3. These are DOC07's pins.
+- **Command**: `./gradlew --offline :sensing-core:test :sensing-android:compileKotlin`.
+- **Result**: **BUILD SUCCESSFUL; 20 tests, 0 failures, 0 skipped** in 4 suites:
+
+  | Suite | Tests |
+  |---|---|
+  | `StepBookkeeperTest` | 8 |
+  | `SummariesTest` | 7 |
+  | `PolicyAndAvailabilityTest` | 4 |
+  | `PayloadSizeTest` | 1 |
+
+  The tests cover:
+  - the baseline, continuous and across-gap deltas;
+  - reboot detected by `BOOT_COUNT`, and by boot-time shift when `BOOT_COUNT` is unreadable;
+  - a counter decrease without a reboot;
+  - implausible bursts and the 2^24 float limit (`16_777_217f == 16_777_216f` holds);
+  - face-up, face-down, upright and tilted posture;
+  - walking-like ENMO, partial and empty windows;
+  - light buckets and the median;
+  - binary and distance proximity sensors;
+  - the pressure delta;
+  - every Tier 2 mode;
+  - the availability precedence;
+  - payload sizes and a JSON round trip.
+- **Android compile check**: `:sensing-android` compiles the Android sketches of sections 5, 6 and 10
+  (`SensorFlows.kt`, `DeviceFacts.kt`, `WindowAlarms.kt`, `HighDetailSensingService.kt`) against
+  `/opt/android-sdk/platforms/android-37.1/android.jar`. That confirms these signatures exist at API 37:
+  - `SensorManager`: `registerListener(listener, sensor, int, int, Handler)`, `flush`,
+    `requestTriggerSensor`/`cancelTriggerSensor`;
+  - `SensorEventListener2.onFlushCompleted`, `TriggerEventListener.onTrigger`;
+  - `Settings.Global.BOOT_COUNT`;
+  - `AlarmManager`: `setAndAllowWhileIdle`, the API 37 `setExactAndAllowWhileIdle(int, long, String,
+    Executor, OnAlarmListener)`, `cancel(OnAlarmListener)`;
+  - `PendingIntent.FLAG_MUTABLE`/`FLAG_IMMUTABLE`;
+  - `ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH`, `Service.startForeground(int, Notification, int)`;
+  - `PowerManager.WakeLock.acquire(long)`, `Build.VERSION_CODES.CINNAMON_BUN`;
+  - the `PackageManager.FEATURE_SENSOR_*` constants and the `Sensor` getters used by `SENSOR_INVENTORY`.
+
+  It proves the API surface only, not runtime behavior. Play services code is not compiled:
+  `play-services-location` is on the blocked Google Maven.
+
+### 14.3 Robolectric recipes (4.17)
+
+Signatures were checked with `javap` on `shadows-framework-4.17.jar` and in `ShadowSensorManager.java`
+[ROBO]. They were not executed here (14.1).
+
+```kotlin
+val sm = ApplicationProvider.getApplicationContext<Context>().getSystemService(SensorManager::class.java)
+val accel = SensorBuilder.newBuilder()
+    .setType(Sensor.TYPE_ACCELEROMETER).setName("fake-accel")
+    .setMinDelay(5_000).setMaxDelay(1_000_000)
+    .setFifoReservedEventCount(3_000).setFifoMaxEventCount(6_000)   // also: setWakeUpFlag, setMaximumRange
+    .build()
+shadowOf(sm).addSensor(accel)
+// ... start the code under test so it registers its listener ...
+repeat(500) { i ->
+    shadowOf(sm).sendSensorEventToListeners(
+        SensorEventBuilder.newBuilder()
+            .setSensor(accel).setTimestamp(1_000_000_000L + i * 20_000_000L)
+            .setValues(floatArrayOf(0f, 0f, 9.80665f)).setAccuracy(SensorManager.SENSOR_STATUS_ACCURACY_HIGH)
+            .build(),
+        accel)
+}
+shadowOf(Looper.getMainLooper()).idle()   // flush() posts onFlushCompleted to the main looper
+```
+
+What the 4.17 shadow does (from its source [ROBO]):
+
+- **Sensor lookup**: `getDefaultSensor(int)` returns the first added sensor of that type and never applies
+  the permission rule. The step-sensor "null without permission" case must therefore be tested through
+  Agentle's `SensorGateway` fake. `getDefaultSensor(int, boolean)` is **not** shadowed, so the real code runs;
+  whether it honours `SensorBuilder.setWakeUpFlag` is **UNVERIFIED**.
+- **Registration**: all four `registerListener` overloads record the registration and ignore rate, latency
+  and handler. Events sent with `sendSensorEventToListeners` therefore arrive synchronously on the test
+  thread. `setForceListenersToFail(true)` makes registration return false. `hasListener(listener[,
+  sensor])` and `getListeners()` support "unregistered on cancel" assertions.
+- **Flush**: `flush(listener)` posts `onFlushCompleted` for each `SensorEventListener2` on the main looper
+  and returns whether the listener is registered.
+- **Trigger sensors**: `requestTriggerSensor` and `cancelTriggerSensor` are **not** shadowed. Significant
+  motion is tested with the `SensorGateway` fake (`awaitTrigger`).
+- **Reset**: state is static and cleared by the `@Resetter` (`ShadowSensorManager.reset()`).
+
+Other shadows used:
+
+- `ShadowPowerManager.setIsInteractive`, `setIsPowerSaveMode`, `setIsDeviceIdleMode`, and
+  `getLatestWakeLock()` (held or not, timeout);
+- `ShadowAlarmManager.getScheduledAlarms()`, `peekNextScheduledAlarm()`, `fireAlarm(alarm)`, and
+  `ScheduledAlarm.isAllowWhileIdle()`;
+- `ShadowSystemClock.advanceBy(Duration)` [ROBO].
+
+`ShadowAlarmManager` shadows the hidden `setExactAndAllowWhileIdle(int, long, String, Executor,
+WorkSource, OnAlarmListener)`. Whether the public API 37 overload reaches it under Robolectric is
+**UNVERIFIED**. If it does not, inject an `AlarmScheduler` interface. `BOOT_COUNT` is injected through a
+`BootInfo` interface rather than `Settings.Global` writes.
+
+### 14.4 Device test plan
+
+| Id | Question | Procedure | Pass criterion |
+|---|---|---|---|
+| E-S1 | Do jobs and receivers without an FGS get sensor events (2.9)? | API 28+ phone, screen off: a WorkManager worker and a receiver each register the accelerometer for 10 s | Expected 0 events. If events arrive, record it; the design does not change |
+| E-S2 | Reboot bookkeeping | Tier 2 on; walk 100 steps; reboot; resume; walk 50 | `SENSOR_GAP(REBOOT)` plus `STEP_SAMPLE(SINCE_BOOT)` of about 50 |
+| E-S3 | Significant motion from `PAUSED_STILL` in Doze | `dumpsys deviceidle force-idle`, then pick up and walk | Trigger delivered, windows resume, trigger re-armed |
+| E-S4 | Doze cadence, wake locks, API 37 listener alarm | Session in `STILL` under forced idle; on 37 confirm `setExactAndAllowWhileIdle(listener)` works without `SCHEDULE_EXACT_ALARM` | Window gaps and `n` per window logged; decide `W = 8 s` in idle (10.3) |
+| E-S5 | Battery | 12.3 | Replaces the 12.2 estimates; picks Option A or B |
+| E-S6 | Step-counter batching | Tier 2 registered with 300 s latency; 30 min screen off without windows; then one window | Delta equals the steps walked (no loss) |
+| E-S7 | Thresholds | Labelled sessions: table, pocket, hand, walking, bus | Calibrate `MOVING_ENMO_MG`, posture angles and proximity state |
+| E-S8 | Initial events and reporting modes | Register light, proximity, pressure and the step counter on 3 devices; log `getReportingMode()` and the time to the first event | Settles the reporting modes in 2.2 and the initial-event question in 5.1 |
+| E-AR1 | Transitions on target 37 | Walk and drive with the explicit, mutable PendingIntent | `hasResult` true; extras present |
+| E-AR2 | Registration persistence | Reboot, app update, force-stop (Android 15+) | Re-registration paths fire; coverage gaps recorded |
+| E-AR3 | Non-exported receiver | `exported="false"` receiver | Play services PendingIntent delivered |
+| E-AR4 | Sleep API | Overnight on two devices | Segment and classify events; record cadence and value ranges |
+| E-HC1 | Health Connect on-device steps against the sensor | API 34+ with extension 20+; 1 h walk with Tier 2 | Aggregate and sensor deltas within 5% (diagnostic only) |
+
+### 14.5 Emulator
+
+- **Console**: `adb emu sensor status`, `adb emu sensor get acceleration`, and `adb emu sensor set
+  acceleration 2.23517e-07:9.77631:0.812348`. Values are colon-separated; `adb emu` runs one console command
+  and returns [EMU-CON]. Scripted runs can use the gRPC `incubating.SensorService/setSensor` [EMU-CON].
+- **Virtual sensors panel**: "Device Pose" moves and rotates the device and reports accelerometer and
+  magnetometer events. "Additional sensors" sets ambient temperature, magnetic field, proximity, light,
+  pressure and relative humidity [EMU-EXT].
+- **Console sensor names** found as strings in the local emulator 37.1.11 binary (`qemu-system-x86_64-headless`)
+  [EMU-BIN]: `acceleration`, `gyroscope`, `magnetic-field`, `orientation`, `temperature`, `proximity`,
+  `light`, `pressure`, `humidity`, `magnetic-field-uncalibrated`, `gyroscope-uncalibrated`,
+  `hinge-angle0`-`2`, `heart-rate`, `rgbc-light`, `wrist-tilt`, `acceleration-uncalibrated`, `heading`.
+  There is no `step-counter` or `significant-motion` string. `sensor status` on a running AVD is the
+  authoritative list (**inference** from the binary).
+- **AVD hardware properties** (`emulator/lib/hardware-properties.ini`, 37.1.11) [EMU-BIN]:
+  - default `yes`: `hw.accelerometer`, `hw.accelerometer_uncalibrated`, `hw.gyroscope`, and
+    `hw.sensors.{light, pressure, humidity, proximity, magnetic_field, magnetic_field_uncalibrated,
+    gyroscope_uncalibrated, orientation, temperature}`;
+  - default `no`: `rgbclight`, `hinge`, `heart_rate`, `wrist_tilt`, `heading`;
+  - no property for the step sensors or significant motion. AVDs therefore exercise the
+    `UNSUPPORTED_ON_DEVICE` path for steps (**inference**; confirm with `SENSOR_INVENTORY` on an AVD).
+- **Activity transitions**: use a physical device [AR-CODELAB].
+
+### 14.6 adb commands for background behaviour
+
+| Purpose | Command | Source |
+|---|---|---|
+| Force and leave Doze | `adb shell dumpsys deviceidle force-idle` / `unforce`; `adb shell dumpsys battery unplug` / `reset` | [DOZE] |
+| App Standby | `adb shell am set-inactive <pkg> true\|false`, `am get-inactive <pkg>` | [DOZE] |
+| Standby buckets | `adb shell am set-standby-bucket <pkg> active\|working_set\|frequent\|rare\|restricted`; `am get-standby-bucket <pkg>` | [A16-ALL] |
+| Android 16 job quota with an FGS | `adb shell am compat enable OVERRIDE_QUOTA_ENFORCEMENT_TO_FGS_JOBS <pkg>` | [A16-ALL] |
+| Android 15 `BOOT_COMPLETED` FGS rules | `adb shell am compat enable FGS_BOOT_COMPLETED_RESTRICTIONS <pkg>`; `adb shell am broadcast -a android.intent.action.BOOT_COMPLETED <pkg>` | [A15-TGT] |
+| Android 17 memory limiter | `am memory-limiter status`, `manual <pid> <limit>\|max\|none`, `ignore <uid>\|none\|all` | [A17-ALL] |
+| Screen off and on | `adb shell input keyevent KEYCODE_SLEEP` / `KEYCODE_WAKEUP` | DOC01 |
+| Active sensor registrations | `adb shell dumpsys sensorservice` | **UNVERIFIED** (AOSP docs unreachable) |
+
+---
+
+## 15. Android 16 and Android 17 specifics
+
+| Topic | Android 16 (API 36) | Android 17 (API 37) |
+|---|---|---|
+| Sensor framework API | No change (stubs identical to 34) [SDK] | No change (37.1 and 37.2-beta1 identical to 34) [SDK]; feature pages and release notes list no sensor change [A17-FEAT] |
+| Permissions | Target 36: `BODY_SENSORS` replaced by `android.permission.health.*` for `TYPE_HEART_RATE` and for `health` FGS that relied on body sensors [A16-TGT]. `ACTIVITY_RECOGNITION` unchanged | No change |
+| `health` FGS | Prerequisite list includes `READ_HEART_RATE`, `READ_SKIN_TEMPERATURE`, `READ_OXYGEN_SATURATION`; background use of the sensor-based permissions needs `READ_HEALTH_DATA_IN_BACKGROUND` (36) [FGS-TYPES]. Agentle's `ACTIVITY_RECOGNITION` path is unaffected | No change found |
+| Jobs | "jobs that are executing concurrently with a foreground service will adhere to the job runtime quota" [A16-ALL]: the window loop stays in the service | - |
+| Alarms | - | New `setExactAndAllowWhileIdle(type, t, tag, Executor, OnAlarmListener)` (API 37) "reduces power consumption and long partial wakelocks" [A17-FEAT][SDK]. Tier 2 uses it on 37+ (10.3) |
+| Memory | - | App memory limits by device RAM; exits show `REASON_OTHER` + `"MemoryLimiter:AnonSwap"`; `am memory-limiter` [A17-ALL]. Sensing holds about 20 KB per window |
+| Threads | - | Target 37 lock-free `MessageQueue` breaks only reflection on its private members [A17-TGT]; sensor callbacks on a `HandlerThread` are unaffected |
+| Static finals | - | Target 37 apps cannot change `static final` fields by reflection [A17-TGT]. Tests must not fake `Build.VERSION.SDK_INT` by reflection on devices; use Robolectric `@Config(sdk = ...)` |
+| Background audio | - | Not used by sensing [A17-ALL][A17-TGT] |
+
+---
+
+## 16. minSdk impact (sensor view)
+
+| minSdk | What changes for this doc |
+|---|---|
+| 26-27 | Every framework sensor API used here exists (batching 19, wake-up variants 21, `BOOT_COUNT` 24) [SDK]. There is no runtime `ACTIVITY_RECOGNITION`. Activity Recognition needs the gms manifest permission instead, and the step sensors need none [A10-PRIV][AR-TRANS]. The Android 9 background rule does not apply, but Agentle behaves the same on all levels (Tier 2 only in an FGS) |
+| 28 | Background sensor rule starts [A9]; same gms-permission situation as 26-27 |
+| 29 | Runtime `ACTIVITY_RECOGNITION` [R-PERM]. The Sleep sample's "preferred minimum API level" [LS-SLEEP]. **Recommended floor from the sensor side** (D12; DOC01 also recommends 29) |
+| 31 | Removes the pre-31 branches for PendingIntent mutability. The 200 Hz cap depends on targetSdk, not minSdk [SENS-OV]. DOC02 prefers 31 for other reasons |
+
+Going below 29 costs the following (**design** estimate):
+
+- consent UI that does not depend on a runtime dialog;
+- a separate Activity Recognition permission path;
+- no Sleep API.
+
+---
+
+## 17. Uncertainties (UNVERIFIED items)
+
+1. Latest `play-services-location` (21.4.0 seen; Google Maven metadata blocked) and `play-services-fitness`
+   (21.2.0 in the guide).
+2. Sleep API status constants, value ranges and emission cadence (`developers.google.com` blocked).
+3. Whether `ON_FOOT` transitions are accepted and delivered (the sample requests them; the guide omits
+   them).
+4. Whether activity-transition and sleep registrations survive reboot and app update (re-registration
+   covers both).
+5. Whether non-exported receivers receive Play services PendingIntents (E-AR3; inferred from [R-PI]).
+6. Whether `ActivityTransitionEvent` and `ActivityTransitionResult` have public constructors for tests.
+7. Whether jobs and receivers without an FGS count as "background" for the Android 9 sensor rule (E-S1).
+8. Whether partial wake locks of a process in foreground-service state are honored in Doze (E-S4).
+9. Whether the listener `setExactAndAllowWhileIdle` (37) is exempt from `SCHEDULE_EXACT_ALARM` (the
+   exemption note names `setExact`), and its rate limits.
+10. Runtime reporting modes of light, proximity and pressure, and whether on-change sensors emit an initial
+    event on registration (E-S8).
+11. Robolectric: `getDefaultSensor(int, boolean)` with `setWakeUpFlag`; the API 37 alarm overload under
+    `ShadowAlarmManager`.
+12. Emulator console names beyond `acceleration` (taken from binary strings), and whether any AVD image
+    exposes step or significant-motion sensors.
+13. The developer-options "Sensors off" tile and its observable effect.
+14. Play acceptance of a `health` FGS declaration for Tier 2, and the exact Play Console form.
+15. Battery currents (`I_awake`) and per-sensor costs (E-S5).
+16. Minimum Android version of the Recording API, and whether it counts from the same hardware counter.
+17. What `startForeground` does when the `health` prerequisite is missing.
+18. `dumpsys sensorservice` output format.
+
+---
+
+## 18. Next steps for the integrator
+
+1. **Placement (DOC07 modules)**:
+   - put `StepBookkeeper`, the summarizers, `Tier2Policy`, `SensorAvailability` and the payloads in a JVM
+     module under `dev.agentle.connectors.sensing` (inside `:connectors:api` or a new
+     `:connectors:sensing`);
+   - put the `SensorManager`, Play services and alarm adapters in `:connectors:android`;
+   - put `HighDetailSensingService` and its receivers in `:background`.
+
+   The harness sources in `$A3/sensorcheck` can seed them.
+2. **Doc 10 additions**: add the `type` values of 11.2 to the `normalized_event` vocabulary and the
+   collectors `sleep_api`, `step_sensor` and `sensing_session` to `collector_coverage`. Keep
+   `ACTIVITY_STATE_CHANGED` as the only engine event from this doc.
+3. **Doc 01 additions**: add `NO_FEATURE`, `NO_SENSOR`, `SENSOR_SILENT`, `RATE_LIMITED` and `NO_SESSION`
+   to `Blocker`. Note that this doc refines `motion_sensors` and `ambient_proximity_sensors` (still
+   debug/internal in v1) and keeps `step_counter_sensor` DEFER as a step source.
+4. **Manifest** of section 3. Keep the Tier 2 elements (FGS permissions, service, window receiver) in an
+   internal flavor until the Play FGS declaration is accepted.
+5. **Activity Recognition**: implement the 6.2 registration with an explicit, mutable,
+   `FLAG_UPDATE_CURRENT` PendingIntent. Re-register at app start, `BOOT_COMPLETED` and
+   `MY_PACKAGE_REPLACED`, and write `collector_coverage`.
+6. **Recording API reader**: for devices without Health Connect on-device steps, write `interval_obs`
+   with source `RECORDING_API` (5.3). Pin `play-services-fitness` and `play-services-location` once Google
+   Maven is reachable.
+7. **Tests**: copy the 20 JVM tests. Add the 14.3 Robolectric tests on the SDK matrix of DOC08. Schedule
+   the device tests of 14.4 (E-S1, E-S4, E-S5 and E-AR1-3 before Tier 2 ships).
+8. **Decide after E-S5**: Option A or B, the window length in Doze, and whether the measured battery cost
+   justifies offering Tier 2 to all users.
