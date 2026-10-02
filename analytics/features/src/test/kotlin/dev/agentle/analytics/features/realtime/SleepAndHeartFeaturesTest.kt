@@ -298,12 +298,12 @@ class SleepAndHeartFeaturesTest {
     }
 
     @Test
-    fun `a delta beyond 50 bpm is INVALID_VALUE`() = runTest {
+    fun `Q3 a delta beyond the 50 bpm literal range is still a known value`() = runTest {
         val f = k()
         f.rhr(today, 120)
         f.baseline(*LongArray(14) { 55 })
 
-        assertThat(f.value("resting_hr_delta_vs_28d")).isEqualTo(missing(MissingReason.INVALID_VALUE))
+        assertThat(f.value("resting_hr_delta_vs_28d")).isEqualTo(knownInt(65, f.now))
     }
 
     @Test
