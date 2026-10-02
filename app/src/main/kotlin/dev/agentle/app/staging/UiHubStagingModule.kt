@@ -89,4 +89,3 @@ internal object UnavailablePermissionCenterPort : PermissionCenterPort {
 
     override fun settingsIntent(capabilityId: String): Intent? = null
 }
-

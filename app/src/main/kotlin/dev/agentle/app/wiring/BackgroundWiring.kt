@@ -14,12 +14,11 @@ import javax.inject.Inject
 internal class GraphCollectors @Inject constructor(private val graph: AndroidCollectorsGraph) : Collectors {
     override suspend fun collectUsage(): Outcome<Unit> = graph.usage.sync(SyncTrigger.SCHEDULED).toOutcome()
 
-    override suspend fun collectDevice(): Outcome<Unit> =
-        listOf(graph.battery, graph.network, graph.audio, graph.deviceState, graph.system)
-            .map { it.sync(SyncTrigger.SCHEDULED) }
-            .firstOrNull { it.status == SyncResult.Status.FAILED }
-            ?.toOutcome()
-            ?: Outcome.Success(Unit)
+    override suspend fun collectDevice(): Outcome<Unit> = listOf(graph.battery, graph.network, graph.audio, graph.deviceState, graph.system)
+        .map { it.sync(SyncTrigger.SCHEDULED) }
+        .firstOrNull { it.status == SyncResult.Status.FAILED }
+        ?.toOutcome()
+        ?: Outcome.Success(Unit)
 
     // Activity transitions are not wired into the draft yet.
     override suspend fun reregisterActivityTransitions(): Outcome<Unit> =
