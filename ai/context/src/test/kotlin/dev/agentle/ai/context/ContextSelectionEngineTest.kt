@@ -33,7 +33,11 @@ import dev.agentle.core.model.SourceFamily
 import dev.agentle.core.model.TextOrigin
 import dev.agentle.core.model.UntrustedText
 import dev.agentle.core.time.ClosedOpenRange
+import dev.agentle.fakes.ai.FakeDailyMetric
+import dev.agentle.fakes.ai.FakeDailyRow
+import dev.agentle.fakes.ai.InMemoryAiContextDataSource
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.serialization.json.Json
@@ -680,5 +684,28 @@ class ContextSelectionEngineTest {
             assertThat(record).doesNotContain(secret)
         }
         assertThat(world.sentText()).contains("Quokkagram")
+    }
+
+    @Test
+    fun `the in-memory feature layer of the fake flavor passes the gate with one account and one source per day`() = runTest {
+        val data = InMemoryAiContextDataSource(activeGoogleHealthAccount = "gh-current")
+        val night = LocalDate(2026, 9, 29)
+        data.put(
+            FakeDailyRow(FakeDailyMetric.SLEEP_MINUTES, night, 400.0, ConnectorIds.HEALTH_CONNECT),
+            FakeDailyRow(FakeDailyMetric.SLEEP_MINUTES, night, 900.0, ConnectorIds.GOOGLE_HEALTH, "gh-current"),
+            FakeDailyRow(FakeDailyMetric.STEPS, night, 7000.0, ConnectorIds.ANDROID),
+        )
+        val world = World(data = data)
+        world.grant(AiPurpose.SLEEP_INSIGHT, SLEEP, STEPS)
+
+        val envelope = world.engine.build(AiPurpose.SLEEP_INSIGHT, null).getOrThrow()
+
+        // GH_API is not sent in v1, so the Health Connect row alone supplies the night: never a sum of sources.
+        val items = envelope.blocks.flatMap { it.items }.map { it.item }
+        assertThat(items).containsExactly(
+            DataItem.Quantity("sleep.minutes_avg", 400.0, "min"),
+            DataItem.Quantity("steps.daily_avg", 7000.0, "steps"),
+        )
+        assertThat(envelope.sourceFamilies).containsExactly(SourceFamily.HEALTH_CONNECT, SourceFamily.ON_DEVICE)
     }
 }
