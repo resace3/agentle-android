@@ -43,7 +43,7 @@ internal sealed interface PermissionCenterEffect {
 
 @HiltViewModel(assistedFactory = PermissionCenterViewModel.Factory::class)
 internal class PermissionCenterViewModel @AssistedInject constructor(
-    @Assisted private val focusId: String?,
+    @Assisted focusId: String?,
     private val port: PermissionCenterPort,
     clockPort: HubClockPort,
 ) : ViewModel() {

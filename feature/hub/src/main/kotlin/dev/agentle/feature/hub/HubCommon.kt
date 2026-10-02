@@ -32,9 +32,9 @@ internal sealed interface Load<out T> {
 
 /** Re-subscribes to [source] whenever [retries] emits; an [AppException] from the port becomes [Load.Failed]. */
 @OptIn(ExperimentalCoroutinesApi::class)
-internal fun <T> loadOf(retries: Flow<Int>, source: () -> Flow<T>): Flow<Load<T>> = retries.flatMapLatest {
+internal fun <T> loadOf(retries: Flow<Int>, source: () -> Flow<T>): Flow<Load<T>> = retries.flatMapLatest { _ ->
     source()
-        .map<T, Load<T>> { Load.Ready(it) }
+        .map<T, Load<T>> { value -> Load.Ready(value) }
         .onStart { emit(Load.Loading) }
         .catch { error -> if (error is AppException) emit(Load.Failed(error.error)) else throw error }
 }

@@ -66,7 +66,7 @@ private const val COVERAGE_DAYS = 60
 @HiltViewModel(assistedFactory = TimelineViewModel.Factory::class)
 internal class TimelineViewModel @AssistedInject constructor(
     @Assisted route: AppRoute.Timeline,
-    private val port: TimelinePort,
+    port: TimelinePort,
     clockPort: HubClockPort,
 ) : ViewModel() {
     @AssistedFactory

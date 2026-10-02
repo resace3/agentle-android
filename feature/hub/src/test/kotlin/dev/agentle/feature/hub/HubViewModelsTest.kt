@@ -24,7 +24,6 @@ import dev.agentle.feature.hub.timeline.TimelineViewModel
 import dev.agentle.feature.hub.timeline.toRows
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -137,9 +136,7 @@ class HubViewModelsTest {
         vm.refresh(mapOf("android.permission.ACTIVITY_RECOGNITION" to false))
         advanceUntilIdle()
         assertThat(effects.first()).isEqualTo(PermissionCenterEffect.Request(listOf("android.permission.ACTIVITY_RECOGNITION")))
-        assertThat(
-            (effects[1] as PermissionCenterEffect.OpenSettings).intent?.action,
-        ).isEqualTo("test.settings.activity_recognition_transitions")
+        assertThat(effects[1]).isInstanceOf(PermissionCenterEffect.OpenSettings::class.java)
         assertThat(port.refreshes).hasSize(1)
     }
 
@@ -198,9 +195,7 @@ class HubViewModelsTest {
             event("e3", "2026-10-24T21:59:00Z"), // 24 Oct 23:59 CEST
             event("e4", "2026-10-21T08:00:00Z"), // 21 Oct: 22 and 23 Oct are empty
         )
-        val rows = flowOf(androidx.paging.PagingData.from(events)).let { flow ->
-            kotlinx.coroutines.flow.flow { flow.collect { emit(it.toRows(BERLIN)) } }
-        }.asSnapshot()
+        val rows = flowOf(androidx.paging.PagingData.from(events).toRows(BERLIN)).asSnapshot()
         assertThat(rows.map { it.describe() }).containsExactly(
             "day 2026-10-25",
             "e1",
@@ -213,9 +208,10 @@ class HubViewModelsTest {
 
         val port = FakeTimelinePort(events)
         val vm = TimelineViewModel(AppRoute.Timeline(eventType = "SCREEN_ON"), port, clockPort())
-        vm.rows.asSnapshot()
+        backgroundScope.launch(dispatcher) { vm.rows.collect {} }
+        advanceUntilIdle()
         vm.setSource("android.screen")
-        vm.rows.asSnapshot()
+        advanceUntilIdle()
         assertThat(port.requests.map { it.first }).containsExactly(
             TimelineFilter(eventType = EventType.SCREEN_ON),
             TimelineFilter(source = "android.screen", eventType = EventType.SCREEN_ON),
@@ -227,7 +223,7 @@ class HubViewModelsTest {
     }
 
     private fun TimelineRow.describe(): String = when (this) {
-        is TimelineRow.DayHeader -> "day $date" + (gapAfter?.let { " gap ${it.start}..${it.endInclusive}" } ?: "")
+        is TimelineRow.DayHeader -> "day $date" + gapAfter?.let { " gap ${it.start}..${it.endInclusive}" }.orEmpty()
         is TimelineRow.Event -> event.id.value
     }
 

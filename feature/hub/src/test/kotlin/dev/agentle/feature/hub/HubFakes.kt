@@ -143,7 +143,6 @@ internal fun capability(
     permissions: List<String> = emptyList(),
     specialAccess: String? = null,
     planned: PlannedStatus = PlannedStatus.IMPLEMENT,
-    enabled: Boolean = true,
     lastUsed: Instant? = null,
 ) = CapabilityItem(
     capability = DataCapability(
@@ -156,7 +155,7 @@ internal fun capability(
     ),
     status = CapabilityStatus(capabilityId = id, state = state, evaluatedAt = NOW),
     missingPermissions = if (state == PermissionState.ALLOWED) emptyList() else permissions,
-    collectionEnabled = enabled,
+    collectionEnabled = state.canCollect,
     lastUsedAt = lastUsed,
 )
 

@@ -15,7 +15,6 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -35,16 +34,17 @@ class OnboardingViewModelTest {
     private fun TestScope.viewModel(port: FakeOnboardingPort, sdk: Int = 37): OnboardingViewModel {
         val vm = OnboardingViewModel(port, sdk)
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
+        backgroundScope.launch(dispatcher) { vm.effect.collect { collected += it } }
         advanceUntilIdle()
         return vm
     }
 
-    private fun TestScope.effectsOf(vm: OnboardingViewModel): List<OnboardingEffect> {
-        val effects = mutableListOf<OnboardingEffect>()
-        backgroundScope.launch(dispatcher) { vm.effect.collect { effects += it } }
-        runCurrent()
-        return effects
-    }
+    /** Effects of the most recently created view model. */
+    private val collected = mutableListOf<OnboardingEffect>()
+
+    @Suppress("UnusedReceiverParameter")
+    private fun TestScope.effectsOf(vm: OnboardingViewModel): List<OnboardingEffect> =
+        collected.also { check(vm.state.value.loading.not()) }
 
     private fun denied(permission: String, rationale: Boolean) =
         PermissionDialogResult(granted = mapOf(permission to false), showRationale = mapOf(permission to rationale))
