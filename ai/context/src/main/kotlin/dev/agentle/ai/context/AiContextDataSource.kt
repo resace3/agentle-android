@@ -14,9 +14,10 @@ import kotlinx.datetime.TimeZone
 import kotlin.time.Instant
 
 /**
- * What the [ContextSelectionEngine] asks the feature layer for. Every value it gets back must stay within
- * [categories], [sourceFamilies], [kinds] and [range], and within [fields] when that is not null (background requests). Anything
- * outside makes the whole request fail closed. Days are local days of [zone], the clock's zone, never the JVM default.
+ * What the [ContextSelectionEngine] asks the feature layer for. Every value it gets back must be a field usable for
+ * [purpose] ([AiFieldRegistry.fieldsFor]) and stay within [categories], [sourceFamilies], [kinds] and [range], and within
+ * [fields] when that is not null (background requests). Anything outside makes the whole request fail closed. Days are
+ * local days of [zone], the clock's zone, never the JVM default.
  * [subject] is an optional app code chosen by the caller (for example the JITAI category of pooled reminder text). It
  * selects data and is never sent.
  */

@@ -240,7 +240,11 @@ public class EgressGuard(
         val zone = clock.zone()
         val dayStart = EngineDay.bounds(EngineDay.of(now, zone), zone).start
         val since = minOf(dayStart, now - standing.cadence)
-        val records = guardedCall { auditLog.records(envelope.purpose, AiRequestMode.BACKGROUND, since) }
+        // A log that cannot be read cannot prove the budget: nothing is sent.
+        val records = when (val read = guardedCall { auditLog.records(envelope.purpose, AiRequestMode.BACKGROUND, since) }) {
+            is Outcome.Success -> read
+            is Outcome.Failure -> Outcome.Failure(AppError.DatabaseError(AUDIT_UNAVAILABLE))
+        }
         return records.flatMap { list ->
             val sent = list.filter { it.status.mayHaveBeenSent && it.requestId != envelope.requestId }
             when {
