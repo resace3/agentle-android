@@ -2,11 +2,13 @@
 # variant that ships or is tested, runs Robolectric unit tests and lint, and checks that no fake reaches a prod
 # classpath. The emulator job runs instrumented tests on a matrix of API levels; it only runs when dispatched by hand
 # so routine pushes don't spend emulator minutes. Every test job prints exact counts (tools/junit_summary.py).
+# Android implementation teams push to `android/<team>` branches to get the Android build they cannot run locally
+# (Google Maven is unreachable from the development container); `tools/ci_wait.py` waits for the result.
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'android/**']
   pull_request:
   workflow_dispatch:
     inputs:
