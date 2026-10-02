@@ -38,6 +38,8 @@ import dev.agentle.interventions.storage.MediaPaths
 import dev.agentle.interventions.storage.MediaPictures
 import dev.agentle.interventions.storage.MediaSharing
 import dev.agentle.interventions.storage.PendingDeliveries
+import dev.agentle.interventions.video.CodecVideoComposer
+import dev.agentle.interventions.video.FallbackVideoComposer
 import dev.agentle.interventions.video.Media3VideoComposer
 import dev.agentle.interventions.video.VideoComposer
 import dev.agentle.interventions.video.VideoPreparer
@@ -184,7 +186,8 @@ abstract class InterventionsModule {
 
         @Provides
         @Singleton
-        fun composer(@ApplicationContext context: Context): VideoComposer = Media3VideoComposer(context)
+        fun composer(@ApplicationContext context: Context): VideoComposer =
+            FallbackVideoComposer(Media3VideoComposer(context), CodecVideoComposer())
 
         @Provides
         @Singleton
