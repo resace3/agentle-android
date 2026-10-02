@@ -53,9 +53,9 @@ internal class RoomContentTextPurger(private val access: DataAccess) : ContentTe
             val rows = sql.query("SELECT seq, payload_json FROM event WHERE type = ? AND start_ms < ?", typeId, beforeMs) {
                 it.long(0) to it.text(1)
             }
-            for ((seq, json) in rows) {
-                val payload = parse(json) ?: continue
-                if (fields.none { it in payload } || !filter(payload)) continue
+            val matching = rows.mapNotNull { (seq, json) -> parse(json)?.let { seq to it } }
+                .filter { (_, payload) -> fields.any { it in payload } && filter(payload) }
+            for ((seq, payload) in matching) {
                 val scrubbed = JsonObject(payload - fields)
                 sql.execute("UPDATE event SET payload_json = ? WHERE seq = ?", JSON.encodeToString(JsonObject.serializer(), scrubbed), seq)
                 cleared++
