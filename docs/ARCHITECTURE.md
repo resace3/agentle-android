@@ -1,8 +1,10 @@
 # Agentle architecture
 
-Status: v1 baseline, 2026-10-02. Synthesized from the research reports in `docs/research/` (01-10). Where this
-document and a research report disagree, this document is the decision; the report is the evidence. Section
-numbers like "[R10 §8]" point to research report 10, section 8.
+Status: v1 baseline, 2026-10-02; revised the same day to apply the architecture red team (`docs/ARCHITECTURE_ISSUES.md`
+lists every finding, its resolution and what is still open). Synthesized from the research reports in
+`docs/research/` (01-10). Where this document and a research report disagree, this document is the decision; the
+report is the evidence. Section numbers like "[R10 §8]" point to research report 10, section 8. UNVERIFIED marks a
+fact that no primary source confirms.
 
 ## 0. Product in one paragraph
 
@@ -10,45 +12,62 @@ Agentle is a native Android "Personal Data Hub". The phone collects user-authori
 (usage access, notification listener, device state, location, activity, calendar, Health Connect, and so on) and
 from the user's wearable through the **Google Health API** (the successor of the Fitbit Web API, which shuts off
 2026-10-30; product decision: no code targets the legacy Fitbit Web API). Everything is normalized into one typed
-event model and stored locally in Room. A local feature engine derives daily and rolling features; a local insight
-engine finds candidate patterns; a deterministic JITAI engine evaluates user-, NL- and AI-created rules and delivers
-notifications, in-app cards, images, TTS voice and short locally composed videos. Optional AI analysis uses **Sign in
-with ChatGPT (SIWC)** so the user's ChatGPT plan pays for inference; only a minimized, previewed, category-gated
-context ever leaves the device.
+event model and stored locally in an encrypted Room database. A local feature engine derives daily and rolling
+features; a local insight engine finds candidate patterns; a deterministic JITAI engine evaluates user-, NL- and
+AI-created rules and delivers notifications, in-app cards, images, TTS voice and short locally composed videos.
+Optional AI analysis uses **Sign in with ChatGPT (SIWC)** so the user's ChatGPT plan pays for inference. An AI request
+carries only the data categories the user granted, minimized to what its purpose needs. A request the user starts is
+previewed before it is sent; a background request (for example refilling a JITAI's pool of AI text) is sent only
+within a standing consent that the user previewed and approved for that purpose (§9.1).
 
 ## 1. Non-negotiable rules
 
 1. Local-first: the Room database is the only persistent store of personal data. No server, no cloud sync.
-2. Nothing leaves the device except (a) Google Health API requests (fetching the user's own data) and (b) AI
-   requests built by `ContextSelectionEngine`, which fail closed for any category the user disabled.
+2. Nothing leaves the device except (a) Google Health API requests that fetch the user's own data and (b) AI requests
+   built by `:ai:context` from granted categories (§9), which fail closed. Every HTTP client sets an egress
+   allow-list, `HttpClientConfig.allowedHosts`: `HttpClientFactory` checks each request's exact host as the first
+   application interceptor and again at the network layer, and a client with an allow-list never follows redirects.
+   Hosts in `prod`: `health.googleapis.com` (Google Health client), `auth.openai.com` (SIWC auth client: discovery,
+   JWKS, token, revocation) and `api.openai.com` (SIWC API client: Responses, models). In `fake`: `127.0.0.1` only.
+   Google authorization runs inside Play services and the ChatGPT sign-in page in the browser, outside Agentle's HTTP
+   clients; §14 lists every egress path. Values from the Google Health API are never sent to AI in v1 (§9.2).
 3. Supported public APIs only. No root, no hidden APIs, no accessibility-service scraping, no exploits.
 4. Unavailable capabilities are reported as unavailable with a reason, never faked.
-5. Tokens never go to Room columns, logs, analytics, crash reports, diagnostics exports or backups.
-6. AI output is data. It is parsed, schema-validated and rendered for approval; it is never executed.
-7. Production builds cannot reach fake servers: fakes are absent from every `prod*` classpath (flavors), and a
-   build check enforces it.
-8. One time source (`AgentleClock`). No `System.currentTimeMillis()` / `Instant.now()` in business logic (detekt
-   `ForbiddenMethodCall`).
+5. Tokens never go to Room columns, logs, analytics, crash reports, diagnostics exports or backups. No exception
+   message or `toString()` goes into an `AppError`, log line, stored row or diagnostic entry, only the exception class
+   name and an error code: decode errors embed their input (§15).
+6. AI output is data. It is parsed and schema-validated; it is never executed. AI-made rules and proposals become
+   active only after the user approves them. AI-produced text is never shown or delivered unless the user approved
+   that item or it passed `AiTextPolicy` (§9.5), and it is always labelled as AI-generated.
+7. Production builds cannot reach fake servers: `:fakes`, `:core:testing` and test-only libraries are absent from
+   every `prod*` runtime classpath (flavors), and build checks enforce it (§3.1, §4).
+8. One time source (`AgentleClock`: wall time, zone, monotonic time). Outside `:core:time` and the app's clock
+   binding, no `System.currentTimeMillis()`, `Instant.now()`, `Date()`, `ZoneId.systemDefault()`,
+   `TimeZone.getDefault()`, `TimeZone.currentSystemDefault()`, `SystemClock` reads, `java.time.Clock.system*` or
+   `TimeSource.Monotonic`; detekt checks this with type resolution in CI. Code uses the clock's zone, never the JVM
+   default.
 9. No always-on foreground service. Collection is event-driven, periodic (WorkManager) or foreground-only.
+10. Single process: no component declares `android:process`, and `work-multiprocess` is not used. The process-wide
+    mutexes for token refresh, stream sync and JITAI commits rely on it.
 
 ## 2. Platform and toolchain
 
 | Item | Decision | Why |
 |---|---|---|
-| minSdk | **29** (Android 10) | ACTIVITY_* usage events, ACTIVITY_RECOGNITION runtime permission, background-location split, Health Connect floor 28 [R01 §9, R07 §8.7]. API 29-30 differences (no exact-alarm permission, legacy Bluetooth permissions, no expedited work without FGS) are handled by version gates. |
+| minSdk | **29** (Android 10) | ACTIVITY_* usage events, ACTIVITY_RECOGNITION runtime permission, background-location split, Health Connect floor 28 [R01 §9, R07 §8.7]. API 29-30 differences (legacy Bluetooth permissions, no expedited work without a foreground service, `TelephonyCallback` only on 31+) are handled by version gates. Agentle never schedules exact alarms, on any API level. |
 | targetSdk / compileSdk | **37** (Android 17) | Latest stable. Behavior changes for 37 are handled (OTP SMS delay, memory limiter, strict SQL in CP2, cross-profile loopback) [R01, R02]. |
 | Gradle / AGP / Kotlin / KSP | 9.7.1 / 9.3.3 / 2.4.20 / 2.3.12 | Newest set inside every vendor's support matrix [R07 §0]. AGP 9 built-in Kotlin, new DSL only, KSP only. |
 | JDK | 21 runs Gradle and tests; bytecode 17 | Robolectric SDK 36/37 need Java 21. |
 | UI | Jetpack Compose (BOM 2026.09.00), Material 3, Navigation 3 (1.2.0) | |
 | DI | Hilt 2.60.1 (+ androidx.hilt 1.4.0 for workers and ViewModels) | |
-| DB | Room 3.0.3, `BundledSQLiteDriver` in production, `AndroidSQLiteDriver` under Robolectric | Same SQLite on every device; KSP-only matches AGP 9 [R07 §4]. |
+| DB | Room 3.0.3 with `SQLCipherDriver` (SQLCipher for Android 4.19.1) in every app variant; `BundledSQLiteDriver` only in JVM and Robolectric tests (DAO and migration tests) | Encryption at rest (§5.4) [R04 §3.2]; KSP-only matches AGP 9 [R07 §4]. |
 | Settings | DataStore 1.2.1 | |
 | Network | OkHttp 5.5.0, Retrofit 3.0.0, kotlinx.serialization 1.11.0 (the only JSON library) | |
 | Background | WorkManager 2.12.0 (on-demand init, `HiltWorkerFactory`, `Configuration.setClock`) | |
-| Crypto | Tink 1.23.0 AEAD with an Android Keystore master key; `security-crypto` is deprecated and not used | |
+| Crypto | Tink 1.23.0 `AndroidKeystore` helper: `generateNewAes256GcmKey(alias)` and `getAead(alias)` give AES-256-GCM keys in the Android Keystore that seal the database key and the token vault directly. `AndroidKeysetManager` is banned (detekt `ForbiddenImport`) because it silently falls back to a cleartext keyset. `security-crypto` is deprecated and not used | |
 | Media | Media3 1.11.1 Transformer for video; Android `TextToSpeech` for voice | |
 | Quality | Android Lint, detekt 2.0.0-alpha.6 (1.23.8 is incompatible with AGP 9), Spotless + ktlint 1.8.0, Kover 0.9.11 | |
-| Tests | JUnit 6.1.3 (JVM modules), JUnit 4 + Robolectric 4.17 + Compose UI test v2 + Roborazzi 1.76.0 (Android modules), AndroidX Test + UI Automator (instrumented), mockwebserver3, Turbine, Truth (the one assertion library), MockK only at boundaries | |
+| Tests | JUnit 6.1.3 (JVM modules only), JUnit 4 + Robolectric 4.17 + Compose UI test v2 + Roborazzi 1.76.0 (Android modules; `org.junit.jupiter` imports are forbidden there, because such a test compiles and never runs), AndroidX Test + UI Automator (instrumented), mockwebserver3, Turbine, Truth (the one assertion library), MockK only at boundaries | |
 
 Package root `dev.agentle`; applicationId `dev.agentle.app` (`dev.agentle.app.fake` for the fake flavor).
 
@@ -59,28 +78,28 @@ at the edges. JVM modules never depend on Android modules.
 
 | Module | Type | Responsibility |
 |---|---|---|
-| `:core:model` | JVM | `PersonalEvent` + typed payloads, `EventType`, `DataSourceId`, `Insight`, `CapabilityDescriptor`, `PermissionState`, `ConnectorState`, AI category enums, media artifact model, user goals. kotlinx.serialization types. |
-| `:core:common` | JVM | `AppError` hierarchy + `Outcome`, dispatcher qualifiers, `Logger` facade with `Redactor`, `SingleFlight`, ids. |
+| `:core:model` | JVM | `PersonalEvent` + typed payloads, `EventType`, `DataSourceId`, `Insight`, `CapabilityDescriptor`, `PermissionState`, `ConnectorState`, `DataCategory` and source families, lineage, `UntrustedText`, media artifact model, user goals. kotlinx.serialization types. |
+| `:core:common` | JVM | `AppError` hierarchy + `Outcome`, dispatcher qualifiers, `Logger` facade with `Redactor`, `SingleFlight` (a cancelled caller never cancels the shared run; with a scope, the run is detached from every caller), ids. |
 | `:core:time` | JVM | `AgentleClock` (wall + zone + monotonic), `EngineDay` (04:00 rollover), DST-safe day bounds and windows. |
-| `:core:network` | JVM | OkHttp factory, JSON config, error-body sniffing (Content-Type check), retry/backoff policy, `AccessTokenSource` + `withAccessToken` (one refresh after 401), sliding-window rate limiter. |
-| `:core:oauth` | JVM | Generic OAuth 2.0 + PKCE + state/nonce machinery: request builder, `LoopbackCallbackServer` (RFC 8252 §7.3), callback validation (constant-time state compare), code exchange, rotating refresh, revocation. |
-| `:connectors:api` | JVM | Connector SPI (`Connector`, `ConnectorMetadata`, `SyncCursor`, `SyncResult`, `EventSink`), capability registry model. |
-| `:connectors:googlehealth` | JVM | Google Health API v4 client (Retrofit), lenient DTOs, mapping to events, window-based incremental sync, rate limiting, error policy [R05 §7]. Authorization is a port (`GoogleHealthAuthorizer`). |
-| `:ai:api` | JVM | `AiProvider` + `AiCapabilities`, request/response models, schemas (`InsightSchema`, `JitaiProposalSchema`, `JitaiRuleSchema`, `MediaPromptSchema`), output validation. |
-| `:ai:chatgpt` | JVM | SIWC: discovery, dynamic client registration, `SiwcAuthorizer`, `SiwcSessionManager` (Mutex refresh), ID-token verification (Nimbus), `ResponsesClient` (SSE, field whitelist), `ModelCatalog`, `SiwcErrorMapper`, `ChatGptAiProvider` [R06 §8]. `BrowserLauncher` and `CredentialStore` are ports. |
-| `:ai:context` | JVM | `ContextSelectionEngine`: purpose -> allowed categories -> aggregates -> redaction -> preview -> `AiRequestEnvelope`; consent check that fails closed; prompt-injection quarantine of personal text. |
-| `:analytics:features` | JVM | Feature catalog (single versioned source) and feature computation: daily features + rolling windows 1/3/7/14/30/90 d + intra-day features; reads through a `FeatureDataSource` port. |
+| `:core:network` | JVM | OkHttp factory with the egress allow-list (`HttpClientConfig.allowedHosts`), JSON config, error-body sniffing (Content-Type check), retry/backoff policy, `AccessTokenSource` + `withAccessToken` (one refresh after 401), sliding-window rate limiter. |
+| `:core:oauth` | JVM | Generic OAuth 2.0 + PKCE + state/nonce machinery: request builder, `LoopbackCallbackServer` (RFC 8252 §7.3), callback validation (constant-time state compare), code exchange, rotating refresh, revocation. Used by SIWC. |
+| `:connectors:api` | JVM | Connector SPI (`Connector`, `ConnectorMetadata`, `SyncCursor` with account id and fetch generation, `StreamCoverage`, `SyncResult`, `EventSink` with `commit`, diff-semantics `replaceWindow` and `importFloor`; §6.1), capability registry model. |
+| `:connectors:googlehealth` | JVM | Google Health API v4 client (Retrofit), lenient DTOs, mapping to events, window-based incremental sync, rate limiting, error policy [R05 §7]. Authorization is a port (`GoogleHealthAuthorizer`) modelled on Play services `AuthorizationClient` (§7.1). |
+| `:ai:api` | JVM | `AiProvider` + `AiCapabilities`, the sealed `AiRequestEnvelope` (only `:ai:context` can create one), response models, schemas (`InsightSchema`, `JitaiProposalSchema`, `JitaiRuleSchema`, `MediaPromptSchema`), output validation and `AiTextPolicy` (§9.5). |
+| `:ai:chatgpt` | JVM | SIWC: discovery, dynamic client registration, `SignInCoordinator`, `SiwcAuthorizer`, `SiwcSessionManager` (Mutex, credential generation, non-cancellable refresh), ID-token verification (Nimbus), HTTP profiles, `ResponsesClient` (SSE, field whitelist, `beforeSend` hook), `ModelCatalog`, `SiwcErrorMapper`, `ChatGptAiProvider` [R06 §8]. `BrowserLauncher` and `CredentialStore` are ports. |
+| `:ai:context` | JVM | `ContextSelectionEngine`: purpose -> granted categories and source families -> aggregates -> preview -> sealed `AiRequestEnvelope`; consent reads that fail closed; standing consents for background purposes; `UntrustedText` serialization (§9). |
+| `:analytics:features` | JVM | Feature catalog (single versioned source) and feature computation: daily features + rolling windows 1/3/7/14/30/90 d + intra-day features; reads through a `FeatureDataSource` port (fused series, one consistent snapshot per resolve, active account only; §10). |
 | `:analytics:insights` | JVM | Local candidate patterns (pre-registered hypotheses, stratified permutation tests, BH q-values, non-causal templates) and AI interpretation orchestration [R10 §14-15]. |
 | `:jitai:dsl` | JVM | `JitaiDefinition`, rule AST (sealed, `type` discriminator), strict JSON codec, validator (S0-S10, E001-E099), deterministic renderer [R10 §3-4, §11]. |
-| `:jitai:engine` | JVM | Three-valued evaluator, feature snapshot, decision keys, safety gates G01-G16, arbitration, two-phase delivery state machine, scheduling planner (what to schedule; not how) [R10 §6-9]. |
-| `:fakes` | JVM | `FakeGoogleHealthServer` and `FakeChatGptServer` on mockwebserver3 with scenario control, `FakeAiProvider`, `FakeChatGptAuthClient`, `FakeBrowserLauncher`, deterministic synthetic data generator (SplitMix64; 90-day, empty, sparse, high-volume users) [R08 §5-6]. Never on a `prod*` classpath. |
-| `:core:testing` | JVM | `TestAgentleClock`, coroutine test helpers, in-memory port fakes, Truth helpers. |
-| `:core:database` | Android | Room 3 database, entities, DAOs, migrations, exported schemas, driver selection. |
-| `:core:security` | Android | Keystore + Tink AEAD `SecretVault` (token blobs), install id, backup exclusions. |
-| `:core:datastore` | Android | DataStore: settings, consent flags, AI category toggles, retention, quiet hours, "permission requested" flags. |
+| `:jitai:engine` | JVM | Three-valued evaluator, feature snapshot, decision keys, safety gates G01-G16, arbitration, two-phase delivery state machine, timer planner and `replan` (what to schedule; not how), snapshot scrub for deleted categories [R10 §6-9]. |
+| `:fakes` | JVM | `FakeGoogleHealthServer` (API subset; validates bearer tokens only) and `FakeChatGptServer` on mockwebserver3 with scenario control, the scripted `FakeGoogleAuthorizer`, `FakeBrowserLauncher`, `FakeAiProvider` and `FakeChatGptAuthClient` (unit tests only), deterministic synthetic data generator (SplitMix64; 90-day, empty, sparse, high-volume users) [R08 §5-6]. Never on a `prod*` classpath. |
+| `:core:testing` | JVM | `TestAgentleClock` (default zone Australia/Adelaide; it can run on a `TestCoroutineScheduler`, so virtual time drives wall and elapsed time), a sleeper derived from the clock, coroutine test helpers, in-memory port fakes, Truth helpers. |
+| `:core:database` | Android | Room 3 database on SQLCipher, entities, DAOs, migrations, exported schemas, `DataCategoryRegistry`. |
+| `:core:security` | Android | Database key manager and `SecretVault` (token blobs), both sealed with Tink `AndroidKeystore` keys; install id. |
+| `:core:datastore` | Android | DataStore: settings, the AI consent grant store (§9.1), retention, quiet hours, "permission requested" flags. |
 | `:core:ui` | Android+Compose | Theme, design system, status chips (icon + text, never color only), shared components, string formatting. |
-| `:data` | Android | Repositories implementing the JVM ports: `EventRepository` (ingest, dedup, retention), `FeatureRepository`, `InsightRepository`, `JitaiRepository`, `ConnectorStateRepository`, `AiAuditRepository`, `MediaRepository`, `DeletionService`, `DiagnosticsRepository`. |
-| `:connectors:android` | Android | On-device collectors, `CapabilityStateResolver`s (Permission Center backend), Settings intents, `PendingIntentFactory`, Health Connect reader. |
+| `:data` | Android | Repositories implementing the JVM ports: `EventRepository` (serialized writer, ingest, dedup, retention), `FeatureRepository`, `InsightRepository`, `JitaiRepository` (decision-commit runner), `ConnectorStateRepository`, `AiAuditRepository`, `MediaRepository`, `DeletionService`, `DiagnosticsRepository`. Exposes ports only (§3.1). |
+| `:connectors:android` | Android | On-device collectors, `CoverageRecorder` use, `CapabilityStateResolver`s (Permission Center backend), Settings intents, `PendingIntentFactory`, Health Connect reader. |
 | `:interventions` | Android | `NotificationDeliverer` (channels, actions, deep links, tags = decision key), in-app cards, local image renderer, `TtsVoiceRenderer`, `Media3VideoComposer`, media cleanup. |
 | `:background` | Android | WorkManager workers (`@HiltWorker`), `WorkScheduler` gateway (unique names), `ScheduleReconciler`, boot/time/package receivers. |
 | `:feature:onboarding` | Android+Compose | Onboarding. |
@@ -90,25 +109,63 @@ at the edges. JVM modules never depend on Android modules.
 | `:feature:settings` | Android+Compose | Settings, retention, deletion, background behavior, notification settings, diagnostics, debug tools (debug builds only). |
 | `:app` | Android app | Hilt root, `MainActivity`, Navigation 3 graph, WorkManager `Configuration.Provider`, flavor bindings (endpoints, fakes), manifest. |
 
-Forbidden dependencies (checked by `verifyModuleGraph` in build-logic): only `:app` may depend on `:fakes`, and only
-as `fakeImplementation`; `:feature:*` may not depend on `:core:database`, `:connectors:*`, `:ai:chatgpt` or
-`:background`; `:jitai:engine` may not depend on `:interventions`.
+### 3.1 Forbidden dependencies
+
+`ModuleGraphRules` (build-logic, applied with the quality conventions) fails the build, once every project is
+evaluated, when:
+- a JVM module depends on an Android module, in any configuration;
+- a module depends on `:fakes` outside test configurations, except `:app` through its `fake*` configurations (any
+  module may use `:fakes` in tests);
+- a `:feature:*` module depends, outside tests, on `:core:database`, `:connectors:android`,
+  `:connectors:googlehealth`, `:ai:chatgpt` or `:background` (UI reaches data only through `:data` ports);
+- `:jitai:engine` depends on `:interventions` or `:ai:chatgpt` (the engine decides; delivery and AI calls live
+  elsewhere).
+
+The same rules are also checked on the resolved compile and runtime classpaths, so a transitive edge cannot bypass
+them. `:data` depends on `:core:database`, `:core:security` and `:core:datastore` with `implementation`, never `api`,
+so `:feature:*` modules cannot reach DAOs or the vault through it. The rule of §14 that `:ai:*` modules never reach
+export, deletion, intents, network calls or settings is not yet written down as a module list or checked.
+
+### 3.2 Fakes encode the wire contract
+
+A fake never reuses the client it fakes. `dev.agentle.fakes.chatgpt` may implement ports declared in `:ai:chatgpt`
+(such as `BrowserLauncher`), but uses no `:ai:chatgpt` DTO, serializer, parser or constant: it serves the R06
+§9.3/§9.4 bodies as literal JSON fixtures, and golden tests feed the same literals to the client's parser. Planned for
+the integration wave: split `:fakes` into `:fakes:servers` (mockwebserver3 and kotlinx-serialization-json only,
+literal bodies) and `:fakes:ports` (port fakes that depend on API modules only); move `BrowserLauncher`,
+`CredentialStore` and the `GoogleHealthAuthorizer` port into `:ai:api` and `:connectors:api`; and check in
+`ModuleGraphRules` that `:fakes:servers` never resolves a client module.
 
 ## 4. Build variants and fakes
 
 - Build types `debug`, `release`. Flavor dimension `backend`: `prod`, `fake`. `fakeRelease` is disabled.
 - `prod` binds real endpoints (`https://health.googleapis.com/`, Google authorization via Play services
-  `AuthorizationClient`, `https://auth.openai.com`, `https://api.openai.com/v1`), `network_security_config` with
-  no cleartext.
-- `fake` starts the in-process fake servers on `127.0.0.1` (cleartext allowed only for loopback), binds
-  `FakeBrowserLauncher`, the fake Google authorizer, and exposes the debug panel: scenario selection, synthetic
-  dataset generation, JITAI trigger simulator, time override, force sync / force worker, clear database, failure
-  injection.
-- Guards: `verifyNoFakesInProd` (walks `prodReleaseRuntimeClasspath`), a prod unit test asserting every bound base
-  URL is https and non-loopback, a source-tree guard test rejecting foreign OAuth client ids (`app_[A-Za-z0-9]{20,}`)
-  and the private `chatgpt.com/backend-api` host.
+  `AuthorizationClient`, `https://auth.openai.com`, `https://api.openai.com/v1`), each client with its egress
+  allow-list (§1 rule 2), and a `network_security_config` with no cleartext. The real Google Health API source sits
+  behind a flag that stays off until the live spike passes (§7.1, §18).
+- `fake` starts the in-process fake servers on `127.0.0.1` (cleartext allowed only for loopback; clients allow only
+  loopback) and binds only server-side fakes plus `FakeBrowserLauncher` and the scripted `FakeGoogleAuthorizer`, so
+  the real `SiwcAuthorizer`, `SiwcSessionManager`, `ChatGptAiProvider` and Google Health client run in journeys.
+  `FakeAiProvider` and `FakeChatGptAuthClient` are for unit tests only; there is no Google authorization-code + PKCE
+  fake, because production never runs that flow. Synthetic datasets are anchored to the device's real now; the app
+  clock is never moved to match the data. The flavor exposes the debug panel: scenario selection, synthetic dataset
+  generation, JITAI trigger simulator, time override, force sync / force worker, clear database, failure injection.
+- Guards: `verifyNoFakesInProd` (wired into `check`) walks every `prod*` runtime classpath and rejects `:fakes`,
+  `:core:testing` and test-only artifacts (mockwebserver3, coroutines-test, Turbine, Robolectric, JUnit); CI checks
+  the `prodDebug` dex and the `prodRelease` R8 mapping for fake and test classes; `verifyNoSecrets` (JVM CI job)
+  rejects Google OAuth client secrets (`GOCSPX-`), OpenAI and Google API keys and private keys anywhere in the tree;
+  a prod unit test asserts every bound base URL is https and non-loopback; a source-tree guard test rejects foreign
+  OAuth client ids (`app_[A-Za-z0-9]{20,}`) and the private `chatgpt.com/backend-api` host.
 - Failure injection (`FailureInjector` port, no-op in `prod`): database exception, Google Health HTTP error,
-  OpenAI HTTP error, expired token, network loss, invalid AI output, permission loss.
+  OpenAI HTTP error, expired token, network loss, invalid AI output, permission loss. Scripted scenarios of the fakes
+  add: `FakeGoogleAuthorizer` outcomes (the R05 §8.1 tokens, partial scopes, resolution required in the background,
+  revoked access, status-code failures, network error, Play services missing); `FakeChatGptServer` clock skew (an
+  injected offset), captive portal and TLS interception on discovery, token and refresh, and a crash between the
+  refresh response and the vault write; and a fault-injecting database key manager (transient `KeyStoreException`,
+  `AEADBadTagException`, missing or truncated key file, missing alias, "file is not a database").
+- Planned for the integration wave: a minified build type for the fake flavor (`initWith(release)`, debug signing)
+  that runs a journey subset and the golden-corpus decode suite, and a `prodRelease` emulator smoke test (install,
+  cold start, open the encrypted database, run one worker).
 
 Local builds without Google Maven: `-Pagentle.jvmOnly=true` includes only the JVM modules and the JVM half of
 build-logic, so the domain core builds and tests on any JVM.
