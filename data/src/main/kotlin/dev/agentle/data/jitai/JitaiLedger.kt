@@ -152,6 +152,7 @@ data class TimerRecord(
     val role: String? = null,
     val featureIds: Set<String> = emptySet(),
     val deferrals: Int = 0,
+    val offsetSeconds: Int? = null,
 )
 
 /** The engine's `engine_state` values (red team database-sync-04). */
@@ -272,6 +273,13 @@ interface JitaiLedger {
     /** Deliveries whose stored engine day lies in `fromDay..toDay` (ISO dates). */
     suspend fun deliveriesInEngineDays(fromDay: String, toDay: String): List<DecisionRow>
 
+    /**
+     * The wall-time range `[start, now)` the delivery ledger fully covers (DailyInputs.INTERVENTION_LEDGER =
+     * "jitai_decision"): from the engine's first commit or the last intervention-history deletion, at most 400 days.
+     * Null before the engine ever committed.
+     */
+    suspend fun retainedRange(nowMs: Long): LongRange?
+
     /** Every timer row, ordered by due time then key. */
     suspend fun timers(): List<TimerRecord>
 
@@ -305,12 +313,29 @@ interface JitaiLedger {
     suspend fun applyRetention(ledgerBeforeMs: Long, evalLogBeforeMs: Long, fullTraceBeforeMs: Long): LedgerRetention
 }
 
+/** The delivery ledger's retention (R10 §8.8): 400 days. */
+internal const val LEDGER_RETENTION_MS: Long = 400L * 86_400_000L
+
 internal class RoomJitaiLedger(private val access: DataAccess, private val clock: AgentleClock) : JitaiLedger {
     override suspend fun <T> readSnapshot(block: suspend (LedgerReader) -> T): T = access.read { block(Reader(this)) }
 
     override suspend fun <T> commit(expectedGeneration: String, block: suspend (LedgerWriter) -> T): LedgerCommit<T> = access.write {
-        val generation = db.stateDao().state(EngineStateKeys.DB_GENERATION)?.textValue
-        if (generation != expectedGeneration) LedgerCommit.GenerationMismatch else LedgerCommit.Committed(block(Writer(this)))
+        val state = db.stateDao()
+        val generation = state.state(EngineStateKeys.DB_GENERATION)?.textValue
+        if (generation != expectedGeneration) {
+            LedgerCommit.GenerationMismatch
+        } else {
+            if (state.state(EngineStateKeys.LEDGER_SINCE_MS) == null) {
+                state.putState(EngineStateKeys.LEDGER_SINCE_MS, clock.now().toEpochMilliseconds(), null)
+            }
+            LedgerCommit.Committed(block(Writer(this)))
+        }
+    }
+
+    override suspend fun retainedRange(nowMs: Long): LongRange? = access.read {
+        val since = db.stateDao().state(EngineStateKeys.LEDGER_SINCE_MS)?.intValue ?: return@read null
+        val start = maxOf(since, nowMs - LEDGER_RETENTION_MS)
+        if (start >= nowMs) null else start until nowMs
     }
 
     override suspend fun decision(key: String): DecisionRow? = access.read { db.jitaiDao().decision(key)?.let(::rowOf) }
@@ -661,6 +686,7 @@ internal class RoomJitaiLedger(private val access: DataAccess, private val clock
             featureIds = timer.featureIds.sorted().joinToString(","),
             deferrals = timer.deferrals,
             createdMs = nowMs,
+            offsetSeconds = timer.offsetSeconds,
         )
 
         fun timerOf(entity: JitaiTimerEntity): TimerRecord = TimerRecord(
@@ -675,6 +701,7 @@ internal class RoomJitaiLedger(private val access: DataAccess, private val clock
             role = entity.role,
             featureIds = entity.featureIds.split(',').filter { it.isNotEmpty() }.toSet(),
             deferrals = entity.deferrals,
+            offsetSeconds = entity.offsetSeconds,
         )
 
         fun evalEntity(row: EvalLogRow): JitaiEvalLogEntity = JitaiEvalLogEntity(

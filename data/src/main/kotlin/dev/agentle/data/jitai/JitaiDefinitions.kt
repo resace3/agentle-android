@@ -40,6 +40,8 @@ data class DefinitionSummary(
     val origin: String,
     val modifiedMs: Long,
     val expiresMs: Long?,
+    /** Closed validation codes of an engine pause for an invalid definition (shown as a notice), else empty. */
+    val pauseCodes: List<String> = emptyList(),
 )
 
 /** What [JitaiDefinitionStore.save] stores: a new version when [contentHash] differs from the current one. */
@@ -94,6 +96,12 @@ interface JitaiDefinitionStore {
 
     /** R10 §9.6: [consecutiveIgnored] reached the backoff limit; the JITAI is paused until the user decides in the app. */
     suspend fun pauseForBackoff(id: String, consecutiveIgnored: Int, atMs: Long): Boolean
+
+    /**
+     * The engine found the stored definition invalid (`JitaiRepositoryPort.pauseInvalid`): PAUSED with the closed
+     * [codes] kept for the notice, and its timers (except OUTCOME) deleted in the same transaction.
+     */
+    suspend fun pauseInvalid(id: String, codes: List<String>, atMs: Long): Boolean
 
     /**
      * Deletes the definition, its history, runtime state, timers and pooled texts. The content-free decision ledger
@@ -154,7 +162,12 @@ internal class RoomJitaiDefinitionStore(private val access: DataAccess, private 
 
     override suspend fun setEnabled(id: String, enabled: Boolean): Boolean = change(id) { it.copy(enabled = enabled) }
 
-    override suspend fun setState(id: String, state: String): Boolean = change(id) { it.copy(state = state) }
+    override suspend fun setState(id: String, state: String): Boolean =
+        change(id) { it.copy(state = state, pauseCodes = if (state == DefinitionStates.PAUSED) it.pauseCodes else null) }
+
+    override suspend fun pauseInvalid(id: String, codes: List<String>, atMs: Long): Boolean = change(id, atMs) {
+        it.copy(state = DefinitionStates.PAUSED, pauseCodes = codes.map(::closedCode).distinct().joinToString(",").ifEmpty { null })
+    }
 
     override suspend fun markExpired(id: String, atMs: Long): Boolean = change(id, atMs) { it.copy(state = DefinitionStates.EXPIRED) }
 
@@ -194,6 +207,11 @@ internal class RoomJitaiDefinitionStore(private val access: DataAccess, private 
     private fun nowMs(): Long = clock.now().toEpochMilliseconds()
 
     companion object {
+        private val CODE = Regex("[A-Za-z0-9_.:-]{1,64}")
+
+        /** Codes only, never free text (validation messages can quote the rule). */
+        fun closedCode(value: String): String = if (CODE.matches(value)) value else "REDACTED"
+
         fun storedOf(row: CurrentDefinitionRow): StoredDefinition {
             val d = row.definition
             return StoredDefinition(
@@ -227,6 +245,7 @@ internal class RoomJitaiDefinitionStore(private val access: DataAccess, private 
             origin = row.origin,
             modifiedMs = row.modifiedMs,
             expiresMs = row.expiresMs,
+            pauseCodes = row.pauseCodes?.split(',').orEmpty(),
         )
     }
 }

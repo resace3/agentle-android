@@ -92,6 +92,10 @@ internal class RoomDeletionService(
             val epoch = dao.state(EngineStateKeys.DATA_EPOCH)?.intValue ?: 0L
             dao.putState(EngineStateKeys.DATA_EPOCH, epoch + 1, null)
             scopes.forEach { scope -> dao.raiseFloor(floorScope(scope), now, now) }
+            if (target == DeletionTarget.Category(DataCategory.INTERVENTIONS)) {
+                // The ledger no longer covers earlier days: intervention features read them as MISSING, never 0.
+                dao.putState(EngineStateKeys.LEDGER_SINCE_MS, now, null)
+            }
             dao.putState(EngineStateKeys.DELETION_MARKER, null, encode(marker))
         }
         return run(marker)

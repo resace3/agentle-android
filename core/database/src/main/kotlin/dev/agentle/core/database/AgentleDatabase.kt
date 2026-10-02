@@ -154,6 +154,12 @@ object EngineStateKeys {
     /** JSON progress of a category or family deletion that has not finished (round 4 correction 3). */
     const val DELETION_MARKER: String = "deletion_marker"
 
+    /**
+     * Wall time from which the intervention delivery ledger is complete: set on the engine's first commit and reset
+     * when intervention history is deleted (DailyInputs.INTERVENTION_LEDGER coverage).
+     */
+    const val LEDGER_SINCE_MS: String = "ledger_since_ms"
+
     /** Wall time of the last completed retention run. */
     const val LAST_RETENTION_MS: String = "last_retention_ms"
 }

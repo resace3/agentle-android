@@ -196,7 +196,8 @@ interface JitaiDao {
     @Query("DELETE FROM jitai_timer WHERE id = :id")
     suspend fun deleteTimer(id: String): Int
 
-    @Query("DELETE FROM jitai_timer WHERE jitai_id = :jitaiId")
+    /** Timers of [jitaiId] except OUTCOME timers: outcomes of past deliveries are still computed after a change. */
+    @Query("DELETE FROM jitai_timer WHERE jitai_id = :jitaiId AND kind != 'OUTCOME'")
     suspend fun deleteTimersOf(jitaiId: String): Int
 
     @Query("SELECT * FROM jitai_timer WHERE jitai_id = :jitaiId ORDER BY due_at_ms, id")

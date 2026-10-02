@@ -23,6 +23,8 @@ data class JitaiDefinitionEntity(
     @ColumnInfo(name = "created_ms") val createdMs: Long,
     @ColumnInfo(name = "modified_ms") val modifiedMs: Long,
     @ColumnInfo(name = "expires_ms") val expiresMs: Long?,
+    /** Closed validation codes when the engine paused the definition as invalid (`pauseInvalid`); shown as a notice. */
+    @ColumnInfo(name = "pause_codes") val pauseCodes: String? = null,
 )
 
 /** Every saved version of a definition; rows are inserted once and never updated. */
@@ -191,4 +193,6 @@ data class JitaiTimerEntity(
     @ColumnInfo(name = "feature_ids") val featureIds: String,
     val deferrals: Int,
     @ColumnInfo(name = "created_ms") val createdMs: Long,
+    /** The engine's `TimerRow.offsetSeconds`: UTC offset at planning time, for DST-safe re-planning. */
+    @ColumnInfo(name = "offset_seconds") val offsetSeconds: Int? = null,
 )

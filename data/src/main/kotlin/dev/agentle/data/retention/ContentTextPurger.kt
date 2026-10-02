@@ -17,15 +17,20 @@ data class TextPurgeCounts(val notifications: Int, val calendarEvents: Int) {
 }
 
 /**
+ * What the collectors call (red team privacy-ai-16): the user turned content capture off for an app, or an app became
+ * the default SMS or dialer app. Idempotent; returns the number of events whose text was cleared.
+ */
+interface NotificationContentPurger {
+    suspend fun purgeNotificationText(packageName: String): TextPurgeCounts
+
+    suspend fun purgeTextOfPackage(packageName: String): TextPurgeCounts
+}
+
+/**
  * Clears captured personal text (red team privacy-ai-16): notification `title`/`text` and calendar `title`. The event
  * itself stays, content-free. Each purge is one transaction, idempotent (a second run clears 0 rows) and returns counts.
  */
-interface ContentTextPurger {
-    /** The user turned content capture off for [packageName]. */
-    suspend fun purgeNotificationText(packageName: String): TextPurgeCounts
-
-    /** [packageName] became the default SMS or dialer app (the collectors detect it and call this). */
-    suspend fun purgeTextOfPackage(packageName: String): TextPurgeCounts
+interface ContentTextPurger : NotificationContentPurger {
 
     /** Text of events that started before [cutoffMs] (the content-text retention, default 7 days, at most 30). */
     suspend fun purgeTextBefore(cutoffMs: Long): TextPurgeCounts
