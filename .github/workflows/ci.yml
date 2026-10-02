@@ -213,10 +213,13 @@ jobs:
             **/build/test-results/
           retention-days: 14
       - name: Upload APKs
+        # Always: a red test must not hide the APKs that did build (the job stays red either way).
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: apks
           path: app/build/outputs/apk/
+          if-no-files-found: ignore
           retention-days: 7
 
   record-screenshots:
