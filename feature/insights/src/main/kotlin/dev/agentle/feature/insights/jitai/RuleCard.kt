@@ -67,13 +67,16 @@ internal fun JitaiSummary.toCard(options: RenderOptions): RuleCard {
 
 internal fun actionsFor(status: JitaiStatus, pausedReason: PauseReason?): ImmutableSet<RuleAction> = when (status) {
     JitaiStatus.ACTIVE -> setOf(RuleAction.PAUSE, RuleAction.EDIT, RuleAction.DISABLE)
+
     // A rule paused because it failed the checks of this app version must be edited before it can run again.
     JitaiStatus.PAUSED -> if (pausedReason == PauseReason.FAILED_CHECKS) {
         setOf(RuleAction.EDIT, RuleAction.DISABLE)
     } else {
         setOf(RuleAction.RESUME, RuleAction.EDIT, RuleAction.DISABLE)
     }
+
     JitaiStatus.DRAFT, JitaiStatus.EXPIRED -> setOf(RuleAction.EDIT, RuleAction.DISABLE)
+
     JitaiStatus.PROPOSED, JitaiStatus.DECLINED, JitaiStatus.ARCHIVED -> emptySet()
 }.toImmutableSet()
 
@@ -99,6 +102,7 @@ internal fun <T> Flow<T>.asLoad(): Flow<Load<T>> = map<T, Load<T>> { Load.Loaded
 /** The snackbar message of a lifecycle action's result. */
 internal fun Outcome<Unit>.message(success: UserMessage, resume: Boolean = false): UserMessage = when (this) {
     is Outcome.Success -> success
+
     is Outcome.Failure -> {
         val error = error
         val blocked = resume && error is AppError.ValidationError && JitaiLifecycle.ILLEGAL_TRANSITION !in error.codes

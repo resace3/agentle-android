@@ -58,7 +58,9 @@ class JitaiViewModelsTest {
         keepCollecting(vm.state)
         advanceUntilIdle()
         val records = (vm.state.value.history as Load.Loaded).value.records
-        assertThat(records.map { it.reason }).containsExactly(null, OutcomeReason.LOST_ARBITRATION, OutcomeReason.NOTIFICATIONS_BLOCKED, null)
+        assertThat(
+            records.map { it.reason },
+        ).containsExactly(null, OutcomeReason.LOST_ARBITRATION, OutcomeReason.NOTIFICATIONS_BLOCKED, null)
             .inOrder()
     }
 

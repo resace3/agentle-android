@@ -104,11 +104,10 @@ internal data class ReviewModel(
      * "Turn on" is possible only for a pending proposal without errors whose normalized rule exists and whose confirm
      * items are all resolved: every C02-C04 acknowledged and no C01 left (R10 §11.5).
      */
-    fun canActivate(acknowledged: Set<String>): Boolean =
-        isPending &&
-            report.isValid &&
-            report.definition != null &&
-            confirmItems.all { it.code in ACKNOWLEDGED_CODES && it.reviewKey in acknowledged }
+    fun canActivate(acknowledged: Set<String>): Boolean = isPending &&
+        report.isValid &&
+        report.definition != null &&
+        confirmItems.all { it.code in ACKNOWLEDGED_CODES && it.reviewKey in acknowledged }
 
     companion object {
         /** Validates [data] with [environment] and the user's C01 [selections] (label -> package). */
@@ -118,6 +117,7 @@ internal data class ReviewModel(
             val (input, request) = when (source) {
                 is ProposalSource.NaturalLanguage ->
                     ValidationInput.Proposal(source.proposal, CreatedBy.AI_NATURAL_LANGUAGE) to source.request
+
                 is ProposalSource.Discovered -> ValidationInput.Discovered(source.proposal) to null
             }
             val report = RuleValidator.validate(
@@ -135,8 +135,8 @@ internal data class ReviewModel(
                 origin = if (source is ProposalSource.Discovered) ReviewOrigin.DISCOVERED else ReviewOrigin.NATURAL_LANGUAGE,
                 name = definition?.name ?: draft?.name.orEmpty(),
                 description = definition?.description ?: draft?.description.orEmpty(),
-                rendering = report.rendering ?: draft?.let { previewSentence(it, source.createdBy, data.proposalId, context.clock.now(), options) }
-                    .orEmpty(),
+                rendering = report.rendering
+                    ?: draft?.let { previewSentence(it, source.createdBy, data.proposalId, context.clock.now(), options) }.orEmpty(),
                 renderingIsFinal = report.rendering != null,
                 before = data.replaces?.let { RuleRenderer.render(it, options) },
                 request = request,
@@ -194,6 +194,7 @@ internal data class EvidenceSummary(
 ) {
     companion object {
         /** Reads the evidence object; null when a required number is missing or malformed. */
+        @Suppress("ReturnCount") // One early exit per required number keeps the parsing flat.
         fun of(evidence: JsonObject): EvidenceSummary? {
             val exposed = evidence["exposed"] as? JsonObject ?: return null
             val unexposed = evidence["unexposed"] as? JsonObject ?: return null

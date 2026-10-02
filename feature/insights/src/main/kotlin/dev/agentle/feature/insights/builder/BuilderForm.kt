@@ -202,11 +202,7 @@ internal data class SnoozeForm(
  *
  * @property keep the stored `expiresAt` of an edited rule, used while [mode] is [ExpiryMode.KEEP].
  */
-internal data class ExpiryForm(
-    val mode: ExpiryMode = ExpiryMode.NEVER,
-    val days: String = "28",
-    val keep: Instant? = null,
-)
+internal data class ExpiryForm(val mode: ExpiryMode = ExpiryMode.NEVER, val days: String = "28", val keep: Instant? = null)
 
 internal enum class ExpiryMode { NEVER, AFTER_DAYS, KEEP }
 

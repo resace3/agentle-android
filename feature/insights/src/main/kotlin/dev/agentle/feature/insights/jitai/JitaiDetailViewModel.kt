@@ -33,10 +33,8 @@ import kotlinx.coroutines.launch
 
 /** One rule (`AppRoute.JitaiDetail`): its sentence, counters, actions, content and recent decisions. */
 @HiltViewModel(assistedFactory = JitaiDetailViewModel.Factory::class)
-internal class JitaiDetailViewModel @AssistedInject constructor(
-    @Assisted private val jitaiId: String,
-    private val port: JitaiListPort,
-) : ViewModel() {
+internal class JitaiDetailViewModel @AssistedInject constructor(@Assisted private val jitaiId: String, private val port: JitaiListPort) :
+    ViewModel() {
     private val reload = MutableStateFlow(0)
     private val confirmingDisable = MutableStateFlow(false)
     private val busy = MutableStateFlow(false)

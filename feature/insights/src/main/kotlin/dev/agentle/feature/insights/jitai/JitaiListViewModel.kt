@@ -41,10 +41,8 @@ import kotlinx.datetime.TimeZone
  * AI-discovered proposals; History lists deliveries and suppressions and opens the intervention detail.
  */
 @HiltViewModel(assistedFactory = JitaiListViewModel.Factory::class)
-internal class JitaiListViewModel @AssistedInject constructor(
-    @Assisted initialTab: JitaiTab,
-    private val port: JitaiListPort,
-) : ViewModel() {
+internal class JitaiListViewModel @AssistedInject constructor(@Assisted initialTab: JitaiTab, private val port: JitaiListPort) :
+    ViewModel() {
     private val tab = MutableStateFlow(initialTab)
     private val reload = MutableStateFlow(0)
     private val pendingDisable = MutableStateFlow<PendingDisable?>(null)
@@ -64,7 +62,13 @@ internal class JitaiListViewModel @AssistedInject constructor(
 
     private val flags: Flow<Pair<PendingDisable?, Set<String>>> = combine(pendingDisable, busy) { pending, ids -> pending to ids }
 
-    val state: StateFlow<JitaiListUiState> = combine(tab, overview, suggestions, history, flags) { selected, rules, proposals, decisions, ui ->
+    val state: StateFlow<JitaiListUiState> = combine(
+        tab,
+        overview,
+        suggestions,
+        history,
+        flags,
+    ) { selected, rules, proposals, decisions, ui ->
         JitaiListUiState(
             tab = selected,
             rules = rules.rules(),
@@ -179,7 +183,9 @@ private fun Load<JitaiOverview>.rules(): Load<RuleLists> = map { overview ->
 
 private fun historyOf(overview: Load<JitaiOverview>, history: Load<List<DeliveryRecord>>): Load<HistoryContent> = when {
     history is Load.Error -> history
+
     overview is Load.Error -> overview
+
     history is Load.Loaded && overview is Load.Loaded -> Load.Loaded(
         HistoryContent(
             records = history.value.toImmutableList(),
@@ -187,5 +193,6 @@ private fun historyOf(overview: Load<JitaiOverview>, history: Load<List<Delivery
             use24HourClock = overview.value.renderOptions.use24HourClock,
         ),
     )
+
     else -> Load.Loading
 }

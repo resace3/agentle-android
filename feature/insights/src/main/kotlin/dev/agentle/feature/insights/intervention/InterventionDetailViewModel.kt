@@ -118,10 +118,7 @@ internal class InterventionDetailViewModel @AssistedInject constructor(
     }
 }
 
-internal data class InterventionDetailUiState(
-    val load: Load<InterventionContent> = Load.Loading,
-    val sendingFeedback: Boolean = false,
-)
+internal data class InterventionDetailUiState(val load: Load<InterventionContent> = Load.Loading, val sendingFeedback: Boolean = false)
 
 /**
  * One decision as the screen shows it, times in the user's zone.

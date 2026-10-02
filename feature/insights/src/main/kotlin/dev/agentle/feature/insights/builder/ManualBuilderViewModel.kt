@@ -121,12 +121,11 @@ internal class ManualBuilderViewModel @AssistedInject constructor(
         }
     }
 
-    private fun editableForm(definition: JitaiDefinition): Outcome<BuilderForm> =
-        if (definition.status == JitaiStatus.ARCHIVED) {
-            Outcome.failure(AppError.ValidationError(listOf(JitaiLifecycle.ILLEGAL_TRANSITION)))
-        } else {
-            Outcome.success(formOf(definition))
-        }
+    private fun editableForm(definition: JitaiDefinition): Outcome<BuilderForm> = if (definition.status == JitaiStatus.ARCHIVED) {
+        Outcome.failure(AppError.ValidationError(listOf(JitaiLifecycle.ILLEGAL_TRANSITION)))
+    } else {
+        Outcome.success(formOf(definition))
+    }
 
     private fun editingState(environment: BuilderEnvironment, form: BuilderForm): ManualBuilderUiState.Editing {
         val apps = environment.context.apps?.launcherApps().orEmpty().sortedBy { it.label.lowercase() }

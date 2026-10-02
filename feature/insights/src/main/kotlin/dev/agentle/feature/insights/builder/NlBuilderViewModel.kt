@@ -89,6 +89,7 @@ internal class NlBuilderViewModel @Inject constructor(private val port: JitaiBui
         viewModelScope.launch {
             val phase = when (val result = call()) {
                 is Outcome.Failure -> NlPhase.Problem(AiProblem.of(result.error))
+
                 is Outcome.Success -> when (val conversion = result.value) {
                     is NlConversion.Proposed -> {
                         effectChannel.send(ScreenEffect.Navigate(AppRoute.ProposalReview(conversion.proposalId)))

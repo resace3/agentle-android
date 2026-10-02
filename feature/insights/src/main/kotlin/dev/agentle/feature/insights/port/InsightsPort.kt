@@ -121,12 +121,7 @@ public data class InsightDetail(
  *
  * @property sampleSize nights or days compared.
  */
-public data class InsightMethod(
-    val test: InsightTest,
-    val qValue: Double? = null,
-    val pValue: Double? = null,
-    val sampleSize: Int? = null,
-)
+public data class InsightMethod(val test: InsightTest, val qValue: Double? = null, val pValue: Double? = null, val sampleSize: Int? = null)
 
 /** Methods the insight engine uses. */
 public enum class InsightTest {

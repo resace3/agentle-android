@@ -76,8 +76,11 @@ private fun triggerForm(trigger: Trigger?): TriggerForm = when (trigger) {
 
 private fun contentForm(content: ContentStrategy): ContentForm = when (content) {
     is ContentStrategy.Static -> ContentForm(ContentType.TEXT, title = content.title, body = content.body)
+
     is ContentStrategy.Template -> ContentForm(ContentType.TEXT, title = content.title, body = content.body)
+
     is ContentStrategy.Variants -> ContentForm(ContentType.VARIANTS, variants = content.items.map { TextPairForm(it.title, it.body) })
+
     is ContentStrategy.AiText -> ContentForm(
         ContentType.AI_TEXT,
         title = content.fallback.title,
@@ -85,6 +88,7 @@ private fun contentForm(content: ContentStrategy): ContentForm = when (content) 
         goal = content.goal,
         tone = content.tone,
     )
+
     is ContentStrategy.LocalMedia -> ContentForm(
         ContentType.MEDIA,
         title = content.caption.title,
@@ -121,8 +125,11 @@ private fun rowOf(key: Int, node: Condition): ConditionRow? = when (node) {
         is Condition.FeatureLeaf, is Condition.LocalTimeIn -> rowOf(key, inner)?.copy(negate = true)
         else -> null
     }
+
     is Condition.LocalTimeIn -> ConditionRow(key, kind = RowKind.TIME_WINDOW, start = node.start, end = node.end)
+
     is Condition.FeatureLeaf -> leafRow(key, node)
+
     is Condition.AllOf, is Condition.AnyOf -> null
 }
 

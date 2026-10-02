@@ -79,23 +79,40 @@ internal fun fieldOf(path: String, layout: TreeLayout): String {
     val head = segments.firstOrNull() ?: return Fields.GENERAL
     return when (head) {
         "name" -> Fields.NAME
+
         "description" -> Fields.DESCRIPTION
+
         "category", "kind" -> Fields.CATEGORY
+
         "trigger" -> triggerField(segments.drop(1))
+
         "activeWindow" -> windowField(segments.getOrNull(1))
+
         "conditions" -> rowField(path.removePrefix("/conditions"), layout.conditions, Fields.TREE_CONDITIONS, Fields.CONDITIONS)
+
         "contextRequirements" ->
             rowField(path.removePrefix("/contextRequirements"), layout.requirements, Fields.TREE_REQUIREMENTS, Fields.REQUIREMENTS)
+
         "cooldownMinutes" -> Fields.COOLDOWN
+
         "maxPerDay" -> Fields.MAX_PER_DAY
+
         "maxPerWeek" -> Fields.MAX_PER_WEEK
+
         "priority" -> Fields.PRIORITY
+
         "delivery" -> deliveryField(segments.getOrNull(1))
+
         "content" -> contentField(segments.drop(1))
+
         "snooze" -> Fields.SNOOZE
+
         "expiresAt" -> Fields.EXPIRY
+
         "outcome" -> outcomeField(segments.drop(1))
+
         "suppression" -> Fields.SUPPRESSION
+
         else -> Fields.GENERAL
     }
 }
@@ -124,21 +141,28 @@ private fun deliveryField(part: String?): String = when (part) {
 
 private fun contentField(rest: List<String>): String = when (rest.firstOrNull()) {
     "title" -> Fields.CONTENT_TITLE
+
     "body" -> Fields.CONTENT_BODY
+
     "goal" -> Fields.CONTENT_GOAL
+
     "assetId" -> Fields.CONTENT_ASSET
+
     // E069: the content type does not fit the channel; the channel is what the user changes.
     "type" -> Fields.CHANNEL
+
     "fallback", "caption" -> when (rest.getOrNull(1)) {
         "title" -> Fields.CONTENT_TITLE
         "body" -> Fields.CONTENT_BODY
         else -> Fields.CONTENT
     }
+
     "items" -> {
         val index = rest.getOrNull(1)?.toIntOrNull()
         val part = rest.getOrNull(2)
         if (index != null && part != null) Fields.variant(index, part) else Fields.CONTENT_VARIANTS
     }
+
     else -> Fields.CONTENT
 }
 
@@ -167,15 +191,25 @@ private fun partOf(inner: String): RowPart {
     val segments = inner.split('/').drop(1)
     return when (segments.firstOrNull()) {
         null -> RowPart.ROW
+
         "feature" -> RowPart.FEATURE
+
         "type" -> RowPart.OPERATOR
+
         "value" -> RowPart.VALUE
+
         "min" -> RowPart.MIN
+
         "max" -> RowPart.MAX
+
         "values" -> RowPart.VALUES
+
         "onUnknown" -> RowPart.ON_UNKNOWN
+
         "start" -> RowPart.START
+
         "end" -> RowPart.END
+
         "args" -> when (segments.getOrNull(1)) {
             "package", "appLabel" -> RowPart.PACKAGE
             "category" -> RowPart.CATEGORY
@@ -183,6 +217,7 @@ private fun partOf(inner: String): RowPart {
             "jitai" -> RowPart.JITAI
             else -> RowPart.ROW
         }
+
         else -> RowPart.ROW
     }
 }

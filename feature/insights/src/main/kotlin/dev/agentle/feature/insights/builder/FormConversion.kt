@@ -28,11 +28,7 @@ import kotlin.time.Instant
  * back to rows) and the form's own input problems ([localIssues], field id -> problem) that no validator code covers
  * (text that is not a whole number).
  */
-internal data class BuiltRule(
-    val definition: JitaiDefinition,
-    val layout: TreeLayout,
-    val localIssues: Map<String, LocalIssue>,
-)
+internal data class BuiltRule(val definition: JitaiDefinition, val layout: TreeLayout, val localIssues: Map<String, LocalIssue>)
 
 /** Input problems the form detects before validation. */
 internal enum class LocalIssue {
@@ -96,7 +92,14 @@ internal fun BuilderForm.toDefinition(now: Instant, zone: TimeZone): BuiltRule {
         createdAt = base.createdAt ?: at,
         modifiedAt = at,
         outcome = if (intervention) outcome.toSpec(numbers) else null,
-        suppression = if (intervention) null else SuppressionTarget(suppressionCategories.sortedBy { it.ordinal }, base.suppressionJitaiIds),
+        suppression = if (intervention) {
+            null
+        } else {
+            SuppressionTarget(
+                suppressionCategories.sortedBy { it.ordinal },
+                base.suppressionJitaiIds,
+            )
+        },
         experiment = base.experiment,
         userConfirmedUnknownOverrides = confirmUnknownOverrides,
         provenance = base.provenance,
@@ -161,7 +164,9 @@ private fun hasPlaceholderSyntax(text: String): Boolean = "{{" in text || "}}" i
 
 private fun ExpiryForm.toInstant(now: Instant, zone: TimeZone, numbers: NumberReader): Instant? = when (mode) {
     ExpiryMode.NEVER -> null
+
     ExpiryMode.KEEP -> keep
+
     ExpiryMode.AFTER_DAYS -> {
         val n = numbers.optional(Fields.EXPIRY, days)
         when {
@@ -236,11 +241,13 @@ internal fun literal(type: FeatureType?, text: String): RuleLiteral {
     val trimmed = text.trim()
     return when (type) {
         FeatureType.INT -> trimmed.toLongOrNull()?.let { RuleLiteral.NumberToken(it.toString()) } ?: RuleLiteral.Text(trimmed)
+
         FeatureType.BOOL -> when (trimmed) {
             "true" -> RuleLiteral.Bool(true)
             "false" -> RuleLiteral.Bool(false)
             else -> RuleLiteral.Text(trimmed)
         }
+
         else -> RuleLiteral.Text(trimmed)
     }
 }

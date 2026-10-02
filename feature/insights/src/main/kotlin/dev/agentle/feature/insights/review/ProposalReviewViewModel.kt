@@ -77,7 +77,9 @@ internal class ProposalReviewViewModel @AssistedInject constructor(
     private val model: Flow<Load<ReviewModel>> = combine(inputs, selections) { load, chosen ->
         when (load) {
             Load.Loading -> Load.Loading
+
             is Load.Error -> load
+
             is Load.Loaded -> load.value.first?.let { data -> Load.Loaded(ReviewModel.of(data, load.value.second, chosen)) }
                 ?: Load.Error(LoadError(LoadError.NOT_FOUND))
         }

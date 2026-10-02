@@ -47,12 +47,15 @@ internal data class BuilderValidation(
     fun issuesFor(field: String): ImmutableList<FieldIssue> = byField[field] ?: persistentListOf()
 
     /** Issues of every part of one condition row (`cond.<key>.*`). */
-    fun rowIssues(tree: String, key: Int): List<FieldIssue> =
-        byField.filterKeys { it.startsWith("$tree.$key.") }.values.flatten()
+    fun rowIssues(tree: String, key: Int): List<FieldIssue> = byField.filterKeys { it.startsWith("$tree.$key.") }.values.flatten()
 }
 
 /** Validates [built] and maps every issue to its field. */
-internal fun validate(built: BuiltRule, context: ValidationContext, renderOptions: RenderOptions): Pair<ValidationReport, BuilderValidation> {
+internal fun validate(
+    built: BuiltRule,
+    context: ValidationContext,
+    renderOptions: RenderOptions,
+): Pair<ValidationReport, BuilderValidation> {
     val report = RuleValidator.validateDefinition(built.definition, context)
     val issues = buildList {
         built.localIssues.forEach { (field, issue) -> add(FieldIssue(field, IssueSeverity.ERROR, local = issue)) }
