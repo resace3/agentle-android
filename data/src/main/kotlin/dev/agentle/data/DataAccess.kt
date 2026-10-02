@@ -36,7 +36,7 @@ internal class DataAccess(private val provider: DatabaseProvider, val terms: Ter
     /** Statements SQLite refuses inside a transaction (`wal_checkpoint`), under the write mutex. */
     suspend fun <T> outsideTransaction(block: suspend SqlScope.() -> T): T = transactions().outsideTransaction(block)
 
-    private suspend fun transactions(): DatabaseTransactions {
+    suspend fun transactions(): DatabaseTransactions {
         val current = guarded { provider.transactions() }
         if (registered !== current) {
             synchronized(this) {
