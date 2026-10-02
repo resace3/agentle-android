@@ -132,7 +132,11 @@ internal class IngestSession(
             val previous = newest[key]
             if (previous != null) {
                 ignored++
-                if (isOlder(event.metadata.upstreamUpdatedAt?.toEpochMilliseconds(), previous.metadata.upstreamUpdatedAt?.toEpochMilliseconds())) {
+                if (isOlder(
+                        event.metadata.upstreamUpdatedAt?.toEpochMilliseconds(),
+                        previous.metadata.upstreamUpdatedAt?.toEpochMilliseconds(),
+                    )
+                ) {
                     return@forEach
                 }
             }
@@ -151,7 +155,9 @@ internal class IngestSession(
             var hash = hashes.getValue(key)
             var row = existing[hash]
             val takenInBatch = assigned[hash]
-            if ((row != null && (row.dedupKey != key || row.account != account)) || (row == null && takenInBatch != null && takenInBatch != key)) {
+            if ((row != null && (row.dedupKey != key || row.account != account)) ||
+                (row == null && takenInBatch != null && takenInBatch != key)
+            ) {
                 hash = allocateAlternate(account, key)
                 row = null
             }
@@ -162,7 +168,10 @@ internal class IngestSession(
 
     /** The hash of every key: a recorded alternative for keys that once collided, else the primary hash. */
     private suspend fun resolveHashes(account: Long, keys: Set<String>): Map<String, Long> {
-        val recorded = keys.chunked(MAX_IN_ARGS).flatMap { tx.db.stateDao().collisions(account, it) }.associate { it.dedupKey to it.dedupHash }
+        val recorded = keys.chunked(MAX_IN_ARGS).flatMap { tx.db.stateDao().collisions(account, it) }.associate {
+            it.dedupKey to
+                it.dedupHash
+        }
         return keys.associateWith { key -> recorded[key] ?: StorageHashes.dedupHash(account, key) }
     }
 
@@ -277,7 +286,13 @@ internal class IngestSession(
         if (removedAtMs < open.startMs) return
         val closedKey = "$key|${open.seq}"
         val primary = StorageHashes.dedupHash(account, closedKey)
-        val closedHash = if (assigned[primary] != null || tx.db.stateDao().hashTaken(primary) > 0L) allocateAlternate(account, closedKey) else primary
+        val closedHash = if (assigned[primary] != null ||
+            tx.db.stateDao().hashTaken(primary) > 0L
+        ) {
+            allocateAlternate(account, closedKey)
+        } else {
+            primary
+        }
         tx.db.eventDao().update(open.copy(dedupKey = closedKey, dedupHash = closedHash))
         assigned[closedHash] = closedKey
     }

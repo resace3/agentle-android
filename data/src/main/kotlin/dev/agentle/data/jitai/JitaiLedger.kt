@@ -321,7 +321,9 @@ internal class RoomJitaiLedger(private val access: DataAccess, private val clock
     override suspend fun decisionsInStates(states: Set<String>): List<DecisionRow> =
         access.read { db.jitaiDao().inStates(states.toList()).map(::rowOf) }
 
-    override suspend fun recent(fromMs: Long, limit: Int): List<DecisionRow> = access.read { db.jitaiDao().recent(fromMs, limit).map(::rowOf) }
+    override suspend fun recent(fromMs: Long, limit: Int): List<DecisionRow> = access.read {
+        db.jitaiDao().recent(fromMs, limit).map(::rowOf)
+    }
 
     override suspend fun latestDeliveries(jitaiId: String?, category: String?, limit: Int): List<DecisionRow> = access.read {
         val states = DecisionStates.DELIVERIES.toList()
@@ -389,7 +391,9 @@ internal class RoomJitaiLedger(private val access: DataAccess, private val clock
     }
 
     override suspend fun outcome(decisionKey: String): OutcomeRow? = access.read {
-        db.jitaiDao().outcome(decisionKey)?.let { OutcomeRow(it.decisionKey, it.outcomeState, it.outcomeValue, it.metricJson, it.computedMs) }
+        db.jitaiDao().outcome(decisionKey)?.let {
+            OutcomeRow(it.decisionKey, it.outcomeState, it.outcomeValue, it.metricJson, it.computedMs)
+        }
     }
 
     override suspend fun deleteInterventionHistory(): Int = access.write {
@@ -434,7 +438,9 @@ internal class RoomJitaiLedger(private val access: DataAccess, private val clock
         override suspend fun timers(): List<TimerRecord> = tx.db.jitaiDao().timers().map(::timerOf)
     }
 
-    private inner class Writer(tx: Tx) : Reader(tx), LedgerWriter {
+    private inner class Writer(tx: Tx) :
+        Reader(tx),
+        LedgerWriter {
         override suspend fun definitionState(jitaiId: String): DefinitionStateRow? =
             tx.db.jitaiDao().definition(jitaiId)?.let { DefinitionStateRow(it.currentVersion, it.enabled, it.state, it.expiresMs) }
 
@@ -487,7 +493,9 @@ internal class RoomJitaiLedger(private val access: DataAccess, private val clock
         val stored = tx.db.jitaiDao().decision(updated.decisionKey) ?: return CasResult.NOT_FOUND
         return when {
             stored.state != expectedState -> CasResult.STATE_MOVED
+
             !DecisionStates.isLegal(expectedState, updated.state) -> CasResult.ILLEGAL_TRANSITION
+
             else -> {
                 tx.db.jitaiDao().updateDecision(entityOf(updated).copy(seq = stored.seq))
                 CasResult.UPDATED
@@ -540,7 +548,13 @@ internal class RoomJitaiLedger(private val access: DataAccess, private val clock
             lastEvalSignature = state.lastEvalSignature,
             updatedMs = nowMs(),
         )
-        if (tx.db.jitaiDao().runtime(state.jitaiId) == null) tx.db.jitaiDao().insertRuntime(entity) else tx.db.jitaiDao().updateRuntime(entity)
+        if (tx.db.jitaiDao().runtime(state.jitaiId) ==
+            null
+        ) {
+            tx.db.jitaiDao().insertRuntime(entity)
+        } else {
+            tx.db.jitaiDao().updateRuntime(entity)
+        }
     }
 
     companion object {

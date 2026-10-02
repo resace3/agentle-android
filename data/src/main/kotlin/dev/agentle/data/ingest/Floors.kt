@@ -58,7 +58,8 @@ internal object FloorScopes {
  */
 internal class FloorSnapshot(private val stored: Map<String, Long>, private val retention: Map<RetentionFamily, Long>) {
     /** The floor of an event of [type] from [source], or null when nothing bounds it. */
-    fun floorFor(type: EventType, source: DataSourceId): Long? = maxOfNullable(sourceFloor(source), stored[FloorScopes.category(type.category)])
+    fun floorFor(type: EventType, source: DataSourceId): Long? =
+        maxOfNullable(sourceFloor(source), stored[FloorScopes.category(type.category)])
 
     /** The floor of [source] alone: every scope except the categories. */
     fun sourceFloor(source: DataSourceId): Long? {

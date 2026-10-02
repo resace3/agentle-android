@@ -143,7 +143,11 @@ internal class RoomJitaiDefinitionStore(private val access: DataAccess, private 
             modifiedMs = now,
             expiresMs = draft.expiresMs,
         )
-        if (stored == null) dao.insertDefinition(row) else if (row != stored.copy(modifiedMs = now)) dao.updateDefinition(row)
+        if (stored == null) {
+            dao.insertDefinition(row)
+        } else if (row != stored.copy(modifiedMs = now)) {
+            dao.updateDefinition(row)
+        }
         if (stored == null || row != stored.copy(modifiedMs = now)) dao.deleteTimersOf(draft.id)
         checkNotNull(current(this, draft.id))
     }
@@ -214,6 +218,9 @@ internal class RoomJitaiDefinitionStore(private val access: DataAccess, private 
         )
 
         fun summaryOf(row: JitaiDefinitionEntity): DefinitionSummary =
-            DefinitionSummary(row.id, row.currentVersion, row.enabled, row.state, row.kind, row.category, row.origin, row.modifiedMs, row.expiresMs)
+            DefinitionSummary(
+                row.id, row.currentVersion, row.enabled, row.state, row.kind, row.category, row.origin,
+                row.modifiedMs, row.expiresMs,
+            )
     }
 }

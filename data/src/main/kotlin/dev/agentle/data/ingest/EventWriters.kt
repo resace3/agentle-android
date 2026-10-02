@@ -86,7 +86,8 @@ internal class RoomEventWriter(
     private val clock: AgentleClock,
     private val floorReader: ImportFloorReader,
     private val cursors: CursorWriter,
-) : EventSink, EventBatchWriter {
+) : EventSink,
+    EventBatchWriter {
     override suspend fun commit(events: List<PersonalEvent>, cursor: SyncCursor?, coverage: StreamCoverage?): CommitResult {
         val accountId = cursor?.accountId ?: coverage?.accountId
         val retention = floorReader.retentionCutoffs()
@@ -177,7 +178,13 @@ internal class RoomEventWriter(
         val window = batch.window
         var deleted = 0
         if (window != null) {
-            session.replaceWindow(window.source, account, window.start.toEpochMilliseconds(), window.end.toEpochMilliseconds(), batch.events)
+            session.replaceWindow(
+                window.source,
+                account,
+                window.start.toEpochMilliseconds(),
+                window.end.toEpochMilliseconds(),
+                batch.events,
+            )
         } else {
             deleted = session.deleteKeys(batch.deleteDedupKeys, account)
             session.upsert(batch.events, account)
@@ -188,7 +195,13 @@ internal class RoomEventWriter(
         return EventWriteResult.Committed(counts.toCommitResult(), deleted = if (window != null) counts.deleted else deleted)
     }
 
-    private suspend fun storeSyncState(tx: Tx, cursor: SyncCursor?, coverage: StreamCoverage?, events: List<PersonalEvent>, windowStartMs: Long? = null) {
+    private suspend fun storeSyncState(
+        tx: Tx,
+        cursor: SyncCursor?,
+        coverage: StreamCoverage?,
+        events: List<PersonalEvent>,
+        windowStartMs: Long? = null,
+    ) {
         val now = nowMs()
         if (cursor != null) {
             val earliest = minOfNullable(events.minOfOrNull { it.startTime.toEpochMilliseconds() }, windowStartMs)

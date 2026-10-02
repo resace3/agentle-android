@@ -132,7 +132,13 @@ internal class RoomSyncStateRepository(
 ) : SyncStateRepository {
     override suspend fun cursors(): List<StreamCursorState> = access.read { db.syncDao().cursors().map(::cursorState) }
 
-    override suspend fun recordFailure(connectorId: String, accountId: String?, stream: String, errorCode: String, nextAllowedAt: Instant?) {
+    override suspend fun recordFailure(
+        connectorId: String,
+        accountId: String?,
+        stream: String,
+        errorCode: String,
+        nextAllowedAt: Instant?,
+    ) {
         val now = nowMs()
         access.write {
             val dao = db.syncDao()
@@ -219,7 +225,9 @@ internal class RoomSyncStateRepository(
     override suspend fun connectorState(connectorId: String): ConnectorStateRecord? =
         access.read { db.syncDao().connectorState(connectorId)?.let(::connectorRecord) }
 
-    override suspend fun connectorStates(): List<ConnectorStateRecord> = access.read { db.syncDao().connectorStates().map(::connectorRecord) }
+    override suspend fun connectorStates(): List<ConnectorStateRecord> = access.read {
+        db.syncDao().connectorStates().map(::connectorRecord)
+    }
 
     override fun observeConnectorStates(): Flow<List<ConnectorStateRecord>> = flow {
         emitAll(access.database().syncDao().observeConnectorStates().map { rows -> rows.map(::connectorRecord) })
@@ -240,7 +248,9 @@ internal class RoomSyncStateRepository(
         }
     }
 
-    override suspend fun googleHealth(): GoogleHealthConnection? = access.read { db.syncDao().googleHealthState()?.let(::googleHealthRecord) }
+    override suspend fun googleHealth(): GoogleHealthConnection? = access.read {
+        db.syncDao().googleHealthState()?.let(::googleHealthRecord)
+    }
 
     override fun observeGoogleHealth(): Flow<GoogleHealthConnection?> = flow {
         emitAll(access.database().syncDao().observeGoogleHealthState().map { row -> row?.let(::googleHealthRecord) })

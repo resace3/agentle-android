@@ -172,13 +172,17 @@ internal class RoomDiagnosticsRepository(private val access: DataAccess, private
  * it from their own threads, so the write is launched in [scope]; it carries the store name, the operation and the error
  * class only.
  */
-internal class DiagnosticStoreReporter(
-    private val diagnostics: DiagnosticsRepository,
-    private val scope: CoroutineScope,
-) : StoreDiagnostics {
+internal class DiagnosticStoreReporter(private val diagnostics: DiagnosticsRepository, private val scope: CoroutineScope) :
+    StoreDiagnostics {
     override fun onReset(store: String, errorClass: String) {
         scope.launch {
-            diagnostics.record(DiagnosticCode.STORE_RESET, mapOf(DiagnosticField.STORE.key to store, DiagnosticField.ERROR_CLASS.key to errorClass))
+            diagnostics.record(
+                DiagnosticCode.STORE_RESET,
+                mapOf(
+                    DiagnosticField.STORE.key to store,
+                    DiagnosticField.ERROR_CLASS.key to errorClass,
+                ),
+            )
         }
     }
 

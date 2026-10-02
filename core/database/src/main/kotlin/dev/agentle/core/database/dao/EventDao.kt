@@ -162,7 +162,13 @@ interface EventDao {
             "(end_ms IS NOT NULL AND end_ms > :fromMs AND start_ms < :toMs) OR " +
             "(end_ms IS NULL AND start_ms >= :fromMs AND start_ms < :toMs)) ORDER BY start_ms, seq",
     )
-    suspend fun overlappingOfTypesWithSubject(types: List<Long>, subject: String, accounts: List<Long>, fromMs: Long, toMs: Long): List<EventEntity>
+    suspend fun overlappingOfTypesWithSubject(
+        types: List<Long>,
+        subject: String,
+        accounts: List<Long>,
+        fromMs: Long,
+        toMs: Long,
+    ): List<EventEntity>
 
     /** Interval events of [type] whose end lies in `[fromMs, toMs)` (sleep is attributed by its end; index on (type, end_ms)). */
     @Query(

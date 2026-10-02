@@ -29,7 +29,14 @@ internal class CursorWriter(private val clock: AgentleClock, private val boots: 
      * Stores [cursor] with `generation + 1`. [coverage] of the same stream advances `synced_through`; [categories] are
      * added to the cursor's lineage (so category deletions find the stream); [earliestMs] lowers `backfilled_from`.
      */
-    suspend fun store(tx: Tx, cursor: SyncCursor, coverage: StreamCoverage?, categories: Set<DataCategory>, earliestMs: Long?, nowMs: Long) {
+    suspend fun store(
+        tx: Tx,
+        cursor: SyncCursor,
+        coverage: StreamCoverage?,
+        categories: Set<DataCategory>,
+        earliestMs: Long?,
+        nowMs: Long,
+    ) {
         val dao = tx.db.syncDao()
         val account = accountKey(cursor.accountId)
         val stored = dao.cursor(cursor.connectorId, account, cursor.stream)

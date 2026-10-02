@@ -252,11 +252,8 @@ interface AiTextPoolStore {
     }
 }
 
-internal class RoomAiTextPoolStore(
-    private val access: DataAccess,
-    private val consent: AiConsentStore,
-    private val clock: AgentleClock,
-) : AiTextPoolStore {
+internal class RoomAiTextPoolStore(private val access: DataAccess, private val consent: AiConsentStore, private val clock: AgentleClock) :
+    AiTextPoolStore {
     override suspend fun add(item: PooledTextRecord) {
         val cap = item.createdMs + AiTextPoolStore.MAX_AGE_HOURS.hours.inWholeMilliseconds
         access.write { db.aiDao().insertPooled(entityOf(item.copy(expiresMs = minOf(item.expiresMs, cap)))) }
@@ -282,10 +279,13 @@ internal class RoomAiTextPoolStore(
     override suspend fun markUsed(id: String, decisionKey: String): Boolean =
         access.write { db.aiDao().markUsed(id, decisionKey, clock.now().toEpochMilliseconds()) > 0 }
 
-    override suspend fun purge(jitaiId: String, keepContentHash: String?): Int = access.write { db.aiDao().purgePool(jitaiId, keepContentHash) }
+    override suspend fun purge(jitaiId: String, keepContentHash: String?): Int = access.write {
+        db.aiDao().purgePool(jitaiId, keepContentHash)
+    }
 
     override suspend fun purgeExpired(createdBeforeMs: Long): Int = access.write {
-        db.aiDao().purgePoolCreatedBefore(createdBeforeMs) + db.aiDao().deleteExpiredPooled(clock.now().toEpochMilliseconds(), createdBeforeMs)
+        db.aiDao().purgePoolCreatedBefore(createdBeforeMs) +
+            db.aiDao().deleteExpiredPooled(clock.now().toEpochMilliseconds(), createdBeforeMs)
     }
 
     override suspend fun clear(): Int = access.write { db.aiDao().clearPool() }

@@ -95,7 +95,13 @@ internal class RoomEventRepository(private val access: DataAccess) : EventReposi
         access.read {
             val dao = db.eventDao()
             val rows = if (types == null) {
-                if (after == null) dao.firstPage(upperBound.toEpochMilliseconds(), limit) else dao.pageAfter(after.startMs, after.seq, limit)
+                if (after ==
+                    null
+                ) {
+                    dao.firstPage(upperBound.toEpochMilliseconds(), limit)
+                } else {
+                    dao.pageAfter(after.startMs, after.seq, limit)
+                }
             } else {
                 val ids = types.mapNotNull { access.terms.idOf(db.termDao(), TermKind.TYPE, it.name) }
                 when {
@@ -116,7 +122,12 @@ internal class RoomEventRepository(private val access: DataAccess) : EventReposi
     override suspend fun overlapping(type: EventType, from: Instant, to: Instant): List<StoredEvent> = access.read {
         val typeId = typeId(type) ?: return@read emptyList()
         val accounts = activeAccounts().toSet()
-        decodeAll(db.eventDao().byTypeOverlapping(typeId, from.toEpochMilliseconds(), to.toEpochMilliseconds()).filter { it.account in accounts })
+        decodeAll(
+            db.eventDao().byTypeOverlapping(typeId, from.toEpochMilliseconds(), to.toEpochMilliseconds()).filter {
+                it.account in
+                    accounts
+            },
+        )
     }
 
     override suspend fun latest(type: EventType): StoredEvent? = access.read {
@@ -128,13 +139,17 @@ internal class RoomEventRepository(private val access: DataAccess) : EventReposi
 
     override suspend fun countsPerSource(): List<StreamCount> = access.read {
         db.eventDao().countsPerSource().mapNotNull { row ->
-            access.terms.term(db.termDao(), row.term)?.let { term -> StreamCount(term.value, row.rowCount, row.firstMs?.let { instant(it) }, row.lastMs?.let { instant(it) }) }
+            access.terms.term(db.termDao(), row.term)?.let { term ->
+                StreamCount(term.value, row.rowCount, row.firstMs?.let { instant(it) }, row.lastMs?.let { instant(it) })
+            }
         }.sortedBy { it.name }
     }
 
     override suspend fun countsPerType(): List<StreamCount> = access.read {
         db.eventDao().countsPerType().mapNotNull { row ->
-            access.terms.term(db.termDao(), row.term)?.let { term -> StreamCount(term.value, row.rowCount, row.firstMs?.let { instant(it) }, row.lastMs?.let { instant(it) }) }
+            access.terms.term(db.termDao(), row.term)?.let { term ->
+                StreamCount(term.value, row.rowCount, row.firstMs?.let { instant(it) }, row.lastMs?.let { instant(it) })
+            }
         }.sortedBy { it.name }
     }
 
@@ -244,12 +259,18 @@ internal class MinuteFusion(private val policies: List<MetricSourcePolicyEntity>
 
     fun fuse(samples: List<SampleRow>, sourceNames: Map<Long, String>, fromMs: Long, toMs: Long): List<MinuteValue> {
         val cells = HashMap<Long, HashMap<Long, Cell>>()
-        samples.forEach { sample -> accumulate(sample, fromMs, toMs) { minute, value, weight -> add(cells, sample.source, minute, value, weight) } }
+        samples.forEach { sample ->
+            accumulate(sample, fromMs, toMs) { minute, value, weight -> add(cells, sample.source, minute, value, weight) }
+        }
         val minutes = cells.values.flatMapTo(sortedSetOf<Long>()) { it.keys }
         return minutes.mapNotNull { minute ->
             val best = cells.entries
                 .filter { (_, byMinute) -> byMinute.containsKey(minute) }
-                .minWithOrNull(compareBy<Map.Entry<Long, HashMap<Long, Cell>>> { priority(sourceNames[it.key].orEmpty(), minute) }.thenBy { sourceNames[it.key].orEmpty() })
+                .minWithOrNull(
+                    compareBy<Map.Entry<Long, HashMap<Long, Cell>>> {
+                        priority(sourceNames[it.key].orEmpty(), minute)
+                    }.thenBy { sourceNames[it.key].orEmpty() },
+                )
                 ?: return@mapNotNull null
             val cell = best.value.getValue(minute)
             val value = if (aggregation == MinuteAggregation.SUM) cell.sum else cell.sum / cell.weight
@@ -270,7 +291,13 @@ internal class MinuteFusion(private val policies: List<MetricSourcePolicyEntity>
         while (minute < minOf(end, toMs)) {
             val overlap = (minOf(end, minute + MINUTE_MS) - maxOf(start, minute)).coerceAtLeast(0L).toDouble()
             if (overlap > 0.0) {
-                if (aggregation == MinuteAggregation.SUM) sink(minute, value * overlap / duration, overlap) else sink(minute, value * overlap, overlap)
+                if (aggregation ==
+                    MinuteAggregation.SUM
+                ) {
+                    sink(minute, value * overlap / duration, overlap)
+                } else {
+                    sink(minute, value * overlap, overlap)
+                }
             }
             minute += MINUTE_MS
         }
