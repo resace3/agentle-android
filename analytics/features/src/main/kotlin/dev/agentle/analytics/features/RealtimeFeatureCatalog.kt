@@ -201,7 +201,9 @@ public object RealtimeFeatureCatalog {
         ),
         FeatureDefinition(
             "steps_today", FeatureGroup.ACTIVITY, FeatureType.INT, "Steps since midnight", Freshness.SourceLag(30.minutes),
-            unit = "steps", literalRange = 0L..150_000L, monotoneNonDecreasing = true,
+            // Valid values reject only the impossible: 300 steps/min for a 25-hour day. The 60/30-minute literal ranges
+            // (333 steps/min) already exceed any sustainable cadence, so their default validRange stays.
+            unit = "steps", literalRange = 0L..150_000L, validRange = 0L..450_000L, monotoneNonDecreasing = true,
             sources = setOf(STEPS_GH, ON_DEVICE_STEPS, RECORDING_API_STEPS, HEALTH_CONNECT), category = DataCategory.ACTIVITY,
         ),
         FeatureDefinition(
@@ -246,7 +248,9 @@ public object RealtimeFeatureCatalog {
         FeatureDefinition(
             "resting_hr_delta_vs_28d", FeatureGroup.HEART, FeatureType.INT,
             "Resting heart rate today minus the median of the previous 28 days", Freshness.DailyValue, unit = "bpm",
-            literalRange = -50L..50L, sources = setOf(STEPS_GH, HEALTH_CONNECT), category = DataCategory.HEART,
+            // R10 gives no valid-value limit; two valid resting rates (20..220) differ by at most 200 bpm.
+            literalRange = -50L..50L, validRange = -200L..200L, sources = setOf(STEPS_GH, HEALTH_CONNECT),
+            category = DataCategory.HEART,
         ),
         // I. Intervention history (always known)
         FeatureDefinition(

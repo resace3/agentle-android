@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "status": "OK",
+  "unsupported": null,
+  "questions": [],
+  "assumptions": [
+    { "path": "/jitai/trigger/times/0", "text": "\"By 5 PM\" means one check at 5:00 PM each day." }
+  ],
+  "jitai": {
+    "name": "Afternoon walk nudge",
+    "description": "At 5 PM, if I have fewer than 3,000 steps today, encourage me to go for a walk.",
+    "kind": "INTERVENTION",
+    "category": "PHYSICAL_ACTIVITY",
+    "trigger": { "type": "daily_at", "times": ["17:00"], "maxLatenessMinutes": 30 },
+    "activeWindow": null,
+    "conditions": {
+      "type": "lt", "feature": "steps_today",
+      "args": { "package": null, "appLabel": null, "category": null, "since": null, "jitai": null },
+      "value": 3000, "onUnknown": null
+    },
+    "contextRequirements": null,
+    "delivery": { "channel": "NOTIFICATION", "quietHoursPolicy": "RESPECT", "notificationTimeoutMinutes": 120 },
+    "content": {
+      "type": "template",
+      "title": "Time for a short walk?",
+      "body": "You are at {{steps_today}} steps today. A 10-minute walk now would get you moving."
+    },
+    "cooldownMinutes": 60,
+    "maxPerDay": 1,
+    "maxPerWeek": 7,
+    "priority": 50,
+    "snooze": { "mode": "RE_EVALUATE_AFTER", "options": ["MINUTES_30", "MINUTES_60"] },
+    "expiresInDays": null,
+    "outcome": {
+      "proximal": {
+        "metric": "STEPS_AFTER",
+        "args": { "package": null, "appLabel": null, "category": null, "since": null, "jitai": null },
+        "windowMinutes": 30
+      },
+      "distal": {
+        "metric": "STEPS_DAY_TOTAL",
+        "args": { "package": null, "appLabel": null, "category": null, "since": null, "jitai": null },
+        "windowMinutes": null
+      }
+    },
+    "suppression": null
+  }
+}
