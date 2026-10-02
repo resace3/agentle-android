@@ -11,19 +11,26 @@ import dev.agentle.interventions.ports.JitaiStopper
 import dev.agentle.interventions.ports.ResponseKind
 import dev.agentle.interventions.ports.ResponseVerdict
 import dev.agentle.jitai.engine.JitaiEngine
-import dev.agentle.jitai.engine.decision.DecisionKeys
+import dev.agentle.jitai.engine.decision.DecisionRecord
 import dev.agentle.jitai.engine.decision.DecisionState
 import dev.agentle.jitai.engine.decision.JitaiResponse
 import dev.agentle.jitai.engine.delivery.PendingCard
 import dev.agentle.jitai.engine.pipeline.DeliveryResult
+import dev.agentle.jitai.engine.ports.DecisionStore
+import dev.agentle.jitai.engine.response.Nonces
 import dev.agentle.jitai.engine.response.ResponseStatus
 
 /**
  * [InterventionResponseRecorder] over `JitaiEngine.recordResponse` (nonce checked by the engine). "Stop this JITAI"
- * disables the JITAI through [stopper] (the list's Disable path), then calls `onDefinitionChanged`, then records
- * NOT_HELPFUL, in that order (the order the engine owner set).
+ * first checks the presented nonce against the stored decision ([StopGate]); only a matching nonce on a decision that
+ * still takes responses disables the JITAI through [stopper] (the list's Disable path), then calls `onDefinitionChanged`,
+ * then records NOT_HELPFUL. A wrong or stale nonce changes nothing: the engine rejects the response.
  */
-class EngineResponseRecorder(private val engine: JitaiEngine, private val stopper: JitaiStopper) : InterventionResponseRecorder {
+class EngineResponseRecorder(
+    private val engine: JitaiEngine,
+    private val store: DecisionStore,
+    private val stopper: JitaiStopper,
+) : InterventionResponseRecorder {
     override suspend fun record(response: InterventionResponse): Outcome<ResponseVerdict> {
         val kind = when (response.kind) {
             ResponseKind.OPENED -> JitaiResponse.OPENED
@@ -32,8 +39,12 @@ class EngineResponseRecorder(private val engine: JitaiEngine, private val stoppe
             ResponseKind.DISMISSED -> JitaiResponse.DISMISSED
         }
         if (response.kind == ResponseKind.STOP_JITAI) {
-            val jitaiId = DecisionKeys.jitaiIdOf(response.decisionKey)
-            if (jitaiId != null) {
+            val record = when (val read = store.decision(response.decisionKey)) {
+                is Outcome.Failure -> return read
+                is Outcome.Success -> read.value
+            }
+            if (StopGate.accepts(record, response.nonce)) {
+                val jitaiId = checkNotNull(record).jitaiId
                 stopper.stop(jitaiId).onFailure { return Outcome.Failure(it) }
                 engine.onDefinitionChanged(jitaiId).onFailure { return Outcome.Failure(it) }
             }
@@ -48,6 +59,15 @@ class EngineResponseRecorder(private val engine: JitaiEngine, private val stoppe
         ResponseStatus.REJECTED -> ResponseVerdict.REJECTED
         ResponseStatus.INVALID_OPTION -> ResponseVerdict.INVALID_OPTION
     }
+}
+
+/** Whether a "Stop this JITAI" may disable: the decision exists, the nonce matches and it still takes responses. */
+object StopGate {
+    val RESPONDABLE: Set<DecisionState> =
+        setOf(DecisionState.DELIVERING, DecisionState.DELIVERED, DecisionState.DELIVERY_UNCERTAIN, DecisionState.CARD_PENDING)
+
+    fun accepts(record: DecisionRecord?, nonce: String?): Boolean =
+        record != null && record.state in RESPONDABLE && record.content.response == null && Nonces.matches(record.nonce, nonce)
 }
 
 /** [CardDecisions] over `JitaiEngine.pendingCards` and `JitaiEngine.markCardDisplayed`. */
