@@ -15,6 +15,12 @@ import kotlin.time.toJavaDuration
 /**
  * @property allowCleartextLoopback only the `fake` flavor sets this, so its in-process fake servers on 127.0.0.1
  *   can be reached over http. Every other cleartext request fails before it leaves the device.
+ * @property allowedHosts the egress allow-list: exact host names this client may reach, checked for every request
+ *   and every redirect hop. The app always sets it (prod: the Google Health and OpenAI hosts of
+ *   docs/ARCHITECTURE.md §1 rule 2; fake: loopback only). `null` means unrestricted and is for JVM tests only.
+ *   A client with an allow-list does not follow redirects: a 3xx comes back to the caller, so no connection is ever
+ *   opened to a host the server names. The network-layer check still blocks a redirect hop if a derived client turns
+ *   redirects back on, but by then the connection to that host exists, so keep redirects off.
  */
 public data class HttpClientConfig(
     val userAgent: String,
@@ -23,10 +29,14 @@ public data class HttpClientConfig(
     val writeTimeout: Duration = 30.seconds,
     val callTimeout: Duration = 90.seconds,
     val allowCleartextLoopback: Boolean = false,
+    val allowedHosts: Set<String>? = null,
 )
 
 /** Thrown (as an [IOException], so OkHttp reports it as a call failure) when a request would go out in cleartext. */
 public class CleartextNotPermittedException(url: HttpUrl) : IOException("Cleartext request blocked: ${url.scheme}://${url.host}")
+
+/** Thrown (as an [IOException]) when a request or redirect targets a host outside the egress allow-list. */
+public class EgressNotAllowedException(public val host: String) : IOException("Request to a host outside the egress allow-list blocked")
 
 /** Builds the app's OkHttp clients: timeouts, TLS-only connection specs, user agent, metadata-only logging. */
 public object HttpClientFactory {
@@ -36,19 +46,25 @@ public object HttpClientFactory {
         } else {
             listOf(ConnectionSpec.MODERN_TLS)
         }
-        return OkHttpClient.Builder()
+        val builder = OkHttpClient.Builder()
             .connectTimeout(config.connectTimeout.toJavaDuration())
             .readTimeout(config.readTimeout.toJavaDuration())
             .writeTimeout(config.writeTimeout.toJavaDuration())
             .callTimeout(config.callTimeout.toJavaDuration())
             .connectionSpecs(specs)
             .followSslRedirects(false)
+        config.allowedHosts?.let {
+            builder.followRedirects(false)
+            builder.addInterceptor(EgressAllowListInterceptor(it))
+        }
+        builder
             .addInterceptor(TransportSecurityInterceptor(config.allowCleartextLoopback))
             .addInterceptor(UserAgentInterceptor(config.userAgent))
             .addInterceptor(MetadataLoggingInterceptor(logger, nowMs))
-            // Again at the network layer: redirects never pass through application interceptors.
-            .addNetworkInterceptor(TransportSecurityInterceptor(config.allowCleartextLoopback))
-            .build()
+        // Again at the network layer: redirects never pass through application interceptors.
+        config.allowedHosts?.let { builder.addNetworkInterceptor(EgressAllowListInterceptor(it)) }
+        builder.addNetworkInterceptor(TransportSecurityInterceptor(config.allowCleartextLoopback))
+        return builder.build()
     }
 }
 
@@ -70,6 +86,17 @@ public class TransportSecurityInterceptor(private val allowCleartextLoopback: Bo
 
             else -> false
         }
+    }
+}
+
+/** Rejects requests whose host is not exactly one of [allowedHosts] (case-insensitive); never resolves DNS. */
+public class EgressAllowListInterceptor(allowedHosts: Set<String>) : Interceptor {
+    private val allowed = allowedHosts.map { it.lowercase() }.toSet()
+
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val host = chain.request().url.host.lowercase()
+        if (host !in allowed) throw EgressNotAllowedException(host)
+        return chain.proceed(chain.request())
     }
 }
 
