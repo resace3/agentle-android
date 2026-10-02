@@ -8,13 +8,17 @@ import dev.agentle.core.ui.permission.PermissionDialogResult
 import dev.agentle.feature.onboarding.port.OnboardingProgress
 import dev.agentle.feature.onboarding.port.OnboardingSource
 import dev.agentle.feature.onboarding.port.OnboardingStep
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -34,17 +38,16 @@ class OnboardingViewModelTest {
     private fun TestScope.viewModel(port: FakeOnboardingPort, sdk: Int = 37): OnboardingViewModel {
         val vm = OnboardingViewModel(port, sdk)
         backgroundScope.launch(dispatcher) { vm.state.collect {} }
-        backgroundScope.launch(dispatcher) { vm.effect.collect { collected += it } }
         advanceUntilIdle()
         return vm
     }
 
-    /** Effects of the most recently created view model. */
-    private val collected = mutableListOf<OnboardingEffect>()
-
-    @Suppress("UnusedReceiverParameter")
-    private fun TestScope.effectsOf(vm: OnboardingViewModel): List<OnboardingEffect> =
-        collected.also { check(vm.state.value.loading.not()) }
+    /** The next effect [vm] emits, awaited from before the action. */
+    private fun TestScope.nextEffect(vm: OnboardingViewModel): Deferred<OnboardingEffect> {
+        val next = async(dispatcher) { vm.effect.first() }
+        runCurrent()
+        return next
+    }
 
     private fun denied(permission: String, rationale: Boolean) =
         PermissionDialogResult(granted = mapOf(permission to false), showRationale = mapOf(permission to rationale))
@@ -88,10 +91,10 @@ class OnboardingViewModelTest {
     @Test
     fun `continue on a primer requests its permission`() = runTest(dispatcher) {
         val vm = viewModel(FakeOnboardingPort(OnboardingProgress(step = OnboardingStep.PERMISSIONS)))
-        val effects = effectsOf(vm)
+        val effect = nextEffect(vm)
         vm.requestCurrent()
         advanceUntilIdle()
-        assertThat(effects).containsExactly(OnboardingEffect.RequestPermission(Manifest.permission.POST_NOTIFICATIONS))
+        assertThat(effect.await()).isEqualTo(OnboardingEffect.RequestPermission(Manifest.permission.POST_NOTIFICATIONS))
     }
 
     @Test
@@ -117,10 +120,10 @@ class OnboardingViewModelTest {
         vm.onPermissionResult(denied(Manifest.permission.POST_NOTIFICATIONS, rationale = false))
         advanceUntilIdle()
         assertThat(vm.state.value.currentPrimer?.state).isEqualTo(PermissionState.DENIED_PERMANENTLY)
-        val effects = effectsOf(vm)
+        val effect = nextEffect(vm)
         vm.openSettings()
         advanceUntilIdle()
-        assertThat(effects).containsExactly(OnboardingEffect.OpenAppSettings)
+        assertThat(effect.await()).isEqualTo(OnboardingEffect.OpenAppSettings)
     }
 
     @Test
@@ -161,11 +164,11 @@ class OnboardingViewModelTest {
     fun `finish completes onboarding and emits Finished`() = runTest(dispatcher) {
         val port = FakeOnboardingPort(OnboardingProgress(step = OnboardingStep.SUMMARY))
         val vm = viewModel(port)
-        val effects = effectsOf(vm)
+        val effect = nextEffect(vm)
         vm.finish()
         advanceUntilIdle()
         assertThat(port.completed).isTrue()
-        assertThat(effects).containsExactly(OnboardingEffect.Finished)
+        assertThat(effect.await()).isEqualTo(OnboardingEffect.Finished)
     }
 
     @Test
