@@ -74,7 +74,7 @@ retrofit = "3.0.0"                   # [MC] 2025-05-15; its POM asks for OkHttp 
 # ---------------------------------------------------------------- Security, images, leak detection
 tink = "1.23.0"                      # [MC] 2026-07-09 tink-android (Keystore-wrapped AEAD). security-crypto is
                                      # deprecated [AX:security]: do not add it.
-sqlcipher = "4.19.1"                 # [MC][SQLCIPHER] OPTIONAL: only if DB encryption is required; SQLCipherDriver
+sqlcipher = "4.19.1"                 # [MC][SQLCIPHER] Adopted (R04 §3.2): DB encrypted in every app variant; SQLCipherDriver
                                      # for Room 3
 coil = "3.6.3"                       # [MC][COIL-CL] 3.6.3 fixes R8 with AGP 9.4.0. coil-network-okhttp's POM asks for
                                      # OkHttp 4.12.0; with 5.5.0 at runtime: UNVERIFIED here.

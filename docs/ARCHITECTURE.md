@@ -179,10 +179,19 @@ records therefore converge to the same rows.
 
 ### 5.4 Encryption at rest
 
-Decision for v1: no SQLCipher. The DB lives in credential-encrypted app storage (file-based encryption), is
-excluded from cloud backup and device transfer, and holds no tokens. Tokens and the SIWC client registration are
-encrypted separately with Tink AEAD under a non-exportable Keystore key. SQLCipher (`SQLCipherDriver` for Room 3)
-remains a drop-in option if the security review finds FBE insufficient (pending report 04).
+Decision [R04 §3.2]: the database is encrypted with SQLCipher for Android 4.19.1 through Room 3's `SQLCipherDriver`
+in every app variant (JVM and Robolectric tests use the unencrypted driver). Reason: credential-encrypted storage is
+readable from first unlock until reboot, so file-based encryption alone does not protect a copied lifelog database,
+and a wrapped key gives crypto-erasure on deletion.
+- Key: a random 32-byte data key, sealed by a Tink `AndroidKeystore` AEAD under alias `agentle.kek.db.v1` with AAD
+  `agentle/db-dek/v1|agentle.db`, written atomically (tmp, fsync, rename) to `noBackupFilesDir/keys/db-dek.v1.bin`,
+  passed to SQLCipher as a raw `x'<64 hex>'` key (no PBKDF2).
+- Keystore keys never require user authentication or an unlocked device: workers run while the phone is locked.
+  One retry on a Keystore failure, then the "local data unreadable" reset flow; never a plaintext fallback.
+- SQLCipher's SQL statement logging is disabled before its first class loads; `PRAGMA secure_delete=ON` and
+  `cipher_log_level=NONE` on every open.
+- Tokens and the SIWC client registration live in a separate Tink-sealed vault (`agentle.kek.vault.v1`), never in
+  the database (§14).
 
 ### 5.5 Retention and deletion
 
@@ -247,6 +256,14 @@ yields a state, never an exception: every collector catches `SecurityException` 
 | DND state, next alarm, standby bucket, storage | System service snapshots | Periodic |
 | Call state | `TelephonyCallback` (READ_PHONE_STATE) while alive | Real time while alive |
 | Motion / ambient sensors | Debug-only sampling sessions started by the user | Explicit sessions |
+
+Sensing tiers [R03 §11]: Tier 0 is the default and needs no foreground service (activity transitions, canonical
+steps from Health Connect on-device steps on API 34 with extension 20+ or the Recording API, a sensor inventory).
+Tier 1 (debug flag in v1) samples sensors only while an Agentle screen is visible. Tier 2 is an opt-in
+"High-detail sensing" `health` foreground service with duty-cycled 10 s windows, user-started, at most 24 h per
+session, capped at 288 windows and 45 min of wake lock per day, internal/debug builds only until the Play
+foreground-service declaration is accepted. Sensing stores summaries, never raw streams; `TYPE_STEP_COUNTER` is
+never summed into step totals.
 
 Not available (documented with the reason): accessibility event stream, call log and SMS metadata (hard-restricted,
 Play-forbidden, default-handler only), background location (DEFER until a place-based feature needs it), nearby BT
@@ -313,9 +330,13 @@ Implements [R06 §2, §8] exactly:
 - `ContextSelectionEngine.build(purpose, userQuestion)`: purpose maps to a fixed allow-list of categories and a time
   range; the user's AI category toggles intersect it; disabled categories are removed **and** a final gate re-checks
   the envelope and throws `ConsentViolation` if any disabled category is present (fail closed). Aggregates by
-  default; raw events only for purposes that need them and only with per-request user confirmation. Personal text
-  (notification text, calendar titles, notes) is wrapped as quoted data with an explicit "untrusted data" marker and
-  never placed in `instructions`.
+  default; raw events only for purposes that need them and only with per-request user confirmation. Third-party text
+  (notification text, calendar titles, contact, Wi-Fi and Bluetooth names) is never sent in v1 [R04 §3.8]; the
+  only free text is the user's own (questions, goals, logs) and app labels reduced to a safe character set
+  (letters, digits, spaces, `.-&'`, at most 40 characters). All of it is wrapped as quoted data with an explicit
+  "untrusted data" marker and never placed in `instructions`. `EgressGuard` is the only path to the OpenAI client:
+  it re-checks every block against `AiSharingPolicy` (deny by default per category), truncates items to 200
+  characters and 20 items, and fails closed.
 - `AiRequestPreview` (purpose, categories, time range, raw events yes/no, aggregates yes/no, byte estimate) is shown
   before user-initiated requests and stored as `ai_request` metadata; payloads are not stored or logged.
 - Output validation: parse as `JsonElement`, walk the schema, decode, then semantic checks (enums, max lengths,
@@ -404,8 +425,18 @@ periodic work. `ScheduleReconciler` runs on process start, `BOOT_COMPLETED`, `MY
   `BIND_NOTIFICATION_LISTENER_SERVICE`), the boot/time/package receivers (system broadcasts), the Bluetooth ACL
   receiver. Deep links are internal (`PendingIntent` with explicit component) — no browsable deep link except the
   intent:// return page target which carries no secrets and is ignored unless a sign-in is pending.
-- Prompt injection: personal text is data inside a delimited, escaped block; instructions are app-constant;
-  outputs are validated against closed schemas; no tool/function execution in v1.
+- Prompt injection [R04 §3.8]: no third-party text reaches the model in v1; the user's own text is data inside a
+  delimited, escaped block; instructions are app-constant; outputs are validated against closed schemas and the
+  JITAI lint L1-L8 and rendered as plain text; no tools and no code path from model output to export, deletion,
+  intents, network calls or settings (`:ai:*` may not depend on those modules).
+- Platform hardening [R04 §3.4, §3.10]: `intentMatchingFlags="enforceIntentFilter"`; every `PendingIntent`
+  explicit and `FLAG_IMMUTABLE` except the Activity Recognition one, which Play services requires mutable (explicit
+  component, non-exported receiver); `HIDE_OVERLAY_WINDOWS`; `taskAffinity=""`; Handoff off; `FLAG_SECURE` and
+  `Modifier.sensitiveContent()` on raw-content screens; notifications `VISIBILITY_PRIVATE` with a generic public
+  version; copies to the clipboard flagged sensitive.
+- Deletion order [R04 §3.7]: block writers (epoch guard), cancel work by tag and alarms, revoke tokens remotely,
+  delete rows with `secure_delete`, checkpoint and `VACUUM`, delete media, DataStore, `-wal`/`-shm` files, then the
+  Keystore aliases (crypto-erasure); "delete everything" ends with `clearApplicationUserData()`.
 - Release manifest excludes READ_SMS, READ_CALL_LOG, QUERY_ALL_PACKAGES, accessibility services,
   ACCESS_BACKGROUND_LOCATION, READ_MEDIA_IMAGES/VIDEO, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, USE_EXACT_ALARM,
   BODY_SENSORS(_BACKGROUND); a CI check asserts it on the merged release manifest.
