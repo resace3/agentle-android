@@ -1,0 +1,24 @@
+{
+  "dataPoints": [
+    {
+      "name": "users/1234567890/dataTypes/body-fat/dataPoints/5551234567890123001",
+      "dataSource": {
+        "recordingMethod": "ACTIVELY_MEASURED",
+        "device": {"formFactor": "SCALE", "manufacturer": "Fitbit", "displayName": "Aria Air"},
+        "platform": "FITBIT"
+      },
+      "bodyFat": {
+        "sampleTime": {
+          "physicalTime": "2026-09-30T11:15:22.500000Z",
+          "utcOffset": "-14400s",
+          "civilTime": {
+            "date": {"year": 2026, "month": 9, "day": 30},
+            "time": {"hours": 7, "minutes": 15, "seconds": 22, "nanos": 500000000}
+          }
+        },
+        "percentage": 18.4
+      }
+    }
+  ],
+  "nextPageToken": ""
+}

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "status": "OK",
+  "unsupported": null,
+  "questions": [],
+  "assumptions": [
+    { "path": "/jitai/suppression/categories/0", "text": "\"Exercise reminders\" means all Physical activity reminders." },
+    { "path": "/jitai/conditions/value", "text": "\"Under six hours\" means less than 360 minutes asleep in last night's main sleep." },
+    { "path": "/jitai/activeWindow/start", "text": "\"Before 9 AM\" means from midnight until 9 AM." }
+  ],
+  "jitai": {
+    "name": "No exercise nudges after a short night",
+    "description": "If I slept less than 6 hours last night, block exercise reminders until 9 AM.",
+    "kind": "SUPPRESSION",
+    "category": "PHYSICAL_ACTIVITY",
+    "trigger": null,
+    "activeWindow": { "start": "00:00", "end": "09:00", "days": null },
+    "conditions": {
+      "type": "lt", "feature": "sleep_minutes_last_night",
+      "args": { "package": null, "appLabel": null, "category": null, "since": null, "jitai": null },
+      "value": 360, "onUnknown": null
+    },
+    "contextRequirements": null,
+    "delivery": { "channel": "NONE", "quietHoursPolicy": "RESPECT", "notificationTimeoutMinutes": null },
+    "content": null,
+    "cooldownMinutes": null,
+    "maxPerDay": null,
+    "maxPerWeek": null,
+    "priority": 50,
+    "snooze": null,
+    "expiresInDays": null,
+    "outcome": null,
+    "suppression": { "categories": ["PHYSICAL_ACTIVITY"] }
+  }
+}
