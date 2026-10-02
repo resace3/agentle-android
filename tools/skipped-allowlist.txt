@@ -1,0 +1,6 @@
+# Skipped tests that may stay skipped, checked by tools/junit_summary.py. Any other skipped (disabled, ignored or
+# assumption-aborted) test fails the evidence: a skipped test is a test that did not run.
+#
+# One test per line: `<fully.qualified.ClassName>#<test name> | <reason>`. The test name is the one in the JUnit XML,
+# without a Robolectric "[NN]" SDK suffix; `*` as the name allows every test of the class. The reason is required and
+# says why the test cannot run here and where it does run instead. Each line is reviewed like code.

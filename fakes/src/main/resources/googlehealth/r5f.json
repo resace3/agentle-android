@@ -1,0 +1,4 @@
+{
+  "dataSource": {"recordingMethod": "DERIVED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+  "dailyRestingHeartRate": {"date": {"year": 2026, "month": 9, "day": 28}, "beatsPerMinute": "56"}
+}

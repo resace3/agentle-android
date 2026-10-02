@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": 403,
+    "message": "The caller does not have permission. Could not mint UberMint from GaiaMint",
+    "status": "PERMISSION_DENIED"
+  }
+}

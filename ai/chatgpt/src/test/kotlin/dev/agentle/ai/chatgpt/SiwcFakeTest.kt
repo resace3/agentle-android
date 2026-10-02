@@ -1,15 +1,27 @@
+@file:OptIn(AiEnvelopeConstruction::class)
+
 package dev.agentle.ai.chatgpt
 
 import com.google.common.truth.Truth.assertThat
+import dev.agentle.ai.api.AiEnvelopeConstruction
 import dev.agentle.ai.api.AiPurpose
 import dev.agentle.ai.api.AiRequestEnvelope
+import dev.agentle.ai.api.AiRequestMode
+import dev.agentle.ai.api.AiSendVerifier
+import dev.agentle.ai.api.BlockKind
 import dev.agentle.ai.api.ContextBlock
+import dev.agentle.ai.api.ContextItem
+import dev.agentle.ai.api.DataItem
 import dev.agentle.core.common.LogRecord
 import dev.agentle.core.common.LogSink
 import dev.agentle.core.common.Logger
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.common.Severity
-import dev.agentle.core.model.DataCategory
+import dev.agentle.core.model.AiDataCategory
+import dev.agentle.core.model.DataLineage
+import dev.agentle.core.model.SourceFamily
+import dev.agentle.core.model.TextOrigin
+import dev.agentle.core.model.UntrustedText
 import dev.agentle.core.oauth.BrowserLauncher
 import dev.agentle.core.oauth.OAuthRandom
 import dev.agentle.core.testing.TestAgentleClock
@@ -96,7 +108,7 @@ open class SiwcFakeTest(tokenPrefix: String = "", clockOffset: Duration = Durati
         config: SiwcConfig = baseConfig(),
         credentialStore: CredentialStore = store,
         http: (SiwcHttpClients) -> SiwcHttpClients = { it },
-        egressCheck: EgressCheck = EgressCheck.UNCHECKED,
+        sendVerifier: AiSendVerifier = DIGEST_ONLY,
         accountChanges: AccountChangeListener = AccountChangeListener.NONE,
     ): SiwcGraph = SiwcGraph(
         config = config,
@@ -105,7 +117,7 @@ open class SiwcFakeTest(tokenPrefix: String = "", clockOffset: Duration = Durati
         browser = launcher,
         clock = clock,
         scope = backgroundScope,
-        egressCheck = egressCheck,
+        sendVerifier = sendVerifier,
         accountChanges = accountChanges,
         logger = logger,
         http = http(SiwcHttpClients.create(config, clock, logger)),
@@ -139,23 +151,47 @@ open class SiwcFakeTest(tokenPrefix: String = "", clockOffset: Duration = Durati
 
     protected fun envelope(
         userText: String? = "How did I sleep?",
-        blocks: List<ContextBlock> =
-            listOf(ContextBlock(DataCategory.SLEEP, "Sleep last week", "avg 7h 10m", untrusted = false, rawEvents = false)),
+        blocks: List<ContextBlock> = listOf(sleepBlock()),
         instructions: String = "Explain the user's sleep pattern in two sentences.",
+        maxOutputTokens: Int? = null,
     ): AiRequestEnvelope = AiRequestEnvelope(
         requestId = "req-1",
         purpose = AiPurpose.SLEEP_INSIGHT,
+        mode = AiRequestMode.USER_INITIATED,
         instructions = instructions,
-        userText = userText,
+        userText = userText?.let { UntrustedText(it, TextOrigin.USER_REQUEST) },
         blocks = blocks,
-        categories = blocks.map { it.category }.toSet(),
         rangeStart = null,
         rangeEnd = null,
         createdAt = clock.now(),
+        consentVersion = 1,
+        maxOutputTokens = maxOutputTokens,
+    )
+
+    protected fun sleepBlock(): ContextBlock = ContextBlock(
+        "sleep_summary_7d",
+        AiDataCategory.SLEEP,
+        BlockKind.AGGREGATES,
+        listOf(
+            ContextItem(
+                DataItem.Quantity("sleep.minutes_avg_7d", SLEEP_MINUTES, "min"),
+                DataLineage.of(AiDataCategory.SLEEP, SourceFamily.HEALTH_CONNECT),
+            ),
+        ),
     )
 
     protected companion object {
         const val SEED = 20261002L
+        const val SLEEP_MINUTES = 430.0
+
+        /** Stands in for EgressGuard's digest check: accepts only bytes that hash to the approved input. */
+        val DIGEST_ONLY = AiSendVerifier { envelope, sent ->
+            if (sent == envelope.inputSha256) {
+                Outcome.Success(Unit)
+            } else {
+                Outcome.Failure(dev.agentle.core.common.AppError.ConsentViolation(emptySet(), "input_hash_mismatch"))
+            }
+        }
         const val WAIT_STEPS = 500
         val WAIT_STEP = 10.milliseconds
 

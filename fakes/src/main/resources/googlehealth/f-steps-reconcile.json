@@ -1,0 +1,56 @@
+{
+  "dataPoints": [
+    {
+      "steps": {
+        "interval": {
+          "startTime": "2026-09-30T12:02:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T12:03:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8, "minutes": 2}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8, "minutes": 3}}
+        },
+        "count": "112"
+      }
+    },
+    {
+      "steps": {
+        "interval": {
+          "startTime": "2026-09-30T12:01:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T12:02:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8, "minutes": 1}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8, "minutes": 2}}
+        },
+        "count": "98"
+      }
+    },
+    {
+      "steps": {
+        "interval": {
+          "startTime": "2026-09-30T12:00:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T12:01:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8, "minutes": 1}}
+        },
+        "count": "87"
+      }
+    },
+    {
+      "steps": {
+        "interval": {
+          "startTime": "2026-09-30T11:59:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T12:00:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 7, "minutes": 59}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8}}
+        }
+      }
+    }
+  ],
+  "nextPageToken": ""
+}

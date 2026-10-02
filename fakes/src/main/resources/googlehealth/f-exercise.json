@@ -1,0 +1,67 @@
+{
+  "dataPoints": [
+    {
+      "name": "users/1234567890/dataTypes/exercise/dataPoints/6661252888799707001",
+      "dataSource": {
+        "recordingMethod": "ACTIVELY_MEASURED",
+        "device": {"formFactor": "FITNESS_BAND", "displayName": "Charge 6"},
+        "platform": "FITBIT"
+      },
+      "exercise": {
+        "interval": {
+          "startTime": "2026-09-30T21:05:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T21:41:10Z",
+          "endUtcOffset": "-14400s"
+        },
+        "exerciseType": "RUNNING",
+        "metricsSummary": {
+          "caloriesKcal": 402.5,
+          "distanceMillimeters": 5012000,
+          "steps": "5120",
+          "averagePaceSecondsPerMeter": 0.409,
+          "averageHeartRateBeatsPerMinute": "152",
+          "activeZoneMinutes": "48",
+          "elevationGainMillimeters": 23000,
+          "heartRateZoneDurations": {"lightTime": "300s", "moderateTime": "900s", "vigorousTime": "780s", "peakTime": "70s"}
+        },
+        "exerciseMetadata": {"hasGps": true},
+        "displayName": "Run",
+        "activeDuration": "2050s",
+        "exerciseEvents": [
+          {"eventTime": "2026-09-30T21:05:00Z", "eventUtcOffset": "-14400s", "exerciseEventType": "START"},
+          {"eventTime": "2026-09-30T21:20:00Z", "eventUtcOffset": "-14400s", "exerciseEventType": "PAUSE"},
+          {"eventTime": "2026-09-30T21:22:00Z", "eventUtcOffset": "-14400s", "exerciseEventType": "RESUME"},
+          {"eventTime": "2026-09-30T21:41:10Z", "eventUtcOffset": "-14400s", "exerciseEventType": "STOP"}
+        ],
+        "updateTime": "2026-09-30T21:52:03.481516Z",
+        "createTime": "2026-09-30T21:52:03.481516Z"
+      }
+    },
+    {
+      "name": "users/1234567890/dataTypes/exercise/dataPoints/6661252888799707002",
+      "dataSource": {"recordingMethod": "MANUAL", "platform": "FITBIT"},
+      "exercise": {
+        "interval": {
+          "startTime": "2026-09-30T16:10:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T16:25:00Z",
+          "endUtcOffset": "-14400s"
+        },
+        "exerciseType": "WALKING",
+        "metricsSummary": {"caloriesKcal": 61},
+        "exerciseMetadata": {},
+        "displayName": "Walk",
+        "activeDuration": "900s",
+        "exerciseEvents": [
+          {"eventTime": "2026-09-30T16:10:00Z", "eventUtcOffset": "-14400s", "exerciseEventType": "START"},
+          {"eventTime": "2026-09-30T16:25:00Z", "eventUtcOffset": "-14400s", "exerciseEventType": "STOP"}
+        ],
+        "notes": "Lunch walk",
+        "updateTime": "2026-09-30T16:30:00.000100Z",
+        "createTime": "2026-09-30T16:30:00.000100Z"
+      }
+    }
+  ],
+  "nextPageToken": ""
+}
