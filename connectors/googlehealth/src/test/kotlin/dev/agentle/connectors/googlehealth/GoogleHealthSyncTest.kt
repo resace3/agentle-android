@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -179,6 +180,95 @@ class GoogleHealthSyncTest {
             assertThat(state.backfilledFrom).isEqualTo(GhHarness.START - 90.days)
             assertThat(sink.events()).hasSize(26)
             assertClean()
+        }
+    }
+
+    @Test
+    fun `R2-1 a disconnect during a run stops its writes and publishes nothing`() = runTest {
+        harness(GhHarness()) {
+            connect()
+            var at = -1
+            sink.onWrite = { stream ->
+                if (stream == STEPS && at < 0) {
+                    at = sink.writes.size
+                    kotlinx.coroutines.runBlocking { connector.disconnect() }
+                }
+            }
+            val result = sync()
+            assertThat(result.status).isEqualTo(SyncResult.Status.SKIPPED_NOT_CONNECTED)
+            assertThat(sink.writes.count { it.stream == STEPS && it.start != null }).isEqualTo(1)
+            assertThat(sink.writes.drop(at).none { it.stream != STEPS && it.stream != GoogleHealthConnector.ACCOUNT_STREAM }).isTrue()
+            assertThat(sink.cursorOf(GoogleHealthConnector.ACCOUNT_STREAM)?.accountId).isNull()
+            assertThat(connector.metadata.value.connection).isEqualTo(dev.agentle.core.model.ConnectionStatus.NOT_CONNECTED)
+            assertThat(connector.metadata.value.coverageThrough).isEmpty()
+        }
+    }
+
+    @Test
+    fun `R1-2 an interrupted overlap re-read keeps the old fetchedAt so the next run re-reads again`() = runTest {
+        harness(GhHarness(configure = { it.copy(streams = setOf(STEPS)) })) {
+            connect()
+            sync()
+            clock.advanceBy(20.minutes)
+            fake.inject(4, "E503") { it.path == reconcileSteps && it.param("filter").orEmpty().contains(">= \"2026-09-30T12:00:00Z\"") }
+            assertThat(sync().status).isEqualTo(SyncResult.Status.FAILED)
+            assertThat(GhStreamState.decode(sink.cursorOf(STEPS)?.lastSuccessCursor).fetchedAt).isEqualTo(GhHarness.START)
+        }
+    }
+
+    @Test
+    fun `R3-1 a backward clock jump beyond the overlap keeps the cursor, makes no empty window and changes nothing`() = runTest {
+        harness(GhHarness()) {
+            connect()
+            sync()
+            val stored = sink.events()
+            clock.setWallClock(GhHarness.START - 5.days)
+            assertThat(sync().status).isEqualTo(SyncResult.Status.SUCCESS)
+            assertThat(GhStreamState.decode(sink.cursorOf(STEPS)?.lastSuccessCursor).through).isEqualTo(GhHarness.START)
+            assertThat(sink.violations).isEmpty()
+            assertThat(sink.writes.filter { it.start != null }.all { it.start!! < it.end!! }).isTrue()
+            assertThat(sink.deleted).isEqualTo(0)
+            assertThat(sink.events()).isEqualTo(stored)
+        }
+    }
+
+    @Test
+    fun `R3-1 R6c re-segmented minutes converge to the new segments`() = runTest {
+        harness(GhHarness(configure = { it.copy(streams = setOf(STEPS)) })) {
+            connect()
+            sync()
+            val old = fake.dataset.of(GhDataTypes.STEPS).single { it.start == Instant.parse("2026-09-30T12:01:00Z") }
+            fake.dataset = fake.dataset.replacing(
+                { it === old },
+                listOf(
+                    old.copy(end = old.start + 30.seconds, amount = 50.0, raw = null),
+                    old.copy(start = old.start + 30.seconds, amount = 48.0, raw = null),
+                ),
+            )
+            clock.advanceBy(1.hours)
+            sync()
+            assertThat(counts(events(STEPS))).containsExactly(0L, 87L, 50L, 48L, 112L).inOrder()
+            assertThat(sink.deleted).isEqualTo(1)
+        }
+    }
+
+    @Test
+    fun `sleep probe - a session starting before the window, in the lead region, is not deleted when not returned`() = runTest {
+        harness(GhHarness(configure = { it.copy(streams = setOf(SLEEP)) })) {
+            val early = dev.agentle.fakes.googlehealth.FakePoint(
+                GhDataTypes.SLEEP,
+                Instant.parse("2026-09-23T11:00:00Z"),
+                Instant.parse("2026-09-23T13:00:00Z"),
+                name = "users/1234567890/dataTypes/sleep/dataPoints/42",
+            )
+            fake.dataset = fake.dataset + listOf(early)
+            connect()
+            sync()
+            assertThat(events(SLEEP)).hasSize(3)
+            fake.dataset = fake.dataset.minus { it.id == "42" }
+            clock.advanceBy(20.minutes)
+            sync()
+            assertThat(events(SLEEP)).hasSize(3)
         }
     }
 }

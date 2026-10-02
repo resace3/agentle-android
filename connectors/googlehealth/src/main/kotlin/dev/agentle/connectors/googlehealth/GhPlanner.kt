@@ -81,8 +81,10 @@ internal object GhPlanner {
             fetchedAgo != null && !fetchedAgo.isNegative() && fetchedAgo < RECENT_RUN -> base
             else -> overlapStart(stream, base, state.deviceLastSync)
         }
-        val deepAgo = state.deepResyncAt?.let { now - it }
-        val deep = !firstSync && (trigger == SyncTrigger.DEEP_RESYNC || deepAgo == null || deepAgo >= config.deepResyncEvery)
+        // A deep re-sync stamped in the future (clock moved back) or reset by the jump counts as due.
+        val deepAgo = state.deepResyncAt?.takeIf { !jumpedBack }?.let { now - it }
+        val deep = !firstSync &&
+            (trigger == SyncTrigger.DEEP_RESYNC || deepAgo == null || deepAgo.isNegative() || deepAgo >= config.deepResyncEvery)
         if (deep) start = minOf(start, now - config.deepResyncWindow)
         if (stream.kind == GhKind.SLEEP) start -= GhFetcher.SESSION_LEAD
         start = maxOf(start, lowest)

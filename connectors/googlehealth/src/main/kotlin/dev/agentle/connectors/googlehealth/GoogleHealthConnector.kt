@@ -119,6 +119,7 @@ public class GoogleHealthConnector(
     private val engine = GhSyncEngine(this.sink, clock, config)
     private val api: GhApi
     private val locks = ConcurrentHashMap<String, Mutex>()
+    private val generation = java.util.concurrent.atomic.AtomicLong()
 
     @Volatile private var enabled: Boolean = enabled
 
@@ -260,6 +261,9 @@ public class GoogleHealthConnector(
      * returned, but the connector is unbound either way.
      */
     public suspend fun disconnect(): Outcome<Unit> {
+        // Runs in flight see the new generation and stop writing and publishing (no sync after a disconnect).
+        generation.incrementAndGet()
+        api.clearToken()
         val revoked = try {
             authorizer.revoke()
         } catch (e: CancellationException) {
@@ -370,6 +374,7 @@ public class GoogleHealthConnector(
 
     @Suppress("ReturnCount")
     private suspend fun run(streams: List<GhStream>, trigger: SyncTrigger, startedAt: Instant): SyncResult {
+        val epoch = generation.get()
         if (!enabled) return SyncResult(id, SyncResult.Status.SKIPPED_DISABLED, startedAt, clock.now())
         if (!config.apiEnabled) return liveApiDisabled(startedAt)
         val binding = readBinding()
@@ -404,14 +409,15 @@ public class GoogleHealthConnector(
             is Zoned.Failed -> return finish(tally.stop(settings.failure), binding, startedAt)
         }
         val mapper = GhMapper(bound, zone, now)
-        val run = GhRun(api, GhFetcher(api, config, mapper, zone), mapper, bound, zone, trigger, now)
+        val run = GhRun(api, GhFetcher(api, config, mapper, zone), mapper, bound, zone, trigger, now) { generation.get() == epoch }
         syncStreams(allowed, run, tally)
+        if (generation.get() != epoch) return disconnectedDuringRun(startedAt)
         return finish(tally, binding, startedAt)
     }
 
     private suspend fun syncStreams(streams: List<GhStream>, run: GhRun, tally: RunTally) {
         for (stream in streams) {
-            if (!enabled || tally.halted) break
+            if (!enabled || tally.halted || !run.alive()) break
             val outcome = lockFor(run.accountId, stream.id).withLock { engine.sync(stream, run, logger) }
             tally.fetched += outcome.fetched
             tally.committed += outcome.committed
@@ -515,6 +521,12 @@ public class GoogleHealthConnector(
         val error = AppError.UnsupportedFeature(LIVE_API_FEATURE)
         state.update { it.copy(connection = ConnectionStatus.UNAVAILABLE, lastError = info(error, now)) }
         return SyncResult(id, SyncResult.Status.SKIPPED_DISABLED, startedAt, now, error = error)
+    }
+
+    /** The user disconnected while this run was in flight: nothing is published and the binding is left alone. */
+    private fun disconnectedDuringRun(startedAt: Instant): SyncResult {
+        logger.i(GhApi.COMPONENT, "run stopped by disconnect")
+        return SyncResult(id, SyncResult.Status.SKIPPED_NOT_CONNECTED, startedAt, clock.now())
     }
 
     private fun notConnected(startedAt: Instant): SyncResult {

@@ -6,6 +6,7 @@ import dev.agentle.core.network.ResponseBodies
 import dev.agentle.core.network.RetryPolicy
 import dev.agentle.core.network.SlidingWindowRateLimiter
 import dev.agentle.core.time.AgentleClock
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -75,17 +76,25 @@ internal class GhApi(
     private val random: Random,
     private val logger: Logger,
 ) {
-    private var token: String? = null
+    @Volatile private var token: String? = null
+    private val tokenLock = kotlinx.coroutines.sync.Mutex()
 
     /** Requests sent in this connector's lifetime (diagnostics and tests). */
     var requests: Int = 0
         private set
 
     /** Asks the authorizer for a token; background callers pass `interactive = false`. */
-    suspend fun authorize(interactive: Boolean): GoogleAuthorization {
+    suspend fun authorize(interactive: Boolean): GoogleAuthorization = tokenLock.withLock { authorizeLocked(interactive) }
+
+    private suspend fun authorizeLocked(interactive: Boolean): GoogleAuthorization {
         val result = authorizer.token(interactive)
         token = (result as? GoogleAuthorization.Token)?.value
         return result
+    }
+
+    /** Forgets the cached token (disconnect): later calls fail with NeedsReauth until [authorize] runs again. */
+    suspend fun clearToken() {
+        tokenLock.withLock { token = null }
     }
 
     /** Executes [request]; [valid] checks the shape of a 2xx body (a failed check counts as a malformed body). */
@@ -147,9 +156,11 @@ internal class GhApi(
     }
 
     /** Clears the rejected token and gets a new one silently; null when a retry may go ahead. */
-    private suspend fun renew(rejected: String): GhFailure? {
+    private suspend fun renew(rejected: String): GhFailure? = tokenLock.withLock {
+        // Another caller may have renewed (or a disconnect cleared) the token meanwhile.
+        if (token != rejected) return@withLock if (token == null) GhFailure.NeedsReauth else null
         authorizer.invalidate(rejected)
-        return when (val next = authorize(interactive = false)) {
+        when (val next = authorizeLocked(interactive = false)) {
             is GoogleAuthorization.Token -> null
             is GoogleAuthorization.NeedsResolution, GoogleAuthorization.Denied -> GhFailure.NeedsReauth
             is GoogleAuthorization.Failure -> GhFailure.AuthorizerFailed(next.statusCode)

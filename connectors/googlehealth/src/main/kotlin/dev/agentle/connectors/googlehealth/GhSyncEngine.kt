@@ -41,6 +41,8 @@ internal class GhRun(
     val zone: TimeZone,
     val trigger: SyncTrigger,
     val now: Instant,
+    /** False once the connector was disconnected after this run started: nothing more may be written. */
+    val alive: () -> Boolean = { true },
 ) {
     /** Last upload of the user's tracker and scale, from `pairedDevices` in this run (null when unknown). */
     var trackerLastSync: Instant? = null
@@ -73,6 +75,10 @@ internal class GhSyncEngine(private val sink: EventSink, private val clock: Agen
         val streamRun = GhFetcher.StreamRun()
 
         suspend fun write(window: GhWindow, next: GhStreamState, coverage: StreamCoverage?): Boolean {
+            if (!run.alive()) {
+                tally.superseded = true
+                return false
+            }
             val cursor = SyncCursor(
                 connectorId = CONNECTOR,
                 stream = stream.id,
@@ -103,7 +109,9 @@ internal class GhSyncEngine(private val sink: EventSink, private val clock: Agen
             return true
         }
 
-        var through = plan.baseThrough
+        // After a backward clock jump the stored position stays (it never moves backward).
+        var through = plan.baseThrough ?: state.through
+        val previous = plan.baseThrough
         val lastForward = plan.forward.lastOrNull()
         val forwardFailure = run.fetcher.fetchAll(stream, plan.forward, streamRun) { window ->
             val reached = minOf(window.range.end, run.now)
@@ -112,7 +120,8 @@ internal class GhSyncEngine(private val sink: EventSink, private val clock: Agen
             val next = state.copy(
                 through = position,
                 backfilledFrom = minOf(state.backfilledFrom ?: plan.forward.first().start, plan.forward.first().start),
-                fetchedAt = run.now,
+                // Only once the re-read reached the previous position may a later run skip the overlap.
+                fetchedAt = if (previous == null || window.range.end >= previous) run.now else state.fetchedAt,
                 deepResyncAt = if (plan.firstSync || (plan.deep && window.range == lastForward)) run.now else state.deepResyncAt,
                 deviceLastSync = deviceSync,
             )

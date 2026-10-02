@@ -93,13 +93,13 @@ class GhPlannerTest {
     }
 
     @Test
-    fun `round-2 4 a cursor more than 5 minutes ahead restarts at now minus the overlap`() {
+    fun `round-2 4 R1-1 a cursor more than 5 minutes ahead restarts as a due deep re-sync`() {
         val ahead =
             plan(
                 state = GhStreamState(through = now + 2.days, backfilledFrom = now - 90.days, fetchedAt = now + 2.days, deepResyncAt = now),
             )
         assertThat(ahead.baseThrough).isNull()
-        assertThat(ahead.forward.first().start).isEqualTo(now - 48.hours)
+        assertThat(ahead.forward.first().start).isEqualTo(now - 30.days)
         assertThat(ahead.forward.last().end).isEqualTo(now)
         assertThat(ahead.forward.all { it.start < it.end }).isTrue()
         // Within the 5-minute skew the cursor is kept, and windows still end at now.
@@ -189,5 +189,11 @@ class GhPlannerTest {
         assertThat(GhPlanner.splitDays(now, now, utc, 1.days)).isEmpty()
         assertThat(GhPlanner.splitDaysDown(now, now, utc, 1.days)).isEmpty()
         assertThat(GhPlanner.truncate(Instant.parse("2026-10-01T12:00:00.999Z"))).isEqualTo(now)
+    }
+
+    @Test
+    fun `R1-1 a deep re-sync stamped in the future is due`() {
+        val state = GhStreamState(now - 1.hours, now - 90.days, now - 1.hours, deepResyncAt = now + 1.days)
+        assertThat(plan(state = state).deep).isTrue()
     }
 }
