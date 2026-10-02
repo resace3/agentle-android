@@ -1,5 +1,6 @@
 package dev.agentle.jitai.engine.ports
 
+import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.model.DataCategory
 import dev.agentle.jitai.dsl.model.DeliveryChannel
@@ -34,6 +35,13 @@ public interface JitaiRepositoryPort {
      * notification, what to do.
      */
     public suspend fun pauseForBackoff(jitaiId: String, consecutiveIgnored: Int, at: Instant): Outcome<Unit>
+
+    /**
+     * After an app upgrade the stored definition failed `RuleValidator.revalidate` with [codes]: pause it
+     * (`LifecycleEvent.PAUSE`), delete its timer rows and show an in-app notice. Content-free: only issue codes.
+     */
+    public suspend fun pauseInvalid(jitaiId: String, codes: List<String>, at: Instant): Outcome<Unit> =
+        Outcome.failure(AppError.Unexpected("pause_invalid_unsupported"))
 }
 
 /**
@@ -245,8 +253,10 @@ public interface AiTextPoolPort {
     /** The items generated for the rule content [contentHash]. */
     public suspend fun pooled(contentHash: String): Outcome<List<PooledText>>
 
+    /** The item [itemId], used or not, until it is purged (an in-app card renders its item later). */
     public suspend fun get(itemId: String): Outcome<PooledText?>
 
+    /** Marks [itemId] used by [decisionKey]: [pooled] no longer lists it, [get] still returns it. */
     public suspend fun markUsed(itemId: String, decisionKey: String): Outcome<Unit>
 
     /** Deletes the items of [jitaiId] whose content hash is not [keepContentHash] (all of them when it is null). */

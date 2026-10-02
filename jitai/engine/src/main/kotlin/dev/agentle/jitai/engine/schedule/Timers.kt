@@ -45,6 +45,7 @@ public sealed interface TimerSlot {
  * @property role OUTCOME: proximal or distal.
  * @property featureIds PREFETCH: the remote features to sync.
  * @property deferrals SLOT: how often the point was deferred (DND, global gap, lost arbitration, stale data).
+ * @property offsetSeconds the UTC offset of the zone the plan was made in (DST detection below API 37).
  */
 public data class TimerRow(
     val key: String,
@@ -58,6 +59,7 @@ public data class TimerRow(
     val role: OutcomeRole? = null,
     val featureIds: Set<String> = emptySet(),
     val deferrals: Int = 0,
+    val offsetSeconds: Int? = null,
 )
 
 /** Timer row keys: one row per decision point, follow-up and outcome, and one backstop. */

@@ -603,6 +603,10 @@ public class DeliveryCoordinator(
     }
 
     private suspend fun keepAsCard(prepared: PreparedDelivery) {
+        // The card will show this text: it must not be offered to another delivery.
+        (prepared.intervention.contentRef as? ContentRef.AiPooled)?.let { ref ->
+            ports.aiTexts.markUsed(ref.itemId, prepared.intervention.decisionKey).onFailureLog("mark_used")
+        }
         outcomeOf(mapError = { AppError.Unexpected("keep_as_card:${it::class.simpleName}") }) {
             ports.delivery.keepAsCard(prepared).getOrThrow()
         }.onFailureLog("keep_as_card")
