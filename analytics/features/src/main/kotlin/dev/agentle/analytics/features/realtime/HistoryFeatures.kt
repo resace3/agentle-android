@@ -90,7 +90,7 @@ internal object HistoryFeatures {
         val recordedElapsed = record.elapsedRealtime
         val recordedBoot = record.bootCount
         val sameBoot = recordedElapsed != null && recordedBoot != null && (pass.bootCount() as? Read.Ok)?.value == recordedBoot
-        val elapsed = if (sameBoot) pass.elapsedNow - recordedElapsed else pass.at - record.at
+        val elapsed = if (sameBoot) pass.elapsedAt - recordedElapsed else pass.at - record.at
         return if (elapsed.isNegative()) Duration.ZERO else elapsed
     }
 }

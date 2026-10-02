@@ -46,7 +46,7 @@ public class RealtimeFeatureEngine(
 ) : FeatureResolver {
     override suspend fun resolve(refs: Set<FeatureRef>, at: Instant): FeatureSnapshot {
         val zone = clock.zone()
-        val pass = FeaturePass(at = at, zone = zone, elapsedNow = clock.elapsed(), inputs = inputs, config = config)
+        val pass = FeaturePass(at = at, zone = zone, elapsedAt = clock.elapsed() - (clock.now() - at), inputs = inputs, config = config)
         val values = try {
             inputs.readSnapshot { refs.associateWith { value(pass, it) } }
         } catch (e: CancellationException) {

@@ -38,9 +38,9 @@ class HistoryFeaturesTest {
         response: InterventionResponse = InterventionResponse.NONE,
         elapsed: Duration? = clock.elapsed() - (now - at),
         boot: Int? = inputs.live.state.bootCount,
-        engineDay: LocalDate = LocalTimeRules.engineDay(at, zone, config.engineDayRollover),
         positiveOutcome: Boolean = false,
     ) {
+        val engineDay = LocalTimeRules.engineDay(at, zone, config.engineDayRollover)
         inputs.history.rows +=
             DeliveryRecord("v1|$jitai|${keys++}", jitai, category, state, at, engineDay, elapsed, boot, response, positiveOutcome)
     }
@@ -217,6 +217,17 @@ class HistoryFeaturesTest {
         f.clock.setWallClock(f.local("2026-10-01T23:10"))
 
         assertThat(f.resolve(ref("minutes_since_last_delivery")).knownLong).isEqualTo(10)
+    }
+
+    @Test
+    fun `Q6 minutes_since_last_delivery is relative to the evaluation instant, not the resolve time`() = runTest {
+        val f = o()
+        f.clock.advanceBy(65.minutes)
+        f.clock.setWallClock(f.local("2026-10-01T22:05")) // moved back an hour: §8.6 still uses the monotonic clock
+
+        val catchUp = f.engine.resolve(setOf(ref("minutes_since_last_delivery")), f.now - 10.minutes)
+
+        assertThat(catchUp[ref("minutes_since_last_delivery")]?.knownLong).isEqualTo(55)
     }
 
     @Test

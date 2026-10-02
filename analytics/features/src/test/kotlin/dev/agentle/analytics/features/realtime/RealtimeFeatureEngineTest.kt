@@ -117,7 +117,7 @@ class RealtimeFeatureEngineTest {
         assertThat(perPort["sleep.sessionsEnding"]).isEqualTo(1)
         // Three step windows: today, the last 60 minutes and the last 30 (shared by steps_last_30m and the activity level).
         assertThat(perPort["steps.fusedMinuteSeries"]).isEqualTo(3)
-        assertThat(perPort.values.all { it <= 3 }).isTrue()
+        assertThat(perPort.filterValues { it > 3 }).isEmpty()
     }
 
     @Test

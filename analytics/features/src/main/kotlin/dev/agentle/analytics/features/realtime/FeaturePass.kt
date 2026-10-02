@@ -18,8 +18,12 @@ import kotlin.time.Instant
 internal class FeaturePass(
     val at: Instant,
     val zone: TimeZone,
-    /** `AgentleClock.elapsed()` at the start of the pass, for the elapsed-time rule of R10 §8.6. */
-    val elapsedNow: Duration,
+    /**
+     * The monotonic clock at [at], for the elapsed-time rule of R10 §8.6: `elapsed() - (now() - at)` at the start of
+     * the pass. Equal to `elapsed()` when `at` is now (the engine's call), so §8.6 holds unchanged; for a catch-up or
+     * replay instant it is exact unless the wall clock jumped between `at` and the pass (reviewer question 6).
+     */
+    val elapsedAt: Duration,
     val inputs: RealtimeFeatureInputs,
     val config: RealtimeFeatureConfig,
 ) {
@@ -99,7 +103,7 @@ internal class FeaturePass(
      */
     suspend fun collectorGap(collectorId: String, window: ClosedOpenRange): MissingReason? =
         memo(WindowKey("collector-$collectorId", window)) {
-            when (val read = inputs.collectorCoverage.intervals(collectorId, window).toPlainRead()) {
+            when (val read = coverageIntervals(collectorId, window)) {
                 is Read.Fail -> read.reason
                 is Read.Ok -> CoverageCheck.gap(read.value, window)
             }
@@ -109,9 +113,12 @@ internal class FeaturePass(
      * For a feature "at t" (REALTIME-FEATURES-R1-5): the start of the stretch of [window] that [collectorId] covers
      * without a gap up to its end, or `Missing(COLLECTOR_INACTIVE)` when it is not healthy at the end.
      */
+    private suspend fun coverageIntervals(collectorId: String, window: ClosedOpenRange): Read<List<CoverageInterval>> =
+        memo(WindowKey("coverage-intervals-$collectorId", window)) { inputs.collectorCoverage.intervals(collectorId, window).toPlainRead() }
+
     suspend fun coveredSince(collectorId: String, window: ClosedOpenRange): Read<Instant> =
         memo(WindowKey("covered-since-$collectorId", window)) {
-            when (val read = inputs.collectorCoverage.intervals(collectorId, window).toPlainRead()) {
+            when (val read = coverageIntervals(collectorId, window)) {
                 is Read.Fail -> read
 
                 is Read.Ok -> CoverageCheck.coveredSince(read.value, window)?.let { Read.Ok(it) }

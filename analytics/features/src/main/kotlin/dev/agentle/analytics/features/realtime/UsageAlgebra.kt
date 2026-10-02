@@ -56,9 +56,40 @@ internal object UsageAlgebra {
      * unknown instant). [ScreenState.atEnd] is the state at `t` when the events know it.
      */
     fun screenState(inside: List<UsageEvent>, window: ClosedOpenRange, liveInteractive: Boolean?): ScreenState {
+        var state = initialScreen(inside, liveInteractive)
+        var since = window.start
+        val on = mutableListOf<Span>()
+        val unknown = mutableListOf<Span>()
+        fun close(at: Instant, spanState: Tri) {
+            if (at > since && spanState == Tri.ON) on += Span(since, at)
+            if (at > since && (spanState == Tri.UNKNOWN || spanState == Tri.DOWN)) unknown += Span(since, at)
+            since = at
+        }
+        for (e in inside) {
+            val next = SCREEN_TARGET[e.kind]
+            if (next != null && (next != state || next == Tri.UNKNOWN)) {
+                close(e.at, closedAs(e.kind, state))
+                state = next
+            }
+        }
+        close(window.end, state)
+        return ScreenState(
+            on,
+            unknown,
+            atEnd = if (state == Tri.ON) {
+                true
+            } else if (state == Tri.OFF) {
+                false
+            } else {
+                null
+            },
+        )
+    }
+
+    private fun initialScreen(inside: List<UsageEvent>, liveInteractive: Boolean?): Tri {
         val firstScreen = inside.indexOfFirst { it.kind in SCREEN_KINDS }
         val firstBoundary = inside.indexOfFirst { it.kind in BOUNDARY_KINDS }
-        var state = when {
+        return when {
             firstScreen >= 0 && (firstBoundary < 0 || firstScreen < firstBoundary) ->
                 if (inside[firstScreen].kind == UsageEventKind.SCREEN_INTERACTIVE) Tri.OFF else Tri.ON
 
@@ -66,42 +97,22 @@ internal object UsageAlgebra {
 
             else -> Tri.UNKNOWN
         }
-        var since = window.start
-        val on = mutableListOf<Span>()
-        val unknown = mutableListOf<Span>()
-        fun close(at: Instant, spanState: Tri) {
-            if (at > since) {
-                if (spanState == Tri.ON) on += Span(since, at)
-                if (spanState == Tri.UNKNOWN || spanState == Tri.DOWN) unknown += Span(since, at)
-            }
-            since = at
-        }
-        for (e in inside) {
-            val next = when (e.kind) {
-                UsageEventKind.SCREEN_INTERACTIVE -> Tri.ON
-                UsageEventKind.SCREEN_NON_INTERACTIVE -> Tri.OFF
-                UsageEventKind.DEVICE_SHUTDOWN -> Tri.DOWN
-                UsageEventKind.DEVICE_STARTUP -> Tri.UNKNOWN
-                else -> continue
-            }
-            if (next == state && next != Tri.UNKNOWN) continue
-            val closedAs = when {
-                e.kind == UsageEventKind.DEVICE_STARTUP && state == Tri.ON -> Tri.UNKNOWN
-                e.kind == UsageEventKind.DEVICE_STARTUP && state == Tri.DOWN -> Tri.OFF
-                e.kind == UsageEventKind.DEVICE_SHUTDOWN && state == Tri.DOWN -> Tri.UNKNOWN
-                else -> state
-            }
-            close(e.at, closedAs)
-            state = next
-        }
-        close(window.end, state)
-        val atEnd = when (state) {
-            Tri.ON -> true
-            Tri.OFF -> false
-            else -> null
-        }
-        return ScreenState(on, unknown, atEnd)
     }
+
+    /** How the span that ends at a [kind] event counts, given the state before it. */
+    private fun closedAs(kind: UsageEventKind, state: Tri): Tri = when {
+        kind == UsageEventKind.DEVICE_STARTUP && state == Tri.ON -> Tri.UNKNOWN
+        kind == UsageEventKind.DEVICE_STARTUP && state == Tri.DOWN -> Tri.OFF
+        kind == UsageEventKind.DEVICE_SHUTDOWN && state == Tri.DOWN -> Tri.UNKNOWN
+        else -> state
+    }
+
+    private val SCREEN_TARGET = mapOf(
+        UsageEventKind.SCREEN_INTERACTIVE to Tri.ON,
+        UsageEventKind.SCREEN_NON_INTERACTIVE to Tri.OFF,
+        UsageEventKind.DEVICE_SHUTDOWN to Tri.DOWN,
+        UsageEventKind.DEVICE_STARTUP to Tri.UNKNOWN,
+    )
 
     private enum class Tri { ON, OFF, UNKNOWN, DOWN }
 
