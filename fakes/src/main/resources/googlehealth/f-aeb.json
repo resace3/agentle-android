@@ -1,0 +1,33 @@
+{
+  "dataPoints": [
+    {
+      "dataSource": {"recordingMethod": "DERIVED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+      "activeEnergyBurned": {
+        "interval": {
+          "startTime": "2026-09-30T12:02:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T12:03:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8, "minutes": 2}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8, "minutes": 3}}
+        },
+        "kcal": 4.25
+      }
+    },
+    {
+      "dataSource": {"recordingMethod": "DERIVED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+      "activeEnergyBurned": {
+        "interval": {
+          "startTime": "2026-09-30T12:01:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T12:02:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8, "minutes": 1}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 8, "minutes": 2}}
+        },
+        "kcal": 3.6800000000000006
+      }
+    }
+  ],
+  "nextPageToken": ""
+}

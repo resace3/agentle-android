@@ -1,0 +1,19 @@
+{
+  "name": "users/1234567890/dataTypes/sleep/dataPoints/7821966286120953004",
+  "dataSource": {"recordingMethod": "DERIVED", "device": {"displayName": "Charge 6"}, "platform": "FITBIT"},
+  "sleep": {
+    "interval": {
+      "startTime": "2026-11-01T03:30:00Z",
+      "startUtcOffset": "-14400s",
+      "endTime": "2026-11-01T12:10:00Z",
+      "endUtcOffset": "-18000s"
+    },
+    "type": "STAGES",
+    "stages": [
+      {"startTime": "2026-11-01T03:30:00Z", "startUtcOffset": "-14400s", "endTime": "2026-11-01T05:59:00Z", "endUtcOffset": "-14400s", "type": "LIGHT"},
+      {"startTime": "2026-11-01T05:59:00Z", "startUtcOffset": "-14400s", "endTime": "2026-11-01T06:30:00Z", "endUtcOffset": "-18000s", "type": "DEEP"},
+      {"startTime": "2026-11-01T06:30:00Z", "startUtcOffset": "-18000s", "endTime": "2026-11-01T12:10:00Z", "endUtcOffset": "-18000s", "type": "LIGHT"}
+    ],
+    "metadata": {"stagesStatus": "SUCCEEDED", "processed": true, "mainSleep": true}
+  }
+}

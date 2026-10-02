@@ -1,0 +1,31 @@
+{
+  "dataPoints": [
+    {
+      "floors": {
+        "interval": {
+          "startTime": "2026-09-30T14:31:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T14:32:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 10, "minutes": 31}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 10, "minutes": 32}}
+        },
+        "count": "2"
+      }
+    },
+    {
+      "floors": {
+        "interval": {
+          "startTime": "2026-09-30T14:30:00Z",
+          "startUtcOffset": "-14400s",
+          "endTime": "2026-09-30T14:31:00Z",
+          "endUtcOffset": "-14400s",
+          "civilStartTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 10, "minutes": 30}},
+          "civilEndTime": {"date": {"year": 2026, "month": 9, "day": 30}, "time": {"hours": 10, "minutes": 31}}
+        },
+        "count": "1"
+      }
+    }
+  ],
+  "nextPageToken": ""
+}

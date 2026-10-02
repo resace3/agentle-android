@@ -7,7 +7,6 @@ dependencies {
     api(project(":ai:api"))
     api(project(":core:oauth"))
     api(project(":core:network"))
-    implementation(libs.okhttp.sse)
     implementation(libs.nimbus.jose.jwt)
     testImplementation(project(":fakes"))
     testImplementation(project(":core:testing"))

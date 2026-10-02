@@ -1,0 +1,8 @@
+{
+  "rollupDataPoints": [
+    {"startTime": "2026-09-30T11:59:00Z", "endTime": "2026-09-30T12:00:00Z", "steps": {"countSum": "0"}},
+    {"startTime": "2026-09-30T12:00:00Z", "endTime": "2026-09-30T12:01:00Z", "steps": {"countSum": "87"}},
+    {"startTime": "2026-09-30T12:01:00Z", "endTime": "2026-09-30T12:02:00Z", "steps": {"countSum": "98"}},
+    {"startTime": "2026-09-30T12:02:00Z", "endTime": "2026-09-30T12:03:00Z", "steps": {"countSum": "112"}}
+  ]
+}

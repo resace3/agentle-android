@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "id": "6b1e7f9a-2c3d-4e5f-8a9b-0c1d2e3f4a5b",
+  "version": 1,
+  "name": "Late screen time break",
+  "description": "From 8 PM to 2 AM, after 10 PM, remind me to take a break when I had 45 minutes of screen time in the last hour.",
+  "kind": "INTERVENTION",
+  "category": "DIGITAL_WELLBEING",
+  "status": "ACTIVE",
+  "enabled": true,
+  "trigger": {
+    "type": "interval",
+    "everyMinutes": 15
+  },
+  "activeWindow": {
+    "start": "20:00",
+    "end": "02:00",
+    "days": null
+  },
+  "conditions": {
+    "type": "all",
+    "of": [
+      {
+        "type": "gte",
+        "feature": "screen_minutes_last_60m",
+        "args": {},
+        "value": 45,
+        "onUnknown": null
+      },
+      {
+        "type": "gte",
+        "feature": "local_time",
+        "args": {},
+        "value": "22:00",
+        "onUnknown": null
+      }
+    ]
+  },
+  "contextRequirements": null,
+  "delivery": {
+    "channel": "NOTIFICATION",
+    "quietHoursPolicy": "RESPECT",
+    "notificationTimeoutMinutes": 60,
+    "deliveryDeadlineMinutes": 10
+  },
+  "content": {
+    "type": "template",
+    "title": "Time for a screen break?",
+    "body": "{{screen_minutes_last_60m}} minutes on screen in the last hour. How about a short break?"
+  },
+  "cooldownMinutes": 60,
+  "maxPerDay": 3,
+  "maxPerWeek": 21,
+  "priority": 50,
+  "snooze": {
+    "mode": "SUPPRESS_ONLY",
+    "options": [
+      "MINUTES_60",
+      "UNTIL_TOMORROW"
+    ]
+  },
+  "expiresAt": null,
+  "createdBy": "USER_MANUAL",
+  "createdAt": "2026-09-20T08:15:00Z",
+  "modifiedAt": "2026-09-20T08:15:00Z",
+  "outcome": {
+    "proximal": {
+      "metric": "SCREEN_MINUTES_AFTER",
+      "args": {},
+      "windowMinutes": 30
+    },
+    "distal": {
+      "metric": "BEDTIME_NEXT",
+      "args": {},
+      "windowMinutes": null
+    }
+  },
+  "suppression": null,
+  "experiment": {
+    "mode": "NONE",
+    "deliverProbability": null
+  },
+  "userConfirmedUnknownOverrides": false,
+  "provenance": null
+}

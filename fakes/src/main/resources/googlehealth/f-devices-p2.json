@@ -1,0 +1,13 @@
+{
+  "pairedDevices": [
+    {
+      "name": "users/1234567890/pairedDevices/3141592653",
+      "deviceVersion": "Aria Air",
+      "deviceType": "SCALE",
+      "batteryStatus": "Low",
+      "batteryLevel": 12,
+      "lastSyncTime": "2026-09-28T07:15:40Z",
+      "macAddress": "A0:B1:C2:D3:E4:F6"
+    }
+  ]
+}
