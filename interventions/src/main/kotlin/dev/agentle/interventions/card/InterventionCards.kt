@@ -21,8 +21,6 @@ import dev.agentle.interventions.storage.MediaRef
 import dev.agentle.jitai.dsl.model.SnoozeOption
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.minutes
 
 /** What the user did on an in-app card. */
 sealed interface CardAction {
@@ -67,10 +65,10 @@ sealed interface CardResult {
 }
 
 /**
- * The app's side of the in-app card fallback (jitai-correctness-13). The delivery port keeps a blocked delivery as a
- * candidate card; [refresh] confirms candidates the engine moved to CARD_PENDING and drops the rest; [pending] shows the
- * confirmed ones; [onDisplayed] tells the engine (CARD_PENDING -> DELIVERED); [respond] records a response with the
- * card's nonce through [InterventionResponses], like a notification action.
+ * The app's side of the in-app card fallback (jitai-correctness-13). The engine lists the CARD_PENDING cards with their
+ * text and expiry ([CardDecisions.pendingCards]); the store keeps the media `keepAsCard` held and a copy of each shown
+ * card. [pending] shows both; [onDisplayed] tells the engine (CARD_PENDING -> DELIVERED); [respond] records a response
+ * with the card's nonce through [InterventionResponses], like a notification action; [refresh] drops what is gone.
  */
 class InterventionCards(
     private val store: InterventionCardStore,
@@ -80,71 +78,60 @@ class InterventionCards(
     private val clock: AgentleClock,
     private val logger: Logger,
 ) {
-    /** Cards to show, oldest first: confirmed or already displayed, and not expired (checked on every emission). */
-    fun pending(): Flow<List<InterventionCard>> = store.observe().map { cards ->
-        val now = clock.now()
-        cards.filter { it.isVisible(now) }
-    }
+    /** Cards to show, oldest first: the engine's pending cards and the shown ones, not expired (checked on every emission). */
+    fun pending(): Flow<List<InterventionCard>> = store.observe().map { stored -> visible(stored) }
 
-    /** Decision keys of every stored card, candidates included: their media must not be evicted. */
+    /** Decision keys of every stored card: their media must not be evicted. */
     suspend fun storedKeys(): Set<String> = store.all().getOrNull().orEmpty().mapTo(mutableSetOf()) { it.decisionKey }
 
     /**
-     * Reconciles the stored cards with the engine (app start, dashboard resume, the daily maintenance pass): a card whose
-     * decision is CARD_PENDING is confirmed; a displayed card stays until it is answered or expires; any other card goes
-     * with its generated media, except a candidate younger than [CANDIDATE_GRACE] (its post may still be finishing).
+     * Reconciles the store with the engine (app start, dashboard resume, the daily maintenance pass): a stored card goes,
+     * with its generated media, when it expired or when it was never shown and the engine no longer lists it.
      * Returns how many cards went.
      */
-    suspend fun refresh(): Outcome<Int> = decisions.pendingKeys().map { pendingKeys ->
+    suspend fun refresh(): Outcome<Int> = decisions.pendingCards().map { listed ->
         val now = clock.now()
+        val keys = listed.mapTo(mutableSetOf()) { it.decisionKey }
         store.all().getOrNull().orEmpty().count { card ->
-            val keep = !card.isExpired(now) && when {
-                card.decisionKey in pendingKeys -> true
-                card.displayedAt != null -> true
-                card.confirmed -> false
-                else -> now - card.createdAt < CANDIDATE_GRACE
-            }
-            when {
-                !keep -> drop(card)
-
-                card.decisionKey in pendingKeys && !card.confirmed -> {
-                    store.put(card.copy(confirmed = true)).onFailure { logger.w(COMPONENT, "card not confirmed", it) }
-                    false
-                }
-
-                else -> false
-            }
+            val keep = !card.isExpired(now) && (card.displayedAt != null || card.decisionKey in keys)
+            !keep && drop(card)
         }
     }.onFailure { logger.w(COMPONENT, "card refresh failed", it) }
 
     /** The app showed the card: the engine counts it as delivered from now on; a card the engine no longer has goes. */
     suspend fun onDisplayed(decisionKey: String): Outcome<CardDisplay> {
-        val card = store.get(decisionKey).getOrNull() ?: return Outcome.success(CardDisplay.GONE)
-        if (card.isExpired(clock.now())) {
-            drop(card)
+        val local = store.get(decisionKey).getOrNull()
+        if (local?.displayedAt != null) {
+            if (!local.isExpired(clock.now())) return Outcome.success(CardDisplay.SHOWN)
+            drop(local)
             return Outcome.success(CardDisplay.GONE)
         }
-        if (card.displayedAt != null) return Outcome.success(CardDisplay.SHOWN)
+        val listed = when (val cards = decisions.pendingCards()) {
+            is Outcome.Failure -> return cards
+            is Outcome.Success -> cards.value.firstOrNull { it.decisionKey == decisionKey }
+        }
+        if (listed == null || clock.now() >= listed.expiresAt) {
+            local?.let { drop(it) }
+            return Outcome.success(CardDisplay.GONE)
+        }
         return decisions.markDisplayed(decisionKey).map { display ->
             when (display) {
-                CardDisplay.SHOWN -> store.put(card.copy(confirmed = true, displayedAt = clock.now()))
+                CardDisplay.SHOWN -> store.put(InterventionCard.of(listed, local).copy(displayedAt = clock.now()))
                     .onFailure { logger.w(COMPONENT, "card display not stored", it) }
 
-                CardDisplay.GONE -> drop(card)
+                CardDisplay.GONE -> local?.let { drop(it) }
             }
             display
         }.onFailure { logger.w(COMPONENT, "card display not recorded", it) }
     }
 
     suspend fun respond(decisionKey: String, action: CardAction): CardResult {
-        val card = store.get(decisionKey).getOrNull()?.takeUnless { it.isExpired(clock.now()) } ?: return CardResult.Gone
         // A response always follows a display; make sure the engine counted it before the response lands.
-        if (card.displayedAt == null) {
-            when (val shown = onDisplayed(decisionKey)) {
-                is Outcome.Failure -> return CardResult.Failed(shown.error)
-                is Outcome.Success -> if (shown.value == CardDisplay.GONE) return CardResult.Gone
-            }
+        when (val shown = onDisplayed(decisionKey)) {
+            is Outcome.Failure -> return CardResult.Failed(shown.error)
+            is Outcome.Success -> if (shown.value == CardDisplay.GONE) return CardResult.Gone
         }
+        val card = store.get(decisionKey).getOrNull() ?: return CardResult.Gone
         val response = InterventionResponse(card.decisionKey, card.nonce, action.kind, ResponseSurface.IN_APP_CARD, action.snooze)
         return when (val outcome = responses.apply(response)) {
             is Outcome.Failure -> CardResult.Failed(outcome.error)
@@ -156,6 +143,21 @@ class InterventionCards(
         }
     }
 
+    private suspend fun visible(stored: List<InterventionCard>): List<InterventionCard> {
+        val now = clock.now()
+        val local = stored.associateBy { it.decisionKey }
+        val listed = decisions.pendingCards()
+            .onFailure { logger.w(COMPONENT, "pending cards unavailable", it) }
+            .getOrNull().orEmpty()
+            .map { InterventionCard.of(it, local[it.decisionKey]) }
+        // A shown card's stored copy wins: the engine stops listing it once it is DELIVERED.
+        val shown = stored.filter { it.displayedAt != null }
+        val shownKeys = shown.mapTo(mutableSetOf()) { it.decisionKey }
+        return (shown + listed.filterNot { it.decisionKey in shownKeys })
+            .filterNot { it.isExpired(now) }
+            .sortedBy { it.createdAt }
+    }
+
     /** Removes [card] and the media generated for its decision; true when the card was removed. */
     private suspend fun drop(card: InterventionCard): Boolean {
         val removed = store.remove(card.decisionKey).getOrNull() == true
@@ -163,9 +165,7 @@ class InterventionCards(
         return removed
     }
 
-    companion object {
-        /** A candidate kept by a post that reported `Blocked` waits this long for the engine's CARD_PENDING (the lease). */
-        val CANDIDATE_GRACE: Duration = 2.minutes
-        private const val COMPONENT = "interventions.cards"
+    private companion object {
+        const val COMPONENT = "interventions.cards"
     }
 }

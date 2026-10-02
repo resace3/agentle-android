@@ -194,7 +194,6 @@ abstract class InterventionsModule {
         fun port(
             notifier: InterventionNotifier,
             access: NotificationStateReader,
-            settings: InterventionSettingsSource,
             cards: InterventionCardStore,
             images: ImagePreparer,
             voices: VoicePreparer,
@@ -206,7 +205,6 @@ abstract class InterventionsModule {
         ): InterventionDeliveryPort = InterventionDeliveryPort(
             notifier,
             access,
-            settings,
             cards,
             images,
             voices,

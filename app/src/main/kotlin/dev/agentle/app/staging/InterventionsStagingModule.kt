@@ -10,6 +10,7 @@ import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.interventions.card.InMemoryInterventionCardStore
 import dev.agentle.interventions.ports.CardDecisions
+import dev.agentle.jitai.engine.delivery.PendingCard
 import dev.agentle.interventions.ports.CardDisplay
 import dev.agentle.interventions.ports.InterventionActivityIntents
 import dev.agentle.interventions.ports.InterventionCardStore
@@ -39,7 +40,7 @@ object InterventionsStagingModule {
     @Provides
     @Singleton
     fun cardDecisions(): CardDecisions = object : CardDecisions {
-        override suspend fun pendingKeys(): Outcome<Set<String>> = Outcome.success(emptySet())
+        override suspend fun pendingCards(): Outcome<List<PendingCard>> = Outcome.success(emptyList())
 
         override suspend fun markDisplayed(decisionKey: String): Outcome<CardDisplay> =
             Outcome.failure(AppError.UnsupportedFeature("intervention_cards", NOT_WIRED))

@@ -5,6 +5,7 @@ import android.content.Intent
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.model.MediaArtifact
 import dev.agentle.interventions.card.InterventionCard
+import dev.agentle.jitai.engine.delivery.PendingCard
 import dev.agentle.jitai.dsl.model.SnoozeOption
 import kotlinx.coroutines.flow.Flow
 import kotlin.time.Instant
@@ -79,21 +80,21 @@ enum class CardDisplay {
 }
 
 /**
- * The engine's side of in-app cards (jitai-correctness-13): which decisions are CARD_PENDING, and "the card was
- * displayed" (CARD_PENDING -> DELIVERED). [dev.agentle.interventions.wiring.EngineCardDecisions] implements it over the
- * decision store and `JitaiEngine.markCardDisplayed`.
+ * The engine's side of in-app cards (jitai-correctness-13): the CARD_PENDING cards with their text and expiry, and "the
+ * card was displayed" (CARD_PENDING -> DELIVERED). [dev.agentle.interventions.wiring.EngineCardDecisions] implements it
+ * over `JitaiEngine.pendingCards` and `JitaiEngine.markCardDisplayed`.
  */
 interface CardDecisions {
-    suspend fun pendingKeys(): Outcome<Set<String>>
+    suspend fun pendingCards(): Outcome<List<PendingCard>>
 
     suspend fun markDisplayed(decisionKey: String): Outcome<CardDisplay>
 }
 
 /**
  * Disables a JITAI ("Stop this JITAI"). The wiring team implements it with the same disable path as the JITAI list's
- * Disable button: the repository sets status DISABLED and deletes the JITAI's timer rows in the same transaction, then
- * `JitaiEngine.onDefinitionChanged(jitaiId)` cancels its unclaimed decisions and re-plans. It runs only after the engine
- * accepted the action's nonce ([dev.agentle.interventions.wiring.EngineResponseRecorder]).
+ * Disable button: the repository sets status DISABLED and deletes the JITAI's timer rows in the same transaction.
+ * [dev.agentle.interventions.wiring.EngineResponseRecorder] then calls `JitaiEngine.onDefinitionChanged(jitaiId)` and
+ * records NOT_HELPFUL, in that order.
  */
 fun interface JitaiStopper {
     suspend fun stop(jitaiId: String): Outcome<Unit>
@@ -110,19 +111,15 @@ fun interface JitaiStopper {
  *   `EngineSettings.inAppCards`: the engine moves the decision to CARD_PENDING only when that is on.
  * @property voiceLocaleTag BCP 47 tag of the voice language; null uses the device locale.
  * @property speakOnlyOnPrivateOutput play voice only on headphones, Bluetooth audio or hearing aids (R09 §2.7).
- * @property cardTtlMinutes upper bound of an in-app card's life when the rule sets no notification timeout (the engine
- *   expires the decision at the engine-day rollover; [dev.agentle.interventions.card.InterventionCards.refresh] follows).
  * @property mediaExpiryDays lifetime of generated media (R09 §9.4).
  */
 data class InterventionSettings(
     val inAppCards: Boolean = false,
     val voiceLocaleTag: String? = null,
     val speakOnlyOnPrivateOutput: Boolean = false,
-    val cardTtlMinutes: Int = DEFAULT_CARD_TTL_MINUTES,
     val mediaExpiryDays: Int = DEFAULT_MEDIA_EXPIRY_DAYS,
 ) {
     companion object {
-        const val DEFAULT_CARD_TTL_MINUTES: Int = 24 * 60
         const val DEFAULT_MEDIA_EXPIRY_DAYS: Int = 14
     }
 }
@@ -166,12 +163,12 @@ interface MediaMetadataStore {
 }
 
 /**
- * In-app cards: deliveries kept for the app when notifications were blocked (CARD_PENDING candidates, confirmed against
+ * In-app cards: the media kept by `DeliveryPort.keepAsCard` and the copy of a shown card (text and expiry come from
  * [CardDecisions]). Cards hold the in-app title and body, so the implementation keeps them with the other intervention
  * content (the encrypted database), never in plain DataStore.
  */
 interface InterventionCardStore {
-    /** Every stored card, oldest first, including expired and unconfirmed ones (the reader filters). */
+    /** Every stored card, oldest first, including expired ones and ones the engine no longer lists (the reader filters). */
     fun observe(): Flow<List<InterventionCard>>
 
     /** Inserts or replaces the card with the same decision key. */
