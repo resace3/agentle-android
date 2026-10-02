@@ -82,10 +82,7 @@ internal sealed interface DeleteDataAction {
  * the progress, a failure or a resumed run after a restart all show the same way.
  */
 @HiltViewModel
-internal class DeleteDataViewModel @Inject constructor(
-    private val port: DeletionPort,
-    @Suppress("UnusedPrivateProperty") private val zonePort: UserTimeZonePort,
-) : EffectViewModel() {
+internal class DeleteDataViewModel @Inject constructor(private val port: DeletionPort, zonePort: UserTimeZonePort) : EffectViewModel() {
     private data class Local(
         val request: DeleteRequest? = null,
         val deleting: DeletionTarget? = null,

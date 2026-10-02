@@ -35,10 +35,7 @@ internal sealed interface PrivacyAction {
 
 /** Privacy: what is stored where, what never leaves the phone, AI sharing and the protections in force. */
 @HiltViewModel
-internal class PrivacyViewModel @Inject constructor(
-    private val port: PrivacyPort,
-    @Suppress("UnusedPrivateProperty") private val zonePort: UserTimeZonePort,
-) : EffectViewModel() {
+internal class PrivacyViewModel @Inject constructor(private val port: PrivacyPort, zonePort: UserTimeZonePort) : EffectViewModel() {
     private val reloads = MutableStateFlow(0)
 
     val state: StateFlow<PrivacyUiState> = reloads.reloading { port.state }

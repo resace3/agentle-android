@@ -37,10 +37,8 @@ internal sealed interface DiagnosticsAction {
 
 /** Diagnostics (spec §55): codes, states, counts and times only; the export goes to the share sheet. */
 @HiltViewModel
-internal class DiagnosticsViewModel @Inject constructor(
-    private val port: DiagnosticsPort,
-    @Suppress("UnusedPrivateProperty") private val zonePort: UserTimeZonePort,
-) : EffectViewModel() {
+internal class DiagnosticsViewModel @Inject constructor(private val port: DiagnosticsPort, zonePort: UserTimeZonePort) :
+    EffectViewModel() {
     private val reloads = MutableStateFlow(0)
     private val exporting = MutableStateFlow(false)
 

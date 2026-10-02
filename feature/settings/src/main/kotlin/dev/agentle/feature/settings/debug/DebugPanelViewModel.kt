@@ -89,10 +89,7 @@ internal sealed interface DebugAction {
  * [DebugPanelUiState.NotAvailable] for good and this ViewModel never touches the port again.
  */
 @HiltViewModel
-internal class DebugPanelViewModel @Inject constructor(
-    private val port: DebugToolsPort,
-    @Suppress("UnusedPrivateProperty") private val zonePort: UserTimeZonePort,
-) : EffectViewModel() {
+internal class DebugPanelViewModel @Inject constructor(private val port: DebugToolsPort, zonePort: UserTimeZonePort) : EffectViewModel() {
     private data class Local(
         val eventType: EventType? = null,
         val eventCount: Int = EVENT_COUNTS[1],

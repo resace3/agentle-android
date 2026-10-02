@@ -14,6 +14,7 @@ import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -35,6 +36,7 @@ import dev.agentle.feature.settings.testing.FakeDeletionPort
 import dev.agentle.feature.settings.testing.Fixtures
 import dev.agentle.feature.settings.testing.TestZonePort
 import dev.agentle.feature.settings.ui.Loadable
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,6 +48,12 @@ import org.robolectric.annotation.Config
 class SettingsScreenTest {
     @get:Rule
     val rule = createAndroidComposeRule<ComponentActivity>()
+
+    /** Accessibility Test Framework checks run on every interaction (docs/research/08 s8.5). */
+    @Before
+    fun enableChecks() {
+        rule.enableAccessibilityChecks()
+    }
 
     private fun str(@StringRes id: Int, vararg args: Any): String = rule.activity.getString(id, *args)
 

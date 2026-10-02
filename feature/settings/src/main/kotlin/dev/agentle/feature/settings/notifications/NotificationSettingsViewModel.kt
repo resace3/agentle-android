@@ -80,7 +80,7 @@ internal sealed interface NotificationAction {
 internal class NotificationSettingsViewModel @Inject constructor(
     private val port: NotificationSettingsPort,
     private val systemSettings: SystemSettingsPort,
-    @Suppress("UnusedPrivateProperty") private val zonePort: UserTimeZonePort,
+    zonePort: UserTimeZonePort,
 ) : EffectViewModel() {
     private val reloads = MutableStateFlow(0)
     private val pendingLimits = MutableStateFlow<DeliveryLimits?>(null)
