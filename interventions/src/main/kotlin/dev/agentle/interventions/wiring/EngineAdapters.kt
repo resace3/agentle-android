@@ -63,11 +63,10 @@ object StopGate {
     val RESPONDABLE: Set<DecisionState> =
         setOf(DecisionState.DELIVERING, DecisionState.DELIVERED, DecisionState.DELIVERY_UNCERTAIN, DecisionState.CARD_PENDING)
 
-    fun accepts(record: DecisionRecord?, nonce: String?): Boolean =
-        record != null &&
-            record.state in RESPONDABLE &&
-            record.content.response == JitaiResponse.NONE &&
-            Nonces.matches(record.nonce, nonce)
+    fun accepts(record: DecisionRecord?, nonce: String?): Boolean = record != null &&
+        record.state in RESPONDABLE &&
+        record.content.response == JitaiResponse.NONE &&
+        Nonces.matches(record.nonce, nonce)
 }
 
 /** [CardDecisions] over `JitaiEngine.pendingCards` and `JitaiEngine.markCardDisplayed`. */
