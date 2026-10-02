@@ -403,7 +403,7 @@ private fun FeatureRow(
             }, { set(row.copy(value = it)) })
 
         else -> TextInput(
-            stringResource(R.string.builder_value) + (definition.unit?.let { " ($it)" } ?: ""),
+            stringResource(R.string.builder_value) + definition.unit?.let { " ($it)" }.orEmpty(),
             row.value,
             v,
             field(RowPart.VALUE),

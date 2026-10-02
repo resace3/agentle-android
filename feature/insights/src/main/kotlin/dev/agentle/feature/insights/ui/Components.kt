@@ -36,7 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -162,6 +162,7 @@ internal fun <T> Picker(
 }
 
 /** The localized message of a validator issue (template chosen by the params the issue carries). */
+@Suppress("SpreadOperator") // A handful of format arguments; stringResource takes varargs.
 @Composable
 internal fun issueText(code: dev.agentle.jitai.dsl.validation.IssueCode, params: Map<String, String>): String {
     val texts = ISSUE_TEXTS[code].orEmpty()
@@ -195,13 +196,13 @@ internal fun UserMessage.text(): Int = when (this) {
 /** Applies a ViewModel's one-off effects: navigation through [navigator], messages as snackbars. */
 @Composable
 internal fun CollectEffects(effects: Flow<ScreenEffect>, navigator: AppNavigator, snackbar: SnackbarHostState) {
-    val context = LocalContext.current
+    val resources = LocalResources.current
     LaunchedEffect(effects) {
         effects.collect { effect ->
             when (effect) {
                 is ScreenEffect.Navigate -> navigator.navigate(effect.route)
                 ScreenEffect.Back -> navigator.back()
-                is ScreenEffect.Message -> launch { snackbar.showSnackbar(context.getString(effect.message.text())) }
+                is ScreenEffect.Message -> launch { snackbar.showSnackbar(resources.getString(effect.message.text())) }
             }
         }
     }

@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import com.google.common.truth.Truth.assertThat
+import com.google.common.truth.Truth.assertWithMessage
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.ui.navigation.AppRoute
 import dev.agentle.core.ui.navigation.JitaiTab
@@ -66,10 +67,10 @@ class InsightsJourneyTest {
     private fun assertTouchTargets() {
         val clickable = compose.onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Role).or(isToggleable()))
         clickable.fetchSemanticsNodes().forEach { node ->
-            val size = node.touchBoundsInRoot
             val density = node.layoutInfo.density.density
-            assertThat(size.width / density).isAtLeast(47.5f)
-            assertThat(size.height / density).isAtLeast(47.5f)
+            val label = node.config.getOrNull(SemanticsProperties.Text)?.joinToString() ?: node.config.toString()
+            assertWithMessage(label).that(node.size.width / density).isAtLeast(47.5f)
+            assertWithMessage(label).that(node.size.height / density).isAtLeast(47.5f)
         }
     }
 
@@ -81,7 +82,8 @@ class InsightsJourneyTest {
             previewResult = Outcome.success(Fixtures.preview())
             answer = flowOf(InterpretationEvent.Delta("Late "), InterpretationEvent.Completed(Fixtures.interpretation()))
         }
-        compose.setContent { InsightsTestFrame { InsightListRoute(InsightListViewModel(port), navigator, onBack = null) } }
+        val viewModel = InsightListViewModel(port)
+        compose.setContent { InsightsTestFrame { InsightListRoute(viewModel, navigator, onBack = null) } }
         compose.onAllNodesWithText(Fixtures.insight().title, substring = true).onFirst().performClick()
         assertThat(navigator.routes).containsExactly(AppRoute.InsightDetail(Fixtures.INSIGHT_ID))
     }
@@ -93,7 +95,8 @@ class InsightsJourneyTest {
             previewResult = Outcome.success(Fixtures.preview())
             answer = flowOf(InterpretationEvent.Delta("Late "), InterpretationEvent.Completed(Fixtures.interpretation()))
         }
-        compose.setContent { InsightsTestFrame { InsightDetailRoute(InsightDetailViewModel(Fixtures.INSIGHT_ID, port), navigator) } }
+        val viewModel = InsightDetailViewModel(Fixtures.INSIGHT_ID, port)
+        compose.setContent { InsightsTestFrame { InsightDetailRoute(viewModel, navigator) } }
         compose.onNodeWithText("Explain with AI").performScrollTo().performClick()
         compose.onNodeWithText("What will be sent").performScrollTo()
         assertThat(port.sent).isEmpty()
@@ -109,7 +112,8 @@ class InsightsJourneyTest {
             overview.value = Fixtures.overview()
             history.value = listOf(Fixtures.record(result = DeliveryResult.OPENED))
         }
-        compose.setContent { InsightsTestFrame { JitaiListRoute(JitaiListViewModel(JitaiTab.ACTIVE, port), navigator) } }
+        val viewModel = JitaiListViewModel(JitaiTab.ACTIVE, port)
+        compose.setContent { InsightsTestFrame { JitaiListRoute(viewModel, navigator) } }
         assertTouchTargets()
         compose.onNodeWithText("Pause").performScrollTo().performClick()
         assertThat(port.calls).containsExactly("pause:${Fixtures.RULE_ID}")
@@ -131,7 +135,8 @@ class InsightsJourneyTest {
                     ),
                 )
         }
-        compose.setContent { InsightsTestFrame { NlBuilderRoute(NlBuilderViewModel(builder), navigator) } }
+        val viewModel = NlBuilderViewModel(builder)
+        compose.setContent { InsightsTestFrame { NlBuilderRoute(viewModel, navigator) } }
         compose.onNodeWithText("Your request").performTextInput(Fixtures.REQUEST_WALK)
         compose.onNodeWithText("Create rule").performClick()
         assertThat(navigator.routes).containsExactly(AppRoute.ProposalReview(Fixtures.PROPOSAL_ID))
@@ -140,7 +145,8 @@ class InsightsJourneyTest {
     @Test
     fun journey7_reviewConfirmAndTurnOn() {
         val port = FakeProposalReviewPort().apply { proposals.value = mapOf(Fixtures.PROPOSAL_ID to Fixtures.nlReview()) }
-        compose.setContent { InsightsTestFrame { ProposalReviewRoute(ProposalReviewViewModel(Fixtures.PROPOSAL_ID, port), navigator) } }
+        val viewModel = ProposalReviewViewModel(Fixtures.PROPOSAL_ID, port)
+        compose.setContent { InsightsTestFrame { ProposalReviewRoute(viewModel, navigator) } }
         compose.onNodeWithText("You asked", substring = true).performScrollTo()
         compose.onAllNodes(isToggleable()).fetchSemanticsNodes().indices.forEach { index ->
             compose.onAllNodes(isToggleable())[index].performScrollTo().performClick()

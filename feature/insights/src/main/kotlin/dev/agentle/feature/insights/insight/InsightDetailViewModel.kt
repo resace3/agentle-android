@@ -55,7 +55,7 @@ internal class InsightDetailViewModel @AssistedInject constructor(
     val effects: Flow<ScreenEffect> = effectChannel.receiveAsFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private val detail: Flow<DetailLoad> = reload.flatMapLatest {
+    private val detail: Flow<DetailLoad> = reload.flatMapLatest { _ ->
         port.insightDetail(insightId)
             .map<InsightDetail?, DetailLoad> { detail -> detail?.let { DetailLoad.Loaded(it.toContent()) } ?: DetailLoad.NotFound }
             .onStart { emit(DetailLoad.Loading) }

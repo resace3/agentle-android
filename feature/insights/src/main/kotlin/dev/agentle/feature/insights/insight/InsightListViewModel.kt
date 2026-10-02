@@ -38,7 +38,7 @@ internal class InsightListViewModel @Inject constructor(private val port: Insigh
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<InsightListUiState> = reload
-        .flatMapLatest {
+        .flatMapLatest { _ ->
             port.insightFeed()
                 .map<InsightFeed, InsightListUiState> { feed -> feed.toUiState() }
                 .onStart { emit(InsightListUiState.Loading) }
