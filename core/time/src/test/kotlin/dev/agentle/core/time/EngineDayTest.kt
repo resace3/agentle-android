@@ -6,6 +6,7 @@ import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import org.junit.jupiter.api.Test
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 class EngineDayTest {
@@ -80,6 +81,29 @@ class LocalTimeWindowTest {
         val w = LocalTimeWindow.parse("00:00-00:00")
         assertThat(w.isAllDay).isTrue()
         assertThat(w.contains(Instant.parse("2026-10-01T13:00:00Z"), utc)).isTrue()
+    }
+
+    @Test
+    fun `an all day window that starts after midnight contains the early hours in the previous occurrence`() {
+        val w = LocalTimeWindow.parse("04:00-04:00")
+        val early = Instant.parse("2026-10-02T02:00:00Z")
+        val occ = w.occurrenceContaining(early, utc)!!
+        assertThat(early in occ).isTrue()
+        assertThat(occ.start).isEqualTo(Instant.parse("2026-10-01T04:00:00Z"))
+        assertThat(occ.end).isEqualTo(Instant.parse("2026-10-02T04:00:00Z"))
+        val later = w.occurrenceContaining(Instant.parse("2026-10-02T04:00:00Z"), utc)!!
+        assertThat(later.start).isEqualTo(Instant.parse("2026-10-02T04:00:00Z"))
+    }
+
+    @Test
+    fun `every occurrence contains the instant it was found for`() {
+        val windows = listOf("22:00-07:00", "09:00-17:00", "00:00-00:00", "04:00-04:00", "23:59-00:01").map(LocalTimeWindow::parse)
+        val zone = TimeZone.of("America/New_York")
+        var t = Instant.parse("2026-11-01T00:00:00Z") // spans the US fall-back transition
+        repeat(48 * 4) {
+            windows.forEach { w -> w.occurrenceContaining(t, zone)?.let { assertThat(t in it).isTrue() } }
+            t += 15.minutes
+        }
     }
 
     @Test
