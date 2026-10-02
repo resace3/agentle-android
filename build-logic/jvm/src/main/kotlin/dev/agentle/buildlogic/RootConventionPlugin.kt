@@ -3,7 +3,10 @@ package dev.agentle.buildlogic
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 
-/** Root project: merged Kover report over every real module, and the committed-secrets guard. */
+/**
+ * Root project: merged Kover report over every real module, the committed-secrets guard and the expected test suites
+ * for the evidence report.
+ */
 class RootConventionPlugin : Plugin<Project> {
     override fun apply(target: Project): Unit = with(target) {
         pluginManager.apply("org.jetbrains.kotlinx.kover")
@@ -21,6 +24,7 @@ class RootConventionPlugin : Plugin<Project> {
             )
             report.set(layout.buildDirectory.file("reports/verifyNoSecrets.txt"))
         }
+        ExpectedSuites.register(this)
         Unit
     }
 }
