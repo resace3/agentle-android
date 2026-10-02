@@ -1,6 +1,8 @@
 // Root build for JVM-only mode (see settings.gradle.kts). Same as build.gradle.kts minus the Google Maven plugins.
 // The Android modules are not part of this build, but their Kotlin sources are still formatted (spotless) and
 // statically checked (detekt, no type resolution) from the root project so they can be fixed without Google Maven.
+// Rules that need type resolution (ForbiddenMethodCall: the one-clock rule) are skipped there; the Android CI job runs
+// them through detektMain/detektTest.
 plugins {
     alias(libs.plugins.kotlin.jvm) apply false
     alias(libs.plugins.kotlin.serialization) apply false

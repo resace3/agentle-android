@@ -11,6 +11,15 @@ import org.gradle.kotlin.dsl.withType
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
 
+/** `-Pagentle.testZone=UTC` overrides the test JVMs' default zone for local experiments. */
+private const val TEST_ZONE_PROPERTY = "agentle.testZone"
+
+/**
+ * Default zone of every test JVM. Keep in sync with build-logic/jvm JvmLibraryConventionPlugin. It must differ from
+ * TestAgentleClock's default zone (Australia/Adelaide) so mixing the two zones fails a test.
+ */
+private const val DEFAULT_TEST_ZONE = "America/St_Johns"
+
 /** SDK levels, Java/Kotlin targets, lint, Robolectric-ready unit tests. Shared by app and library conventions. */
 internal fun Project.configureAndroidCommon(extension: CommonExtension) {
     extension.apply {
@@ -59,13 +68,18 @@ internal fun Project.configureAndroidCommon(extension: CommonExtension) {
         add("androidTestImplementation", libs.lib("truth"))
     }
 
+    val testZone = providers.gradleProperty(TEST_ZONE_PROPERTY).orElse(DEFAULT_TEST_ZONE)
     tasks.withType<Test>().configureEach {
         // Robolectric SDK matrix: -ProbolectricSdks=29,34,37 (default: the convention's list).
         val sdks = providers.gradleProperty("robolectricSdks").orElse("29,30,31,33,34,35,36,37")
         systemProperty("robolectric.enabledSdks", sdks.get())
         systemProperty("robolectric.alwaysIncludeVariantMarkersInTestName", "true")
         systemProperty("robolectric.logging.enabled", "false")
-        systemProperty("user.timezone", "UTC")
+        // A non-UTC, half-hour, DST default zone (red team testing-build-04): code that uses the JVM or system
+        // default zone instead of AgentleClock.zone() gives wrong local days and fails tests. TZ is set too, so
+        // native SQLite ('localtime') sees the same zone. -Pagentle.testZone=UTC overrides it for experiments.
+        systemProperty("user.timezone", testZone.get())
+        environment("TZ", testZone.get())
         // Robolectric's SDK 36/37 runtimes reach into JDK internals (java.io.FileDescriptor and friends) on JDK 21.
         jvmArgs(
             "--add-opens=java.base/java.io=ALL-UNNAMED",
