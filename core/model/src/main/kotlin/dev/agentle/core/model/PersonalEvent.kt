@@ -29,8 +29,6 @@ public data class Provenance(
     /** e.g. `PASSIVELY_MEASURED`, `ACTIVELY_MEASURED`, `MANUAL`, `DERIVED`. */
     val recordingMethod: String? = null,
     val appPackage: String? = null,
-    /** The source's own record id when it has one (Google Health data point `name`). */
-    val upstreamId: String? = null,
 )
 
 /** Provenance and bookkeeping that is not part of the measurement itself. */
@@ -43,6 +41,15 @@ public data class EventMetadata(
     val sensitivity: Sensitivity = Sensitivity.NORMAL,
     /** Structured provenance for sources that report it (Google Health `dataSource`); null when unknown. */
     val provenance: Provenance? = null,
+    /** The source's own record id when it has one (Google Health data point `name`). */
+    val upstreamId: String? = null,
+    /** Upstream last-modified time when the source reports one; the newest copy of a record wins. */
+    val upstreamUpdatedAt: Instant? = null,
+    /**
+     * Hash of the normalized payload only (never of optional provenance or output-only upstream fields), so the store
+     * can tell a changed record from a re-fetched identical one. Null when the producer does not compute one.
+     */
+    val payloadHash: String? = null,
 )
 
 /**

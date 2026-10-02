@@ -21,7 +21,17 @@ public data class SyncResult(
     val skippedInvalid: Int = 0,
     val error: AppError? = null,
 ) {
-    public enum class Status { SUCCESS, PARTIAL, FAILED, SKIPPED_DISABLED, SKIPPED_NOT_CONNECTED, SKIPPED_NO_PERMISSION }
+    public enum class Status {
+        SUCCESS,
+        PARTIAL,
+        FAILED,
+        SKIPPED_DISABLED,
+        SKIPPED_NOT_CONNECTED,
+        SKIPPED_NO_PERMISSION,
+
+        /** The upstream account differs from the one the connector is bound to; nothing was synced (reconnect). */
+        ACCOUNT_CHANGED,
+    }
 }
 
 /**
@@ -58,7 +68,16 @@ public interface Connector {
     public suspend fun setEnabled(enabled: Boolean)
 }
 
-/** Position of a connector stream; opaque to everyone but the connector. */
+/**
+ * Position of a connector stream; opaque to everyone but the connector.
+ *
+ * @property accountId the upstream account the position belongs to (a hash, never a raw user id); a cursor of another
+ *   account is not a position for the current one.
+ * @property generation version of the stored cursor (0 when none was ever stored). A writer passes the generation it
+ *   read before fetching (its fetch generation); the sink accepts the call only if the stored generation still equals
+ *   it (compare-and-set) and then stores `generation + 1`. A run that started from an older cursor is rejected as a
+ *   whole ([CommitResult.rejected]), so a cursor never moves backward and stale data is never written.
+ */
 public data class SyncCursor(
     val connectorId: String,
     val stream: String,
@@ -67,6 +86,8 @@ public data class SyncCursor(
     val syncStartedAt: Instant? = null,
     val syncFinishedAt: Instant? = null,
     val lastErrorCode: String? = null,
+    val accountId: String? = null,
+    val generation: Long = 0,
 )
 
 /**
@@ -74,10 +95,21 @@ public data class SyncCursor(
  * [coverageThrough] (docs/research/10 §5.3). Stored in the same transaction as the data it covers, so a reader
  * can tell "no data" (covered, nothing stored) from "not synced yet" (not covered).
  */
-public data class StreamCoverage(val connectorId: String, val stream: String, val coverageThrough: Instant)
+public data class StreamCoverage(
+    val connectorId: String,
+    val stream: String,
+    val coverageThrough: Instant,
+    /** The upstream account (a hash), when the connector is account-bound. */
+    val accountId: String? = null,
+    /** When the recording device last uploaded to the source, if known; it bounds [coverageThrough]. */
+    val deviceLastSync: Instant? = null,
+)
 
-/** Result of committing a batch: how many rows were inserted, updated (payload changed) or ignored (duplicates). */
-public data class CommitResult(val inserted: Int, val updated: Int, val ignored: Int) {
+/**
+ * Result of committing a batch: how many rows were inserted, updated (payload changed) or ignored (duplicates, or
+ * dropped by the sink). [rejected] is true when the cursor's generation check failed and nothing was written.
+ */
+public data class CommitResult(val inserted: Int, val updated: Int, val ignored: Int, val rejected: Boolean = false) {
     val written: Int get() = inserted + updated
 
     public companion object {
@@ -89,10 +121,12 @@ public data class CommitResult(val inserted: Int, val updated: Int, val ignored:
  * Where connectors write. Implemented by the event repository (Room) and by in-memory fakes in tests.
  *
  * [commit] stores [events] (dedup by `dedupKey`: insert new, update only if the payload changed, ignore otherwise)
- * and, in the same transaction, replaces the cursor with [cursor] and the stream's coverage with `coverage` if given.
- * Nothing is committed if it throws.
- * [replaceWindow] is for upstream types without stable ids: it deletes this source's events whose start lies in
- * `[windowStart, windowEnd)` and inserts [events], atomically with the cursor and the coverage.
+ * and, in the same transaction, replaces the cursor with [cursor] (compare-and-set on [SyncCursor.generation]) and
+ * the stream's coverage with `coverage` if given; a stored `coverageThrough` never moves backward (max). Nothing is
+ * committed if it throws.
+ * [replaceWindow] has diff semantics: afterwards the stored events of `source` (and `accountId`, when given) whose
+ * start lies in `[windowStart, windowEnd)` are exactly [events]; unchanged rows stay untouched. It is atomic with the
+ * cursor and the coverage.
  * A sink may drop records it must not keep (for example older than a deletion watermark); they count as ignored,
  * which is never an error for the connector.
  */
@@ -106,7 +140,15 @@ public interface EventSink {
         events: List<PersonalEvent>,
         cursor: SyncCursor? = null,
         coverage: StreamCoverage? = null,
+        accountId: String? = null,
     ): CommitResult
 
     public suspend fun cursor(connectorId: String, stream: String): SyncCursor?
+
+    /**
+     * The earliest instant [source] may import: max(now - retention, the last deletion of that data). Connectors clamp
+     * the start of every window (incremental, overlap, deep re-sync, backfill) to it, so deleted or expired data is
+     * never fetched again. Null means no floor.
+     */
+    public suspend fun importFloor(source: dev.agentle.core.model.DataSourceId): Instant? = null
 }
