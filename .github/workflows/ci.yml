@@ -256,6 +256,8 @@ jobs:
         shell: bash
         run: mkdir -p build && ./gradlew recordRoborazziDebug --continue 2>&1 | tee build/gradle-output.log
       - name: Commit changed goldens
+        # Goldens are written even when an unrelated test fails, so commit them unless the run was cancelled.
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           BRANCH: ${{ github.ref_name }}
