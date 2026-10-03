@@ -1,0 +1,5 @@
+no 'Timeline' on the dashboard
+no 'Data sources' on the dashboard
+no 'Permission' on the dashboard
+no 'Insights' on the dashboard
+no 'Settings' on the dashboard
