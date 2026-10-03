@@ -25,8 +25,8 @@ class MainActivitySmokeTest {
     val compose = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun launchesAndShowsAppName() {
-        compose.onNodeWithText("Agentle").assertIsDisplayed()
+    fun launchesOnTheChatTab() {
+        compose.onNodeWithText("Connect ChatGPT").assertIsDisplayed()
     }
 
     @Test
