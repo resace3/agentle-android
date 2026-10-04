@@ -6,13 +6,11 @@ import dev.agentle.ai.api.AiEnvelopeJson
 import dev.agentle.ai.api.AiPurpose
 import dev.agentle.ai.api.AiRequestEnvelope
 import dev.agentle.ai.api.AiStructuredResult
-import dev.agentle.ai.api.AiTextResult
 import dev.agentle.ai.api.validation.AiOutputValidator
 import dev.agentle.ai.api.validation.JitaiProposalSchema
 import dev.agentle.ai.api.validation.JitaiRuleCheck
 import dev.agentle.ai.api.validation.OutputValidation
 import dev.agentle.ai.api.validation.RuleCheckResult
-import dev.agentle.ai.api.validation.TextRules
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.errorOrNull
 import dev.agentle.core.common.getOrThrow
@@ -173,9 +171,9 @@ class PromptInjectionCorpusTest {
             world.provider.script(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE, FakeAiScenario.PROMPT_INJECTION_ECHO)
 
             val question = world.engine.build(AiPurpose.GENERAL_QUESTION, attack).getOrThrow()
-            val answer = world.send(question).getOrThrow() as AiTextResult
+            val answer = world.send(question).getOrThrow() as AiStructuredResult
             assertWithMessage(name)
-                .that(AiOutputValidator.validateText(answer, FREE_TEXT, PurposePolicy.outputContext(question)))
+                .that(validator.validate(answer, PurposePolicy.outputContext(question)))
                 .isInstanceOf(OutputValidation.Invalid::class.java)
 
             val rule = world.engine.build(AiPurpose.JITAI_FROM_NATURAL_LANGUAGE, "Remind me $attack").getOrThrow()
@@ -203,9 +201,8 @@ class PromptInjectionCorpusTest {
     fun `ordinary replies pass the same validation, so the refusals above are not vacuous`() = runTest {
         val world = World(hooked = true)
         val question = world.engine.build(AiPurpose.GENERAL_QUESTION, "How did my week go").getOrThrow()
-        val answer = world.send(question).getOrThrow() as AiTextResult
-        assertThat(AiOutputValidator.validateText(answer, FREE_TEXT, PurposePolicy.outputContext(question)))
-            .isInstanceOf(OutputValidation.Valid::class.java)
+        val answer = world.send(question).getOrThrow() as AiStructuredResult
+        assertThat(validator.validate(answer, PurposePolicy.outputContext(question))).isInstanceOf(OutputValidation.Valid::class.java)
 
         val (insight, insightWorld) = sleepInsight()
         val reply = insightWorld.send(insight).getOrThrow() as AiStructuredResult
@@ -237,7 +234,6 @@ class PromptInjectionCorpusTest {
     }
 
     private companion object {
-        val FREE_TEXT = TextRules(maxChars = 600, maxSentences = 5)
         val STRUCTURAL = listOf("\"", "{", "}", "<", ">", "[", "]", "/", ":", "\\", "\n", "\r", "`", "*", "#", "(", ")", "=")
     }
 }

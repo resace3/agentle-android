@@ -5,6 +5,10 @@ import android.content.pm.PackageManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.agentle.ai.api.AiPurpose
 import dev.agentle.ai.api.AiRequestMode
+import dev.agentle.ai.api.validation.AiOutputValidator
+import dev.agentle.ai.api.validation.ChatReplyOutput
+import dev.agentle.ai.api.validation.ChatReplySchema
+import dev.agentle.ai.api.validation.toOutcome
 import dev.agentle.ai.context.AiAuditLog
 import dev.agentle.ai.context.AiConsentStore
 import dev.agentle.ai.context.AiContext
@@ -14,6 +18,7 @@ import dev.agentle.ai.context.AppSession
 import dev.agentle.ai.context.ConsentState
 import dev.agentle.ai.context.PhoneUsageDataSource
 import dev.agentle.ai.context.PhoneUsageLoader
+import dev.agentle.ai.context.PurposePolicy
 import dev.agentle.ai.context.ScreenSession
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.common.flatMap
@@ -69,8 +74,13 @@ internal class AppAi @Inject constructor(
 
     suspend fun sharePhoneUsage(): Outcome<Unit> = ai.consent.grant(PHONE_USAGE, AiPurpose.GENERAL_QUESTION)
 
-    suspend fun ask(question: String): Outcome<String> =
-        ai.engine.build(AiPurpose.GENERAL_QUESTION, question).flatMap { ai.guard.analyze(it) }.map { it.text }
+    /** ChatGPT's answer to [question], checked against ChatReplySchema: the text and, when asked for, a dashboard. */
+    suspend fun ask(question: String): Outcome<ChatReplyOutput> =
+        ai.engine.build(AiPurpose.GENERAL_QUESTION, question).flatMap { envelope ->
+            ai.guard.generateStructuredResult(envelope, ChatReplySchema.SCHEMA).flatMap { result ->
+                AiOutputValidator.validate(result, ChatReplySchema.validator, PurposePolicy.outputContext(envelope)).toOutcome()
+            }
+        }
 
     private suspend fun shared(): Boolean {
         val sub = siwc.accountSub() ?: return false

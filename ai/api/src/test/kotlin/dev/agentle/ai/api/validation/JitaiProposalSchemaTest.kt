@@ -284,7 +284,11 @@ class JitaiProposalSchemaTest {
         assertThat(
             wired.validate(walk, JitaiProposalSchema.SCHEMA, OutputValidationContext()),
         ).isInstanceOf(OutputValidation.Valid::class.java)
-        assertThat(wired.schemas.map { it.name }).containsExactly("InsightSchema", "MediaPromptSchema", "JitaiProposalSchema")
+        assertThat(
+            wired.schemas.map {
+                it.name
+            },
+        ).containsExactly("InsightSchema", "MediaPromptSchema", "ChatReplySchema", "JitaiProposalSchema")
     }
 
     @Test

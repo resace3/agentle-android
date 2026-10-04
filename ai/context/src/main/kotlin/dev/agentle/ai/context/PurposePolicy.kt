@@ -3,6 +3,7 @@ package dev.agentle.ai.context
 import dev.agentle.ai.api.AiPurpose
 import dev.agentle.ai.api.AiRequestEnvelope
 import dev.agentle.ai.api.OutputSchema
+import dev.agentle.ai.api.validation.ChatReplySchema
 import dev.agentle.ai.api.validation.InsightSchema
 import dev.agentle.ai.api.validation.JitaiProposalSchema
 import dev.agentle.ai.api.validation.MediaPromptSchema
@@ -100,7 +101,7 @@ public object PurposePolicy {
             userTextMaxChars = REQUEST_MAX_CHARS,
             itemKinds = ItemKind.entries.toSet(),
             background = null,
-            outputSchema = null,
+            outputSchema = ChatReplySchema.SCHEMA,
         ),
         PurposeSpec(
             purpose = AiPurpose.PATTERN_EXPLANATION,
@@ -182,11 +183,14 @@ public object PurposePolicy {
     /**
      * The output-validation context for the reply to [envelope]. Pooled intervention text gets no number at all (round 3,
      * jitai-correctness-17). Natural-language rule requests may repeat numbers of their contract ([templates] plus the
-     * instructions). Every other reply may use only numbers that were sent.
+     * instructions). A chat reply is checked without number provenance: it is shown once in the chat and never stored,
+     * and it may restate sent values in other units (minutes as hours, a daily average of a total). Every other reply may
+     * use only numbers that were sent.
      */
     public fun outputContext(envelope: AiRequestEnvelope, templates: List<String> = emptyList()): OutputValidationContext =
         when (envelope.purpose) {
             AiPurpose.INTERVENTION_TEXT -> OutputValidationContext.forPooledText(envelope)
+            AiPurpose.GENERAL_QUESTION -> OutputValidationContext(envelope.categories, provenance = null)
             AiPurpose.JITAI_FROM_NATURAL_LANGUAGE -> OutputValidationContext.forEnvelope(envelope, templates + envelope.instructions)
             else -> OutputValidationContext.forEnvelope(envelope, templates)
         }

@@ -2,12 +2,22 @@ package dev.agentle.app.shell
 
 import kotlinx.serialization.Serializable
 
-/** A metric a user dashboard can show; each one is computed on the device from stored events. */
+/**
+ * A metric a user dashboard can show; each one is computed on the device from stored events. The names are the metric
+ * codes ChatGPT may pick (ChatReplySchema.METRICS) and are stored, so they are never renamed.
+ */
 @Serializable
 enum class DashboardMetric(val label: String) {
     STEPS("Steps"),
     UNLOCKS("Unlocks"),
     SCREEN_TIME_MINUTES("Screen time (min)"),
+    DISTANCE_METERS("Distance (m)"),
+    ACTIVE_CALORIES("Active calories (kcal)"),
+    EXERCISE_MINUTES("Exercise (min)"),
+    SLEEP_MINUTES("Sleep (min)"),
+    HEART_RATE_AVG("Heart rate (avg bpm)"),
+    RESTING_HEART_RATE("Resting heart rate (bpm)"),
+    NOTIFICATIONS("Notifications"),
 }
 
 /**

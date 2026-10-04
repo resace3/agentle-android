@@ -22,6 +22,7 @@ import dev.agentle.app.BuildConfig
 import dev.agentle.app.shell.ChatMessage
 import dev.agentle.app.shell.ChatPort
 import dev.agentle.app.shell.ChatReply
+import dev.agentle.app.shell.DashboardSpec
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.common.Secret
@@ -203,6 +204,11 @@ internal class SiwcChatPort @Inject constructor(siwc: AppSiwc, private val ai: A
 
     override suspend fun send(history: List<ChatMessage>): Outcome<ChatReply> {
         val question = history.lastOrNull { it.fromUser }?.text ?: return Outcome.failure(AppError.ValidationError(listOf("empty")))
-        return ai.ask(question).map { ChatReply(it) }
+        return ai.ask(question).map { answer ->
+            val dashboard = answer.dashboard?.let { proposal ->
+                DashboardSpec.validated(UUID.randomUUID().toString(), proposal.title, proposal.metrics, proposal.days)
+            }
+            ChatReply(answer.reply, dashboard)
+        }
     }
 }

@@ -36,9 +36,9 @@ public class AiOutputValidator(validators: Iterable<SchemaValidator<*>>) {
         /** The schema reported for free text checked by [validateText]. */
         public val PLAIN_TEXT: OutputSchema = OutputSchema("PlainText", 1, null)
 
-        /** A router with the insight and media prompt validators plus [extra] (for example the JITAI proposal validator). */
+        /** A router with the insight, media prompt and chat reply validators plus [extra] (for example the JITAI proposal validator). */
         public fun withBuiltIns(vararg extra: SchemaValidator<*>): AiOutputValidator =
-            AiOutputValidator(listOf(InsightSchema.validator, MediaPromptSchema.validator) + extra)
+            AiOutputValidator(listOf(InsightSchema.validator, MediaPromptSchema.validator, ChatReplySchema.validator) + extra)
 
         /** S0 extract, S1 size, S2 pre-scan and S3 parse of [text], then [validator]. */
         public fun <T : Any> validateWith(

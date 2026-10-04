@@ -2,19 +2,22 @@ package dev.agentle.app.shell
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -27,10 +30,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.agentle.core.ui.icon.AgentleIcons
 
-/** The chat tab. Until ChatGPT is connected it explains what the chat does and offers the connection screen. */
+/**
+ * The chat tab. Until ChatGPT is connected it explains what the chat does and offers the connection screen. An answer
+ * that made a dashboard links to it ([onOpenDashboard] with the dashboard's id).
+ */
 @Composable
-fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, modifier: Modifier = Modifier) {
+fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, onOpenDashboard: (String) -> Unit, modifier: Modifier = Modifier) {
     val connected by viewModel.connected.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val sending by viewModel.sending.collectAsStateWithLifecycle()
@@ -65,7 +72,7 @@ fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, modifier: Modifi
             }
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(messages) { message -> Bubble(message) }
+            items(messages) { message -> Bubble(message, onOpenDashboard) }
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
@@ -89,8 +96,8 @@ fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, modifier: Modifi
 }
 
 @Composable
-private fun Bubble(message: ChatMessage) {
-    Box(Modifier.fillMaxWidth(), contentAlignment = if (message.fromUser) Alignment.CenterEnd else Alignment.CenterStart) {
+private fun Bubble(message: ChatMessage, onOpenDashboard: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (message.fromUser) Alignment.End else Alignment.Start) {
         val colors = MaterialTheme.colorScheme
         Text(
             message.text,
@@ -100,5 +107,14 @@ private fun Bubble(message: ChatMessage) {
                 .background(if (message.fromUser) colors.primary else colors.surfaceContainerHigh, RoundedCornerShape(18.dp))
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         )
+        message.dashboard?.let { dashboard ->
+            AssistChip(
+                onClick = { onOpenDashboard(dashboard.id) },
+                label = { Text("Open ${dashboard.title}") },
+                leadingIcon = {
+                    Icon(AgentleIcons.barChart, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
+                },
+            )
+        }
     }
 }

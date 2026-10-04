@@ -5,6 +5,7 @@ import android.hardware.SensorManager
 import android.os.Looper
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import dagger.hilt.android.testing.HiltAndroidRule
@@ -38,7 +39,8 @@ class PhoneSensorsTabTest {
         shadowOf(manager).addSensor(accelerometer)
         shadowOf(manager).addSensor(SensorBuilder.newBuilder().setType(Sensor.TYPE_STEP_COUNTER).setName("Step Counter").build())
 
-        compose.onNodeWithText("☰").performClick()
+        compose.onNodeWithContentDescription("Open sidebar").performClick()
+        compose.onNodeWithText("More").performClick()
         compose.onNodeWithText("Phone sensors").performClick()
 
         compose.onNodeWithText("Accelerometer").assertIsDisplayed()

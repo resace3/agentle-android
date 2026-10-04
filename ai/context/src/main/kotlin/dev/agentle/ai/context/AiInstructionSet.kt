@@ -1,6 +1,7 @@
 package dev.agentle.ai.context
 
 import dev.agentle.ai.api.AiPurpose
+import dev.agentle.ai.api.validation.ChatReplySchema
 import dev.agentle.ai.api.validation.InsightSchema
 import dev.agentle.ai.api.validation.MediaPromptSchema
 
@@ -34,7 +35,7 @@ public class AiInstructionSet(taskOverrides: Map<AiPurpose, String> = emptyMap()
 
     public companion object {
         /** Version of the default texts, recorded nowhere else: changing a text means changing this version. */
-        public const val VERSION: String = "agentle-ai-context-v1"
+        public const val VERSION: String = "agentle-ai-context-v2"
 
         private const val MAX_TASK_CHARS = 60_000
 
@@ -65,8 +66,12 @@ public class AiInstructionSet(taskOverrides: Map<AiPurpose, String> = emptyMap()
             AiPurpose.ACTIVITY_INSIGHT to insightTask("the user's activity and steps"),
             AiPurpose.SCREEN_TIME_INSIGHT to insightTask("the user's screen time"),
             AiPurpose.GENERAL_QUESTION to
-                "Task: answer the user's question using only the data. If the data does not answer it, say so briefly. " +
-                "Reply in at most three short sentences of plain text.",
+                "Task: answer the user's question using only the data, in at most three short sentences of plain text in " +
+                "reply. If the data does not answer it, say so briefly. When the user asks for a dashboard, chart, tracker or " +
+                "view of their data, also fill dashboard: a short title, the metrics that fit the request and the number of " +
+                "days to show (7 unless the user asks for another range), and say in reply that the dashboard is in the " +
+                "sidebar. Otherwise dashboard is null. The metrics are these codes:\n" + ChatReplySchema.METRIC_GUIDE +
+                "\nReply with one JSON object that matches this JSON Schema and nothing else:\n" + ChatReplySchema.SCHEMA.jsonSchema,
             AiPurpose.PATTERN_EXPLANATION to
                 "Task: explain the pattern described by the data in plain words, as an observation and not as a cause. " +
                 "Reply with one JSON object that matches this JSON Schema and nothing else:\n" + InsightSchema.SCHEMA.jsonSchema,

@@ -3,6 +3,7 @@ package dev.agentle.fakes.ai
 import dev.agentle.ai.api.AiPurpose
 import dev.agentle.ai.api.AiRequestEnvelope
 import dev.agentle.ai.api.OutputSchema
+import dev.agentle.ai.api.validation.ChatReplySchema
 import dev.agentle.ai.api.validation.InsightSchema
 import dev.agentle.ai.api.validation.JitaiProposalSchema
 import dev.agentle.ai.api.validation.MediaPromptSchema
@@ -25,6 +26,7 @@ public object FakeAiResponses {
     public const val INJECTED_LINK: String = "https://attacker.example/claim"
 
     private const val ECHO_LIMIT = 200
+    private const val DASHBOARD_DAYS = 7
 
     /** Free text for [AiProvider.analyze][dev.agentle.ai.api.AiProvider.analyze]. */
     public fun text(request: AiRequestEnvelope, scenario: FakeAiScenario): String = when (scenario) {
@@ -57,7 +59,29 @@ public object FakeAiResponses {
         InsightSchema.NAME -> insight(request)
         MediaPromptSchema.NAME -> notification(request.purpose)
         JitaiProposalSchema.NAME -> WALK_PROPOSAL
+        ChatReplySchema.NAME -> chatReply(request)
         else -> "{}"
+    }
+
+    /** A chat answer; a request that mentions a dashboard also gets a steps dashboard, as ChatGPT would propose one. */
+    private fun chatReply(request: AiRequestEnvelope): String {
+        val wantsDashboard = request.userText?.raw?.contains("dashboard", ignoreCase = true) == true
+        return buildJsonObject {
+            put("schemaVersion", ChatReplySchema.VERSION)
+            put("reply", if (wantsDashboard) "I added a steps dashboard to the sidebar." else successText(request.purpose))
+            if (wantsDashboard) {
+                put(
+                    "dashboard",
+                    buildJsonObject {
+                        put("title", "Steps")
+                        put("metrics", buildJsonArray { add(JsonPrimitive("STEPS")) })
+                        put("days", DASHBOARD_DAYS)
+                    },
+                )
+            } else {
+                put("dashboard", JsonNull)
+            }
+        }.toString()
     }
 
     private fun insight(request: AiRequestEnvelope): String {
@@ -105,6 +129,19 @@ public object FakeAiResponses {
                 put("caveat", JsonNull)
                 put("origin", "LOCAL")
                 put("strength", "STRONG")
+            }.toString()
+
+            ChatReplySchema.NAME -> buildJsonObject {
+                put("schemaVersion", ChatReplySchema.VERSION)
+                put("reply", echo)
+                put(
+                    "dashboard",
+                    buildJsonObject {
+                        put("title", "Open $INJECTED_LINK")
+                        put("metrics", buildJsonArray { add(JsonPrimitive("STEPS")) })
+                        put("days", DASHBOARD_DAYS)
+                    },
+                )
             }.toString()
 
             MediaPromptSchema.NAME -> buildJsonObject {

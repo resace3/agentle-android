@@ -6,8 +6,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import javax.inject.Inject
 
-/** One line of the chat. */
-data class ChatMessage(val fromUser: Boolean, val text: String)
+/** One line of the chat; [dashboard] is the dashboard ChatGPT made in this answer, if any. */
+data class ChatMessage(val fromUser: Boolean, val text: String, val dashboard: DashboardSpec? = null)
 
 /** ChatGPT's answer; [dashboard] is set when the user asked for a dashboard and the answer validated. */
 data class ChatReply(val text: String, val dashboard: DashboardSpec? = null)

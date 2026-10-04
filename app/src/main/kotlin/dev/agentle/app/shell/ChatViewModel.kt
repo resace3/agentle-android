@@ -38,12 +38,12 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
             val answer = when (val outcome = chat.send(mutableMessages.value)) {
                 is Outcome.Success -> {
                     outcome.value.dashboard?.let(dashboards::add)
-                    outcome.value.text
+                    ChatMessage(fromUser = false, text = outcome.value.text, dashboard = outcome.value.dashboard)
                 }
 
-                is Outcome.Failure -> "ChatGPT couldn't answer (${outcome.error.code})."
+                is Outcome.Failure -> ChatMessage(fromUser = false, text = "ChatGPT couldn't answer (${outcome.error.code}).")
             }
-            mutableMessages.update { it + ChatMessage(fromUser = false, text = answer) }
+            mutableMessages.update { it + answer }
             mutableSending.value = false
         }
     }
