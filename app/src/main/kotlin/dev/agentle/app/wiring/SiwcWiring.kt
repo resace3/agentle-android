@@ -103,6 +103,7 @@ internal class AndroidBrowserLauncher(private val context: Context) : BrowserLau
 /** The app's one SIWC graph. AI requests stay refused until the consent pipeline (EgressGuard) is wired. */
 @Singleton
 internal class AppSiwc @Inject constructor(@ApplicationContext context: Context, vault: SecretVault, clock: AgentleClock) {
+    @Suppress("InjectDispatcher") // The app-lifetime scope of the SIWC session, like AgentleApplication's.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val graph: SiwcGraph = SiwcGraph(
