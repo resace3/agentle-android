@@ -33,7 +33,7 @@ public sealed interface ContentPart {
 
 /** Splits content text into [ContentPart]s. Pure; malformed placeholders stay literal text (the validator rejects them). */
 public object ContentParts {
-    private val PLACEHOLDER = Regex("\\{\\{([a-z0-9_]+)}}")
+    private val PLACEHOLDER = Regex("\\{\\{([a-z0-9_]+)\\}\\}")
 
     /** Every text of [content] that can reach the user: titles, bodies, variant items, the fallback and the caption. */
     public fun texts(content: ContentStrategy): List<String> = when (content) {

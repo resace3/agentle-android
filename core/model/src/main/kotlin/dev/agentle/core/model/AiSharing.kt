@@ -55,7 +55,7 @@ public enum class AiDataCategory(public val storageCategory: DataCategory?, publ
     /** Numeric self-reports: mood, energy, stress. */
     SELF_REPORTS(DataCategory.USER_LOGS),
 
-    /** Battery, charging, Do Not Disturb, connectivity kind, headphones, call state. */
+    /** Battery, charging, Do Not Disturb, connectivity kind, headphones, call state, and which sensors the phone has. */
     DEVICE_STATE(DataCategory.DEVICE_STATE),
 
     /** Agentle's own reminder history: deliveries, responses, rule categories. */

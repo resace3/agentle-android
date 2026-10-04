@@ -45,6 +45,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.agentle.feature.connections.R
 
@@ -137,7 +138,7 @@ internal fun StatusRow(
     }
 }
 
-/** A label with its value at the end (the label wraps at large font sizes), read as one item. */
+/** A label with its value at the end (both wrap, the value never squeezes the label), read as one item. */
 @Composable
 internal fun LabelValueRow(@DrawableRes icon: Int, label: String, value: String, tone: Tone, modifier: Modifier = Modifier) {
     Row(
@@ -150,7 +151,13 @@ internal fun LabelValueRow(@DrawableRes icon: Int, label: String, value: String,
     ) {
         Icon(painter = painterResource(icon), contentDescription = null, tint = tone.color(), modifier = Modifier.size(20.dp))
         Text(text = label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Text(text = value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1f, fill = false),
+        )
     }
 }
 

@@ -196,7 +196,12 @@ internal class SiwcConnectionPort @Inject constructor(private val siwc: AppSiwc)
 
 /** The chat tab: questions go through the consent-checked AI pipeline ([AppAi]) to ChatGPT. */
 internal class SiwcChatPort @Inject constructor(siwc: AppSiwc, private val ai: AppAi) : ChatPort {
-    override val connected: Flow<Boolean> = siwc.graph.signIn.snapshot.map { it.toProviderState() is AiProviderState.Connected }
+    override val connected: Flow<Boolean> = siwc.graph.signIn.snapshot.map { snapshot ->
+        when (snapshot.toProviderState()) {
+            is AiProviderState.Connected, is AiProviderState.UsageLimited, is AiProviderState.Unavailable -> true
+            else -> false
+        }
+    }
 
     override val sharingAllowed: Flow<Boolean> = ai.phoneUsageShared
 

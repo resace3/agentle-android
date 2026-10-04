@@ -254,8 +254,10 @@ class RefreshRobustnessTest : SiwcFakeTest() {
         }
 
         assertThat(result.error()).isInstanceOf(AppError.RateLimited::class.java)
-        assertThat(vault().status.reason).isEqualTo(SiwcReason.REFRESH_NOT_READY)
+        assertThat(vault().status.state).isEqualTo(SiwcState.CONNECTED)
+        assertThat(siwc.session.snapshot.value.toProviderState()).isInstanceOf(AiProviderState.Connected::class.java)
         assertThat(server.refreshCount()).isEqualTo(0)
+        assertThat(siwc.token().value()).isEqualTo("at_1")
     }
 
     @Test

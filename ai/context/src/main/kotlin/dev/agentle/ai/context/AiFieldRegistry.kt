@@ -2,6 +2,7 @@ package dev.agentle.ai.context
 
 import dev.agentle.ai.api.AiPurpose
 import dev.agentle.analytics.features.RealtimeFeatureCatalog
+import dev.agentle.connectors.api.sensors.SensorGroup
 import dev.agentle.core.model.AiDataCategory
 import dev.agentle.core.model.AiDataCategory.ACTIVITY
 import dev.agentle.core.model.AiDataCategory.APP_IDENTITY
@@ -170,6 +171,18 @@ public object AiFieldRegistry {
                 listOf("device.charging_now", "device.dnd_now", "device.headphones_now").forEach { c(it, YES_NO) }
             },
         )
+        val chat = setOf(AiPurpose.GENERAL_QUESTION)
+        addAll(
+            group("sensors", setOf(DEVICE_STATE), OD) {
+                listOf("sensors.count", "sensors.type_count", "sensors.recorded_count").forEach { q(it, "count", chat) }
+                c("sensors.recorded_type", SensorGroup.entries.flatMapTo(LinkedHashSet(), SensorInventoryDataSource::typeCodes), chat)
+            },
+        )
+        SensorGroup.entries.forEach { sensorGroup ->
+            val field = SensorInventoryDataSource.groupField(sensorGroup)
+            val codes = SensorInventoryDataSource.typeCodes(sensorGroup)
+            addAll(group(field.replace('.', '_'), setOf(DEVICE_STATE), OD) { c(field, codes, chat) })
+        }
         addAll(
             group("place", setOf(LOCATION_CLASS), OD) {
                 c("place.class_now", enumOf("location_class"))

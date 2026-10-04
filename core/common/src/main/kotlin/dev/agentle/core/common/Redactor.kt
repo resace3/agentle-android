@@ -28,8 +28,8 @@ public object Redactor {
         Regex("""(?i)(authorization\s*[:=]\s*)(bearer|basic)?\s*[^\s,;]+""") to "$1$MASK",
         Regex("""(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{8,}""") to "Bearer $MASK",
         // key=value or "key":"value" for OAuth parameters (whole keys only) and compound secret keys
-        Regex("""(?i)((?<![A-Za-z0-9_-])"?(?:$SECRET_KEYS)"?\s*[:=]\s*"?)([^"&\s,}]+)""") to "$1$MASK",
-        Regex("""(?i)("?[A-Za-z0-9_-]*(?:$SECRET_SUFFIXES)"?\s*[:=]\s*"?)([^"&\s,}]+)""") to "$1$MASK",
+        Regex("""(?i)((?<![A-Za-z0-9_-])"?(?:$SECRET_KEYS)"?\s*[:=]\s*"?)([^"&\s,\}]+)""") to "$1$MASK",
+        Regex("""(?i)("?[A-Za-z0-9_-]*(?:$SECRET_SUFFIXES)"?\s*[:=]\s*"?)([^"&\s,\}]+)""") to "$1$MASK",
         // e-mail addresses
         Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""") to "[EMAIL]",
         // precise coordinates: keep 2 decimals (about 1 km)

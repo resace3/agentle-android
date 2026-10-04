@@ -60,11 +60,12 @@ fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, onOpenDashboard:
         if (connected && !sharingAllowed) {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Share your phone usage with ChatGPT?", style = MaterialTheme.typography.titleMedium)
+                    Text("Share your phone usage and sensor list with ChatGPT?", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "To answer questions about your phone, Agentle sends ChatGPT summaries from the last 4 weeks: " +
-                            "daily screen time, unlocks and your most used apps (by name). Nothing else is sent, and " +
-                            "requests are linked to your ChatGPT account.",
+                            "daily screen time, unlocks and your most used apps (by name), plus how many sensors this phone " +
+                            "has, the type of each and which ones Agentle records (no sensor readings). Nothing else is " +
+                            "sent, and requests are linked to your ChatGPT account.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Button(onClick = viewModel::allowSharing) { Text("Allow") }

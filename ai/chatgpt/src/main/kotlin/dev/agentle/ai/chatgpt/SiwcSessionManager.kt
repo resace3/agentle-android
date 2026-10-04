@@ -258,9 +258,17 @@ public class SiwcSessionManager(
         val notReady = earliest != null && clock.now().toEpochMilliseconds() < earliest
         return when {
             !force && remaining > config.refreshLeeway -> Decision.Use(tokens.accessToken.value)
+
             notReady && !force && remaining.isPositive() -> Decision.Use(tokens.accessToken.value)
+
+            // A 401 on a still-valid token before earliest_refresh_at fails this call only; the session stays connected.
+            earliest != null && notReady && remaining.isPositive() ->
+                Decision.Fail(SiwcErrorMapper.refreshNotReady(earliest, clock.now()).copy(status = null))
+
             earliest != null && notReady -> Decision.Fail(SiwcErrorMapper.refreshNotReady(earliest, clock.now()))
+
             tokens.refreshToken == null -> Decision.Fail(SiwcErrorMapper.notConnected())
+
             else -> Decision.Refresh
         }
     }

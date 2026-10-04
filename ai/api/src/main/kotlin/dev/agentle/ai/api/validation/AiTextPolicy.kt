@@ -97,9 +97,9 @@ public object AiTextPolicy {
     private val DOMAIN_TOKEN = Regex("[\\p{L}\\p{N}][\\p{L}\\p{N}.-]*")
     private val EMAIL = Regex("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")
     private val PHONE = Regex("\\d(?:[ .()\\-]*\\d){6,}")
-    private val MARKUP = Regex("<[\\p{L}/]|]\\(|`|\\*\\*")
-    private val PLACEHOLDER = Regex("\\{\\{|}}")
-    private val PLACEHOLDER_SPAN = Regex("\\{\\{[^{}]*}}")
+    private val MARKUP = Regex("<[\\p{L}/]|\\]\\(|`|\\*\\*")
+    private val PLACEHOLDER = Regex("\\{\\{|\\}\\}")
+    private val PLACEHOLDER_SPAN = Regex("\\{\\{[^\\{\\}]*\\}\\}")
     private const val NOT_WORD_BEFORE = "(?<![\\p{L}\\p{N}_])"
     private const val NOT_WORD_AFTER = "(?![\\p{L}\\p{N}_])"
     private val MEDICAL = Regex(NOT_WORD_BEFORE + "(?:" + MEDICAL_STEMS.joinToString("|") + ")")

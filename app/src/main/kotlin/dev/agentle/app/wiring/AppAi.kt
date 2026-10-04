@@ -15,11 +15,17 @@ import dev.agentle.ai.context.AiContext
 import dev.agentle.ai.context.AiContextOptions
 import dev.agentle.ai.context.AiRequestRecord
 import dev.agentle.ai.context.AppSession
+import dev.agentle.ai.context.CompositeAiContextDataSource
 import dev.agentle.ai.context.ConsentState
 import dev.agentle.ai.context.PhoneUsageDataSource
 import dev.agentle.ai.context.PhoneUsageLoader
 import dev.agentle.ai.context.PurposePolicy
 import dev.agentle.ai.context.ScreenSession
+import dev.agentle.ai.context.SensorInventoryDataSource
+import dev.agentle.ai.context.SensorInventoryLoader
+import dev.agentle.connectors.android.collectors.sensors.SensorGateway
+import dev.agentle.connectors.android.core.AndroidSources
+import dev.agentle.connectors.api.sensors.DeviceSensor
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.common.flatMap
 import dev.agentle.core.common.map
@@ -42,21 +48,27 @@ import javax.inject.Singleton
 import kotlin.time.Instant
 
 /**
- * The app's AI pipeline: chat questions are built by the ContextSelectionEngine from phone-usage aggregates the user
- * agreed to share, checked by the EgressGuard, and only then sent to ChatGPT by the SIWC provider.
+ * The app's AI pipeline: chat questions are built by the ContextSelectionEngine from phone-usage aggregates and the
+ * sensor inventory the user agreed to share, checked by the EgressGuard, and only then sent to ChatGPT by the SIWC provider.
  */
 @Singleton
 internal class AppAi @Inject constructor(
     @ApplicationContext context: Context,
     private val siwc: AppSiwc,
     events: EventRepository,
+    sensors: SensorGateway,
     clock: AgentleClock,
 ) {
     private val prefs = context.getSharedPreferences("ai_install", Context.MODE_PRIVATE)
     private val consentStore = PrefsConsentStore(context)
 
     private val ai = AiContext(
-        dataSource = PhoneUsageDataSource(EventPhoneUsageLoader(events, context.packageManager)) { clock.now() },
+        dataSource = CompositeAiContextDataSource(
+            listOf(
+                PhoneUsageDataSource(EventPhoneUsageLoader(events, context.packageManager)) { clock.now() },
+                SensorInventoryDataSource(GatewaySensorInventoryLoader(sensors, events)),
+            ),
+        ),
         consentStore = consentStore,
         account = { siwc.accountSub() },
         auditLog = InMemoryAuditLog(),
@@ -68,7 +80,7 @@ internal class AppAi @Inject constructor(
         options = AiContextOptions(accountSalt = salt()),
     )
 
-    /** True while this account has agreed to share phone-usage summaries with ChatGPT for chat questions. */
+    /** True while this account has agreed to share phone-usage summaries and the sensor list with ChatGPT for chat questions. */
     val phoneUsageShared: Flow<Boolean> =
         combine(consentStore.changes.onStart { emit(Unit) }, siwc.graph.signIn.snapshot) { _, _ -> shared() }
 
@@ -95,7 +107,9 @@ internal class AppAi @Inject constructor(
 
     private companion object {
         const val SALT = "account_salt"
-        val PHONE_USAGE = setOf(AiDataCategory.SCREEN_TIME_TOTALS, AiDataCategory.APP_IDENTITY)
+
+        /** Phone usage plus DEVICE_STATE for the sensor inventory; an account that granted only the first two is asked again. */
+        val PHONE_USAGE = setOf(AiDataCategory.SCREEN_TIME_TOTALS, AiDataCategory.APP_IDENTITY, AiDataCategory.DEVICE_STATE)
     }
 }
 
@@ -152,5 +166,24 @@ private class EventPhoneUsageLoader(private val events: EventRepository, private
         packages.getApplicationLabel(packages.getApplicationInfo(packageName, 0)).toString()
     } catch (_: PackageManager.NameNotFoundException) {
         packageName
+    }
+}
+
+/**
+ * The phone's sensors from the sensor gateway. Agentle reads no sensor directly (the Phone sensors tab only checks them
+ * live); the one it records is the step counter, whose counts the Recording API stores as the phone's steps.
+ */
+private class GatewaySensorInventoryLoader(private val gateway: SensorGateway, private val events: EventRepository) :
+    SensorInventoryLoader {
+    override suspend fun sensors(): List<DeviceSensor> = gateway.sensors()
+
+    override suspend fun recordedIds(): Set<String> {
+        val stepsStored = events.countsPerSource().any { it.name == AndroidSources.STEPS.value && it.rows > 0 }
+        return if (stepsStored) sensors().filter { it.kind.type == STEP_COUNTER }.mapTo(HashSet()) { it.id } else emptySet()
+    }
+
+    private companion object {
+        /** `Sensor.TYPE_STEP_COUNTER`. */
+        const val STEP_COUNTER = 19
     }
 }

@@ -3,6 +3,7 @@ package dev.agentle.app.shell
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 
 /** The chat tab: sends the conversation to ChatGPT and saves any dashboard it makes to the sidebar. */
 @HiltViewModel
@@ -35,18 +37,49 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
         mutableMessages.update { it + ChatMessage(fromUser = true, text = trimmed) }
         mutableSending.value = true
         viewModelScope.launch {
-            val answer = when (val outcome = chat.send(mutableMessages.value)) {
-                is Outcome.Success -> {
-                    outcome.value.dashboard?.let(dashboards::add)
-                    ChatMessage(fromUser = false, text = outcome.value.text, dashboard = outcome.value.dashboard)
-                }
+            val answer = try {
+                when (val outcome = chat.send(mutableMessages.value)) {
+                    is Outcome.Success -> {
+                        outcome.value.dashboard?.let(dashboards::add)
+                        ChatMessage(fromUser = false, text = outcome.value.text, dashboard = outcome.value.dashboard)
+                    }
 
-                is Outcome.Failure -> ChatMessage(fromUser = false, text = "ChatGPT couldn't answer (${outcome.error.code}).")
+                    is Outcome.Failure -> failure(outcome.error)
+                }
+            } catch (e: CancellationException) {
+                mutableSending.value = false
+                throw e
+            } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+                unexpected(e)
+            } catch (e: LinkageError) {
+                // A class that failed to load (say, a pattern Android's regex engine rejects) must not kill the app either.
+                unexpected(e)
             }
             mutableMessages.update { it + answer }
             mutableSending.value = false
         }
     }
+
+    /** What went wrong in words, with the error code for support. */
+    private fun failure(error: AppError): ChatMessage = answer(
+        when (error) {
+            is AppError.RateLimited -> error.retryAfter?.let { wait ->
+                "ChatGPT can't take a question right now. Try again in ${wait.inWholeMinutes + 1} min (${error.code})."
+            } ?: "ChatGPT can't take a question right now. Try again soon (${error.code})."
+
+            is AppError.NetworkUnavailable -> "Couldn't reach ChatGPT. Check the phone's connection and try again (${error.code})."
+
+            is AppError.AuthenticationRequired, is AppError.TokenExpired ->
+                "Sign in to ChatGPT again under More, ChatGPT connection (${error.code})."
+
+            else -> "ChatGPT couldn't answer (${error.code})."
+        },
+    )
+
+    /** A failure no layer turned into an [AppError]: the app keeps running and says so. */
+    private fun unexpected(e: Throwable) = answer("ChatGPT couldn't answer (unexpected_${e::class.simpleName}).")
+
+    private fun answer(text: String) = ChatMessage(fromUser = false, text = text)
 
     private companion object {
         const val STOP_MS = 5_000L

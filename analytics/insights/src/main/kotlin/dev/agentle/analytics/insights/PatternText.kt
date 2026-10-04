@@ -146,7 +146,7 @@ public object TextLint {
     private val DOMAIN = Regex("[\\p{L}\\p{N}][\\p{L}\\p{N}-]*(?:\\.[\\p{L}\\p{N}-]+)*\\.([\\p{L}]{2,})$NOT_WORD_AFTER")
     private val EMAIL = Regex("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")
     private val PHONE = Regex("\\d(?:[ .()\\-]*\\d){6,}")
-    private val MARKUP = Regex("<[\\p{L}/]|]\\(|`|\\*\\*")
+    private val MARKUP = Regex("<[\\p{L}/]|\\]\\(|`|\\*\\*")
     private val MEDICAL = Regex(NOT_WORD_BEFORE + "(?:" + MEDICAL_STEMS.joinToString("|") + ")")
     private val CAUSAL = Regex(
         CAUSAL_PHRASES.joinToString("|", prefix = "$NOT_WORD_BEFORE(?:", postfix = ")$NOT_WORD_AFTER") { phrase ->
