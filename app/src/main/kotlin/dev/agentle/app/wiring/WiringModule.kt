@@ -24,7 +24,10 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 internal interface WiringModule {
     @Binds @Singleton
-    fun chat(impl: dev.agentle.app.shell.UnavailableChatPort): dev.agentle.app.shell.ChatPort
+    fun chat(impl: SiwcChatPort): dev.agentle.app.shell.ChatPort
+
+    @Binds @Singleton
+    fun chatGptConnection(impl: SiwcConnectionPort): dev.agentle.feature.connections.port.ChatGptConnectionPort
 
     @Binds @Singleton
     fun timeline(impl: RoomTimelinePort): TimelinePort

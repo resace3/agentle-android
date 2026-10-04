@@ -50,9 +50,6 @@ public object ConnectionsStagingModule {
     public fun wearableConnectionPort(): WearableConnectionPort = UnavailableWearableConnectionPort
 
     @Provides
-    public fun chatGptConnectionPort(): ChatGptConnectionPort = UnavailableChatGptConnectionPort
-
-    @Provides
     public fun aiDataSharingPort(): AiDataSharingPort = UnavailableAiDataSharingPort
 
     /** No times are shown while every connection is unavailable; APP-WIRING binds `AgentleClock.zone()`. */
