@@ -79,9 +79,8 @@ internal class SecretVaultCredentialStore(private val vault: SecretVault) : Cred
 internal class PrefsInstallIdProvider(context: Context) : InstallIdProvider {
     private val prefs = context.getSharedPreferences("siwc_install", Context.MODE_PRIVATE)
 
-    @Synchronized
-    override suspend fun hostId(): String = prefs.getString(KEY, null) ?: "urn:uuid:${UUID.randomUUID()}".also {
-        prefs.edit().putString(KEY, it).commit()
+    override suspend fun hostId(): String = synchronized(this) {
+        prefs.getString(KEY, null) ?: "urn:uuid:${UUID.randomUUID()}".also { prefs.edit().putString(KEY, it).commit() }
     }
 
     private companion object {
