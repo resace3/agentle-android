@@ -26,3 +26,9 @@ Updated 2026-10-02 19:50 UTC. Draft mode (Nick, 18:28): one agent, no reviewers;
 
 ## Rules
 Never use the legacy Fitbit Web API (Google Health API only). Agents work token-efficiently: targeted reads and tests, full suite only before completion. Update this file after each major milestone.
+
+## 2026-10-04: UI shell, Sign in with ChatGPT, chat over phone data
+- UI: blue Material palette (core/ui Color.kt); MainActivity is a ModalNavigationDrawer shell (app/shell): Chat tab first, then the feature screens, then "My dashboards" (DashboardSpec, validated declarative specs in DashboardStore; ChatGPT does not create them yet).
+- Sign in with ChatGPT is wired for real: app/wiring/SiwcWiring.kt (Tink SecretVault credential store, browser launch, loopback callback, `agentle://siwc-done` return link). Not yet tried against OpenAI from a device.
+- Chat: app/wiring/AppAi.kt builds AiContext (ContextSelectionEngine + EgressGuard) with ai/context PhoneUsageDataSource (screen time, unlocks, top apps). The user allows sharing on the chat tab (grant SCREEN_TIME_TOTALS + APP_IDENTITY for GENERAL_QUESTION). Tested by ai/context PhoneUsageChatTest. The audit log is in memory only.
+- Known red CI: PermissionCenterJourneyTest (issue #4), feature:connections test timeout.

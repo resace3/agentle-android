@@ -23,6 +23,12 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
     val sending: StateFlow<Boolean> = mutableSending.asStateFlow()
     val connected: StateFlow<Boolean> = chat.connected.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_MS), false)
 
+    val sharingAllowed: StateFlow<Boolean> = chat.sharingAllowed.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_MS), false)
+
+    fun allowSharing() {
+        viewModelScope.launch { chat.allowSharing() }
+    }
+
     fun send(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() || mutableSending.value) return
@@ -35,7 +41,7 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
                     outcome.value.text
                 }
 
-                is Outcome.Failure -> "ChatGPT couldn't answer (${outcome.error::class.simpleName})."
+                is Outcome.Failure -> "ChatGPT couldn't answer (${outcome.error.code})."
             }
             mutableMessages.update { it + ChatMessage(fromUser = false, text = answer) }
             mutableSending.value = false

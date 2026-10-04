@@ -25,6 +25,7 @@ import dev.agentle.app.shell.ChatReply
 import dev.agentle.core.common.AppError
 import dev.agentle.core.common.Outcome
 import dev.agentle.core.common.Secret
+import dev.agentle.core.common.map
 import dev.agentle.core.oauth.BrowserLauncher
 import dev.agentle.core.security.SecretVault
 import dev.agentle.core.security.VaultEntry
@@ -103,18 +104,29 @@ internal class AndroidBrowserLauncher(private val context: Context) : BrowserLau
 /** The app's one SIWC graph. AI requests stay refused until the consent pipeline (EgressGuard) is wired. */
 @Singleton
 internal class AppSiwc @Inject constructor(@ApplicationContext context: Context, vault: SecretVault, clock: AgentleClock) {
+    private val store = SecretVaultCredentialStore(vault)
+
     @Suppress("InjectDispatcher") // The app-lifetime scope of the SIWC session, like AgentleApplication's.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val graph: SiwcGraph = SiwcGraph(
         config = SiwcConfig(applicationId = BuildConfig.APPLICATION_ID),
-        store = SecretVaultCredentialStore(vault),
+        store = store,
         installIds = PrefsInstallIdProvider(context),
         browser = AndroidBrowserLauncher(context),
         clock = clock,
         scope = scope,
-        sendVerifier = AiSendVerifier { _, _ -> Outcome.failure(AppError.UnsupportedFeature("ai_egress")) },
+        sendVerifier = AiSendVerifier { envelope, digest ->
+            verifier?.verifyBeforeSend(envelope, digest) ?: Outcome.failure(AppError.UnsupportedFeature("ai_egress"))
+        },
     )
+
+    /** The EgressGuard, set once by [AppAi]; until then every send is refused. */
+    @Volatile
+    var verifier: AiSendVerifier? = null
+
+    /** The signed-in account's `sub`, read from the sealed credentials. */
+    suspend fun accountSub(): String? = (store.read() as? VaultRead.Present)?.vault?.registration?.sub
 
     init {
         scope.launch { graph.session.start() }
@@ -181,11 +193,16 @@ internal class SiwcConnectionPort @Inject constructor(private val siwc: AppSiwc)
     }
 }
 
-/** The chat tab follows the real connection; replies need the consent pipeline, which is not wired yet. */
-internal class SiwcChatPort @Inject constructor(siwc: AppSiwc) : ChatPort {
+/** The chat tab: questions go through the consent-checked AI pipeline ([AppAi]) to ChatGPT. */
+internal class SiwcChatPort @Inject constructor(siwc: AppSiwc, private val ai: AppAi) : ChatPort {
     override val connected: Flow<Boolean> = siwc.graph.signIn.snapshot.map { it.toProviderState() is AiProviderState.Connected }
 
-    override suspend fun send(history: List<ChatMessage>): Outcome<ChatReply> = Outcome.success(
-        ChatReply("You're signed in to ChatGPT. Chat replies are the next step and aren't connected in this build yet."),
-    )
+    override val sharingAllowed: Flow<Boolean> = ai.phoneUsageShared
+
+    override suspend fun allowSharing(): Outcome<Unit> = ai.sharePhoneUsage()
+
+    override suspend fun send(history: List<ChatMessage>): Outcome<ChatReply> {
+        val question = history.lastOrNull { it.fromUser }?.text ?: return Outcome.failure(AppError.ValidationError(listOf("empty")))
+        return ai.ask(question).map { ChatReply(it) }
+    }
 }

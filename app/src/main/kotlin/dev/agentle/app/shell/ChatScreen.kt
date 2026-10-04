@@ -34,6 +34,7 @@ fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, modifier: Modifi
     val connected by viewModel.connected.collectAsStateWithLifecycle()
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val sending by viewModel.sending.collectAsStateWithLifecycle()
+    val sharingAllowed by viewModel.sharingAllowed.collectAsStateWithLifecycle()
     var draft by rememberSaveable { mutableStateOf("") }
     Column(modifier.fillMaxSize().imePadding().padding(16.dp)) {
         if (!connected) {
@@ -46,6 +47,20 @@ fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, modifier: Modifi
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     Button(onClick = onConnect) { Text("Connect ChatGPT") }
+                }
+            }
+        }
+        if (connected && !sharingAllowed) {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Share your phone usage with ChatGPT?", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "To answer questions about your phone, Agentle sends ChatGPT summaries from the last 4 weeks: " +
+                            "daily screen time, unlocks and your most used apps (by name). Nothing else is sent, and " +
+                            "requests are linked to your ChatGPT account.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Button(onClick = viewModel::allowSharing) { Text("Allow") }
                 }
             }
         }
