@@ -1,13 +1,17 @@
 package dev.agentle.app.wiring
 
+import android.content.Context
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dev.agentle.ai.api.AiPurpose
 import dev.agentle.background.port.Collectors
 import dev.agentle.background.port.Maintenance
+import dev.agentle.connectors.android.collectors.sensors.AndroidSensorGateway
+import dev.agentle.connectors.android.collectors.sensors.SensorGateway
 import dev.agentle.core.datastore.ConsentVocabulary
 import dev.agentle.core.model.AiDataCategory
 import dev.agentle.core.time.AgentleClock
@@ -66,5 +70,8 @@ internal interface WiringModule {
 
         @Provides
         fun userTimeZone(clock: AgentleClock): UserTimeZonePort = UserTimeZonePort { clock.zone() }
+
+        @Provides @Singleton
+        fun sensorGateway(@ApplicationContext context: Context, clock: AgentleClock): SensorGateway = AndroidSensorGateway(context, clock)
     }
 }

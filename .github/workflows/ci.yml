@@ -152,6 +152,21 @@ jobs:
           restore-keys: robolectric-${{ runner.os }}-${{ steps.robolectric.outputs.version }}-
       - name: Accept SDK licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      # One debug signing key for every build, so a new APK installs over the last one and keeps the permissions the
+      # user granted. The key is the DEBUG_KEYSTORE_B64 secret, never this public repo (secrets are not given to pull
+      # requests from forks). Without the secret AGP makes a new debug key each run, as before.
+      - name: Stable debug signing key
+        shell: bash
+        env:
+          DEBUG_KEYSTORE_B64: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_B64" ]; then
+            dir="${ANDROID_USER_HOME:-$HOME/.android}"
+            mkdir -p "$dir" && printf '%s' "$DEBUG_KEYSTORE_B64" | base64 -d > "$dir/debug.keystore"
+            echo "Debug APKs are signed with the stable key from the DEBUG_KEYSTORE_B64 secret."
+          else
+            echo "No DEBUG_KEYSTORE_B64 secret: debug APKs get a new signing key this run."
+          fi
       - name: Record start
         run: echo "START=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - name: SDK inventory (API 36+ platforms and system images)

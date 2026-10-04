@@ -1,5 +1,6 @@
 package dev.agentle.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -41,6 +42,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import dev.agentle.app.shell.ChatRoute
 import dev.agentle.app.shell.ChatScreen
 import dev.agentle.app.shell.DashboardStore
+import dev.agentle.app.shell.SensorsRoute
+import dev.agentle.app.shell.SensorsScreen
 import dev.agentle.app.shell.UserDashboardRoute
 import dev.agentle.app.shell.UserDashboardScreen
 import dev.agentle.core.ui.navigation.AppNavigator
@@ -58,17 +61,39 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
     @Inject lateinit var dashboardStore: DashboardStore
 
+    // The draft starts on the ChatGPT chat: onboarding is not wired to real state yet.
+    private val backStack = mutableStateListOf<NavKey>(ChatRoute)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        openRequestedTab(intent)
         setContent {
             AgentleTheme {
-                // The draft starts on the ChatGPT chat: onboarding is not wired to real state yet.
-                val backStack = remember { mutableStateListOf<NavKey>(ChatRoute) }
                 val navigator = remember(backStack) { BackStackNavigator(backStack) }
                 AppShell(backStack, navigator, dashboardStore)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openRequestedTab(intent)
+    }
+
+    /** `am start ... --es agentle.open sensors` opens the Phone sensors tab (used to check a phone over adb). */
+    private fun openRequestedTab(intent: Intent?) {
+        val route = when (intent?.getStringExtra(EXTRA_OPEN)) {
+            OPEN_SENSORS -> SensorsRoute
+            else -> return
+        }
+        backStack.clear()
+        backStack.add(route)
+    }
+
+    companion object {
+        const val EXTRA_OPEN: String = "agentle.open"
+        const val OPEN_SENSORS: String = "sensors"
     }
 }
 
@@ -82,6 +107,7 @@ private val mainTabs = listOf(
     Tab("Insights", AppRoute.Insights),
     Tab("JITAIs", AppRoute.Jitais()),
     Tab("Data sources", AppRoute.DataSources),
+    Tab("Phone sensors", SensorsRoute),
     Tab("ChatGPT connection", AppRoute.ChatGpt),
     Tab("Settings", AppRoute.Settings),
 )
@@ -148,6 +174,7 @@ private fun AppShell(backStack: SnapshotStateList<NavKey>, navigator: BackStackN
                 ),
                 entryProvider = entryProvider {
                     entry<ChatRoute> { ChatScreen(viewModel = hiltViewModel(), onConnect = { navigator.navigate(AppRoute.ChatGpt) }) }
+                    entry<SensorsRoute> { SensorsScreen(viewModel = hiltViewModel()) }
                     entry<UserDashboardRoute> { key ->
                         UserDashboardScreen(key.id, viewModel = hiltViewModel(), onRemoved = { navigator.resetToKey(ChatRoute) })
                     }
