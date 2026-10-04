@@ -129,7 +129,7 @@ class DashboardCalculatorTest {
         )
 }
 
-private class FixedClock(private val at: Instant, private val tz: TimeZone) : AgentleClock {
+private class FixedClock(at: Instant, private val tz: TimeZone) : AgentleClock {
     override val wall: Clock = object : Clock {
         override fun now(): Instant = at
     }

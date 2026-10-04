@@ -22,14 +22,14 @@ import javax.inject.Inject
  * permission was granted.
  */
 @HiltViewModel
-class SensorsViewModel @Inject constructor(private val gateway: SensorGateway) : ViewModel() {
+class SensorsViewModel @Inject constructor(gateway: SensorGateway) : ViewModel() {
     private val restarts = MutableStateFlow(0)
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val statuses: StateFlow<List<SensorStatus>> = restarts
-        .flatMapLatest {
+        .flatMapLatest { _ ->
             val sensors = gateway.sensors()
-            gateway.live(sensors).map { SensorCheck.statuses(sensors, it) }
+            gateway.live(sensors).map { snapshot -> SensorCheck.statuses(sensors, snapshot) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_MS), emptyList())
 
