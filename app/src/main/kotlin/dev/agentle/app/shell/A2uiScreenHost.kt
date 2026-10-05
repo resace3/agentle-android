@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import dev.agentle.ai.api.screen.A2uiScreenMessages
 import dev.agentle.ai.api.screen.ScreenSpec
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -29,9 +30,9 @@ import kotlinx.coroutines.launch
  * Google's A2UI message processor for the screens one view draws, alive as long as [scope]. It knows Agentle's catalog
  * only, and every message it gets is built by the app from a checked [ScreenSpec] ([A2uiScreenMessages]); nothing from
  * the model reaches it directly. A2UI's own checks run on top of ChatReplySchema's: a part that fails them reports an
- * error ([failures]) and draws a note instead.
+ * error ([failures]) and draws a note instead. Messages are processed on [worker].
  */
-class A2uiScreenHost(scope: CoroutineScope) {
+class A2uiScreenHost(scope: CoroutineScope, worker: CoroutineDispatcher = Dispatchers.Default) {
     private val processor = A2uiMessageProcessor(catalogs = listOf(AgentleA2uiCatalog.catalog))
     private val parser = A2uiMessageParser()
     private val shown = HashMap<String, ScreenSpec>()
@@ -50,7 +51,7 @@ class A2uiScreenHost(scope: CoroutineScope) {
             }
         }
         // Google's guidance: process messages off the main thread, for as long as the owner lives.
-        scope.launch(Dispatchers.Default) { processor.collectMessages() }
+        scope.launch(worker) { processor.collectMessages() }
     }
 
     /** Draws [screen] on the surface [surfaceId], creating it the first time; a changed screen replaces its parts. Main thread. */

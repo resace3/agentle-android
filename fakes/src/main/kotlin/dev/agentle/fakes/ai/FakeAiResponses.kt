@@ -82,18 +82,18 @@ public object FakeAiResponses {
             "components",
             JsonArray(
                 listOf(
-                    part("root", "Column", "children" to JsonArray(listOf("title", "tile", "chart").map { JsonPrimitive(it) })),
-                    part("title", "Text", "text" to JsonPrimitive("Your steps"), "variant" to JsonPrimitive("h2")),
-                    part("tile", "MetricTile", *stepsMetric, "show" to JsonPrimitive("average")),
-                    part("chart", "TrendChart", *stepsMetric, "style" to JsonPrimitive("bar")),
+                    part("root", "Column", mapOf("children" to JsonArray(listOf("title", "tile", "chart").map { JsonPrimitive(it) }))),
+                    part("title", "Text", mapOf("text" to JsonPrimitive("Your steps"), "variant" to JsonPrimitive("h2"))),
+                    part("tile", "MetricTile", stepsMetric + ("show" to JsonPrimitive("average"))),
+                    part("chart", "TrendChart", stepsMetric + ("style" to JsonPrimitive("bar"))),
                 ),
             ),
         )
     }
 
-    private val stepsMetric = arrayOf("metric" to JsonPrimitive("STEPS"), "days" to JsonPrimitive(DASHBOARD_DAYS))
+    private val stepsMetric: Map<String, JsonElement> = mapOf("metric" to JsonPrimitive("STEPS"), "days" to JsonPrimitive(DASHBOARD_DAYS))
 
-    private fun part(id: String, component: String, vararg fields: Pair<String, JsonElement>): JsonObject =
+    private fun part(id: String, component: String, fields: Map<String, JsonElement>): JsonObject =
         JsonObject(mapOf("id" to JsonPrimitive(id), "component" to JsonPrimitive(component)) + fields)
 
     private fun insight(request: AiRequestEnvelope): String {

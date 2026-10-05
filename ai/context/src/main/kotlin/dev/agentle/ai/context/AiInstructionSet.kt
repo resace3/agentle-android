@@ -36,7 +36,7 @@ public class AiInstructionSet(taskOverrides: Map<AiPurpose, String> = emptyMap()
 
     public companion object {
         /** Version of the default texts, recorded nowhere else: changing a text means changing this version. */
-        public const val VERSION: String = "agentle-ai-context-v2"
+        public const val VERSION: String = "agentle-ai-context-v3"
 
         private const val MAX_TASK_CHARS = 60_000
 
