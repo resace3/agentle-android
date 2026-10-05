@@ -266,7 +266,12 @@ private fun ShellContent(backStack: SnapshotStateList<NavKey>, navigator: BackSt
                 }
                 entry<SensorsRoute> { SensorsScreen(viewModel = hiltViewModel()) }
                 entry<UserDashboardRoute> { key ->
-                    UserDashboardScreen(key.id, viewModel = hiltViewModel(), onRemoved = { navigator.resetToKey(ChatRoute) })
+                    UserDashboardScreen(
+                        key.id,
+                        viewModel = hiltViewModel(),
+                        onChange = { navigator.resetToKey(ChatRoute) },
+                        onRemoved = { navigator.resetToKey(ChatRoute) },
+                    )
                 }
                 onboardingEntries(navigator)
                 hubEntries(navigator)

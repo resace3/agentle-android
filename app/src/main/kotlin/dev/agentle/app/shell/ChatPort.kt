@@ -6,10 +6,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import javax.inject.Inject
 
-/** One line of the chat; [dashboard] is the dashboard ChatGPT made in this answer, if any. */
+/** One line of the chat; [dashboard] is the dashboard ChatGPT made or changed in this answer, if any. */
 data class ChatMessage(val fromUser: Boolean, val text: String, val dashboard: DashboardSpec? = null)
 
-/** ChatGPT's answer; [dashboard] is set when the user asked for a dashboard and the answer validated. */
+/** ChatGPT's answer; [dashboard] is set when the user asked for a screen and it passed every check. */
 data class ChatReply(val text: String, val dashboard: DashboardSpec? = null)
 
 /** The main chat tab's link to ChatGPT. */
@@ -22,7 +22,8 @@ interface ChatPort {
 
     suspend fun allowSharing(): Outcome<Unit>
 
-    suspend fun send(history: List<ChatMessage>): Outcome<ChatReply>
+    /** Sends the latest question of [history]; with [editing], it asks to change that dashboard, which a new screen replaces. */
+    suspend fun send(history: List<ChatMessage>, editing: DashboardSpec?): Outcome<ChatReply>
 }
 
 /** This draft has no Sign in with ChatGPT yet, so the chat says so and offers the connection screen. */
@@ -33,5 +34,6 @@ class UnavailableChatPort @Inject constructor() : ChatPort {
 
     override suspend fun allowSharing(): Outcome<Unit> = Outcome.failure(AppError.UnsupportedFeature("chatgpt"))
 
-    override suspend fun send(history: List<ChatMessage>): Outcome<ChatReply> = Outcome.failure(AppError.UnsupportedFeature("chatgpt"))
+    override suspend fun send(history: List<ChatMessage>, editing: DashboardSpec?): Outcome<ChatReply> =
+        Outcome.failure(AppError.UnsupportedFeature("chatgpt"))
 }

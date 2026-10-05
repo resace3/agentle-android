@@ -2,6 +2,8 @@ package dev.agentle.ai.api.screen
 
 import com.google.common.truth.Truth.assertThat
 import dev.agentle.ai.api.validation.OutputCodes
+import dev.agentle.ai.api.validation.ValidationIssue
+import dev.agentle.ai.api.validation.ValidationStage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -68,6 +70,21 @@ class ScreenSpecTest {
             "The saved screen Sleep and steps. Top to bottom it shows a heading Sleep and steps. Then side by side a tile " +
                 "with the average of sleep minutes over the last 14 days and a tile with the total of steps over the last 30 days. " +
                 "Then a card with a line chart of steps per day over the last 7 days.",
+        )
+    }
+
+    @Test
+    fun `only a screen that broke the rules is retried, led by the rules in words`() {
+        val badChild = ValidationIssue(OutputCodes.SCREEN_BAD_REFERENCE, "/screen/components/0/children/1", ValidationStage.S6_SEMANTIC)
+        val number = ValidationIssue(OutputCodes.NUMBER_IN_POOLED_TEXT, "/screen/title", ValidationStage.S6_SEMANTIC, "L13")
+        val reply = ValidationIssue(OutputCodes.TEXT_CONTAINS_CONTACT, "/reply", ValidationStage.S6_SEMANTIC, "L1")
+
+        assertThat(ScreenRepair.applies(listOf(badChild, number))).isTrue()
+        assertThat(ScreenRepair.applies(listOf(badChild, reply))).isFalse()
+        assertThat(ScreenRepair.applies(emptyList())).isFalse()
+        assertThat(ScreenRepair.request("make a sleep screen", listOf(badChild, number))).isEqualTo(
+            "Your last screen for this request broke these rules, so design it again and change nothing else: a child id did " +
+                "not name exactly one other part. a title or text had a number in it. The request: make a sleep screen",
         )
     }
 }

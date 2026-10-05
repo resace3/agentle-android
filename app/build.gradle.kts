@@ -60,6 +60,9 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.browser)
+    implementation(libs.a2ui.model)
+    implementation(libs.a2ui.compose.runtime)
+    implementation(libs.a2ui.compose.ui)
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(project(":core:testing"))

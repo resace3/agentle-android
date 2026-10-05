@@ -5,9 +5,11 @@ import android.content.pm.PackageManager
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.agentle.ai.api.AiPurpose
 import dev.agentle.ai.api.AiRequestMode
+import dev.agentle.ai.api.screen.ScreenRepair
 import dev.agentle.ai.api.validation.AiOutputValidator
 import dev.agentle.ai.api.validation.ChatReplyOutput
 import dev.agentle.ai.api.validation.ChatReplySchema
+import dev.agentle.ai.api.validation.OutputValidation
 import dev.agentle.ai.api.validation.toOutcome
 import dev.agentle.ai.context.AiAuditLog
 import dev.agentle.ai.context.AiConsentStore
@@ -86,11 +88,22 @@ internal class AppAi @Inject constructor(
 
     suspend fun sharePhoneUsage(): Outcome<Unit> = ai.consent.grant(PHONE_USAGE, AiPurpose.GENERAL_QUESTION)
 
-    /** ChatGPT's answer to [question], checked against ChatReplySchema: the text and, when asked for, a dashboard. */
-    suspend fun ask(question: String): Outcome<ChatReplyOutput> =
+    /**
+     * ChatGPT's answer to [question], checked against ChatReplySchema: the text and, when asked for, a screen. An answer
+     * whose only problems are in its screen is asked for once more, led by the rules it broke ([ScreenRepair]).
+     */
+    suspend fun ask(question: String): Outcome<ChatReplyOutput> = answer(question).flatMap { first ->
+        if (first is OutputValidation.Invalid && ScreenRepair.applies(first.issues)) {
+            answer(ScreenRepair.request(question, first.issues)).flatMap { it.toOutcome() }
+        } else {
+            first.toOutcome()
+        }
+    }
+
+    private suspend fun answer(question: String): Outcome<OutputValidation<ChatReplyOutput>> =
         ai.engine.build(AiPurpose.GENERAL_QUESTION, question).flatMap { envelope ->
-            ai.guard.generateStructuredResult(envelope, ChatReplySchema.SCHEMA).flatMap { result ->
-                AiOutputValidator.validate(result, ChatReplySchema.validator, PurposePolicy.outputContext(envelope)).toOutcome()
+            ai.guard.generateStructuredResult(envelope, ChatReplySchema.SCHEMA).map { result ->
+                AiOutputValidator.validate(result, ChatReplySchema.validator, PurposePolicy.outputContext(envelope))
             }
         }
 

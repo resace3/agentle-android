@@ -64,7 +64,46 @@ class ChatViewModelTest {
         assertThat(chat.messages.value.last()).isEqualTo(ChatMessage(fromUser = false, text = "This phone has 23 sensors."))
     }
 
-    private fun chatWith(answer: suspend () -> Outcome<ChatReply>) = ChatViewModel(
+    @Test
+    fun `an answer that fails Agentle's checks says nothing was saved`() {
+        val chat = chatWith { Outcome.failure(AppError.ValidationError(listOf("E116", "E117"))) }
+
+        chat.send("make me a sleep screen")
+
+        assertThat(chat.messages.value.last().text).isEqualTo(
+            "ChatGPT's answer didn't pass Agentle's checks, so nothing was saved. Try asking in other words (E116, E117).",
+        )
+    }
+
+    @Test
+    fun `a change request sends the dashboard and its new screen replaces it in place`() {
+        val store = DashboardStore(ApplicationProvider.getApplicationContext())
+        val target = store.dashboards.value.first()
+        val changed = target.copy(title = "Sleep this month", days = 30)
+        val asked = mutableListOf<DashboardSpec?>()
+        val chat = chatWith(store) { editing ->
+            asked += editing
+            Outcome.success(ChatReply("Done.", editing?.let { changed }))
+        }
+
+        chat.change(target.id)
+        chat.send("make it 30 days")
+
+        assertThat(asked).containsExactly(target)
+        assertThat(store.dashboards.value.first()).isEqualTo(changed)
+        assertThat(store.dashboards.value.count { it.id == target.id }).isEqualTo(1)
+        assertThat(chat.messages.value.last().dashboard).isEqualTo(changed)
+
+        chat.stopChanging()
+        chat.send("hello")
+
+        assertThat(asked.last()).isNull()
+    }
+
+    private fun chatWith(
+        store: DashboardStore = DashboardStore(ApplicationProvider.getApplicationContext()),
+        answer: suspend (editing: DashboardSpec?) -> Outcome<ChatReply>,
+    ) = ChatViewModel(
         object : ChatPort {
             override val connected: Flow<Boolean> = flowOf(true)
 
@@ -72,8 +111,8 @@ class ChatViewModelTest {
 
             override suspend fun allowSharing(): Outcome<Unit> = Outcome.success(Unit)
 
-            override suspend fun send(history: List<ChatMessage>): Outcome<ChatReply> = answer()
+            override suspend fun send(history: List<ChatMessage>, editing: DashboardSpec?): Outcome<ChatReply> = answer(editing)
         },
-        DashboardStore(ApplicationProvider.getApplicationContext()),
+        store,
     )
 }

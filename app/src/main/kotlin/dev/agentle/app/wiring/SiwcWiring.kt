@@ -7,6 +7,7 @@ import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.agentle.ai.api.AiProviderState
 import dev.agentle.ai.api.AiSendVerifier
+import dev.agentle.ai.api.screen.ScreenDescription
 import dev.agentle.ai.chatgpt.ChatGptAiProvider
 import dev.agentle.ai.chatgpt.CredentialStore
 import dev.agentle.ai.chatgpt.DisconnectOutcome
@@ -207,13 +208,16 @@ internal class SiwcChatPort @Inject constructor(siwc: AppSiwc, private val ai: A
 
     override suspend fun allowSharing(): Outcome<Unit> = ai.sharePhoneUsage()
 
-    override suspend fun send(history: List<ChatMessage>): Outcome<ChatReply> {
+    override suspend fun send(history: List<ChatMessage>, editing: DashboardSpec?): Outcome<ChatReply> {
         val question = history.lastOrNull { it.fromUser }?.text ?: return Outcome.failure(AppError.ValidationError(listOf("empty")))
-        return ai.ask(question).map { answer ->
-            val dashboard = answer.dashboard?.let { proposal ->
-                DashboardSpec.validated(UUID.randomUUID().toString(), proposal.title, proposal.metrics, proposal.days)
-            }
-            ChatReply(answer.reply, dashboard)
+        // A change request carries the saved screen in words (the request keeps the user's text first, so a cut keeps it).
+        val asked = editing?.let { "${sentence(question)} ${ScreenDescription.describe(it.layout())}" } ?: question
+        return ai.ask(asked).map { answer ->
+            val dashboard = answer.screen?.let { DashboardSpec.fromScreen(editing?.id ?: UUID.randomUUID().toString(), it) }
+            val unsaved = answer.screen != null && dashboard == null
+            ChatReply(if (unsaved) "${answer.reply} (The screen couldn't be saved.)" else answer.reply, dashboard)
         }
     }
+
+    private fun sentence(text: String): String = text.trimEnd().let { if (it.last() in ".?!") it else "$it." }
 }

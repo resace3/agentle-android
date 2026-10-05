@@ -2,6 +2,7 @@ package dev.agentle.app
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -37,6 +38,7 @@ class SidebarDashboardsTest {
         compose.onNodeWithText("Settings").assertIsDisplayed()
 
         compose.onNodeWithText("Activity Dashboard").performClick()
+        drawn("Steps")
 
         compose.onNodeWithText("Steps").assertIsDisplayed()
         compose.onNodeWithText("Distance (m)").assertIsDisplayed()
@@ -56,8 +58,18 @@ class SidebarDashboardsTest {
         compose.onNodeWithContentDescription("Open sidebar").assertDoesNotExist()
 
         compose.onNodeWithText("Sleep Dashboard").performClick()
+        drawn("Sleep (min)")
 
         compose.onNodeWithText("Sleep (min)").assertIsDisplayed()
         compose.onNodeWithText("Resting heart rate (bpm)").assertIsDisplayed()
+    }
+
+    /** Google's A2UI renderer draws a screen off the main thread, so the test waits for its first part. */
+    private fun drawn(text: String) {
+        compose.waitUntil(DRAW_TIMEOUT_MS) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
+    }
+
+    private companion object {
+        const val DRAW_TIMEOUT_MS = 10_000L
     }
 }

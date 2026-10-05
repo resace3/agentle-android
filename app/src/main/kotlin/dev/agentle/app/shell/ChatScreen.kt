@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,7 +35,7 @@ import dev.agentle.core.ui.icon.AgentleIcons
 
 /**
  * The chat tab. Until ChatGPT is connected it explains what the chat does and offers the connection screen. An answer
- * that made a dashboard links to it ([onOpenDashboard] with the dashboard's id).
+ * that made a screen links to it ([onOpenDashboard] with the dashboard's id) and offers to change it by asking again.
  */
 @Composable
 fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, onOpenDashboard: (String) -> Unit, modifier: Modifier = Modifier) {
@@ -42,6 +43,7 @@ fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, onOpenDashboard:
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val sending by viewModel.sending.collectAsStateWithLifecycle()
     val sharingAllowed by viewModel.sharingAllowed.collectAsStateWithLifecycle()
+    val editing by viewModel.editing.collectAsStateWithLifecycle()
     var draft by rememberSaveable { mutableStateOf("") }
     Column(modifier.fillMaxSize().imePadding().padding(16.dp)) {
         if (!connected) {
@@ -73,7 +75,18 @@ fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, onOpenDashboard:
             }
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(messages) { message -> Bubble(message, onOpenDashboard) }
+            items(messages) { message -> Bubble(message, onOpenDashboard, onChange = viewModel::change) }
+        }
+        editing?.let { dashboard ->
+            Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Changing ${dashboard.title}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = viewModel::stopChanging) { Text("Stop") }
+            }
         }
         Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
@@ -81,7 +94,7 @@ fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, onOpenDashboard:
                 onValueChange = { draft = it },
                 modifier = Modifier.weight(1f),
                 enabled = connected,
-                placeholder = { Text(if (connected) "Ask about your data, or \"make a sleep dashboard\"" else "Connect ChatGPT to chat") },
+                placeholder = { Text(placeholder(connected, editing != null)) },
                 shape = RoundedCornerShape(24.dp),
             )
             Button(
@@ -96,8 +109,14 @@ fun ChatScreen(viewModel: ChatViewModel, onConnect: () -> Unit, onOpenDashboard:
     }
 }
 
+private fun placeholder(connected: Boolean, editing: Boolean): String = when {
+    !connected -> "Connect ChatGPT to chat"
+    editing -> "Say what to change, like \"make it 30 days\""
+    else -> "Ask about your data, or \"make a sleep dashboard\""
+}
+
 @Composable
-private fun Bubble(message: ChatMessage, onOpenDashboard: (String) -> Unit) {
+private fun Bubble(message: ChatMessage, onOpenDashboard: (String) -> Unit, onChange: (String) -> Unit) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (message.fromUser) Alignment.End else Alignment.Start) {
         val colors = MaterialTheme.colorScheme
         Text(
@@ -109,13 +128,16 @@ private fun Bubble(message: ChatMessage, onOpenDashboard: (String) -> Unit) {
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         )
         message.dashboard?.let { dashboard ->
-            AssistChip(
-                onClick = { onOpenDashboard(dashboard.id) },
-                label = { Text("Open ${dashboard.title}") },
-                leadingIcon = {
-                    Icon(AgentleIcons.barChart, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
-                },
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistChip(
+                    onClick = { onOpenDashboard(dashboard.id) },
+                    label = { Text("Open ${dashboard.title}") },
+                    leadingIcon = {
+                        Icon(AgentleIcons.barChart, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
+                    },
+                )
+                AssistChip(onClick = { onChange(dashboard.id) }, label = { Text("Change it") })
+            }
         }
     }
 }

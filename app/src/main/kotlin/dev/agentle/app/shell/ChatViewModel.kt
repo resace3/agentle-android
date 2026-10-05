@@ -9,13 +9,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 
-/** The chat tab: sends the conversation to ChatGPT and saves any dashboard it makes to the sidebar. */
+/**
+ * The chat tab: sends the conversation to ChatGPT and saves any screen it makes to the sidebar. While [editing] is set
+ * (from "Change with ChatGPT" or an answer's "Change it"), questions ask to change that dashboard and its new screen
+ * replaces it.
+ */
 @HiltViewModel
 class ChatViewModel @Inject constructor(private val chat: ChatPort, private val dashboards: DashboardStore) : ViewModel() {
     private val mutableMessages = MutableStateFlow<List<ChatMessage>>(emptyList())
@@ -27,6 +32,17 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
 
     val sharingAllowed: StateFlow<Boolean> = chat.sharingAllowed.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_MS), false)
 
+    /** The dashboard the chat is changing, or null. */
+    val editing: StateFlow<DashboardSpec?> =
+        combine(dashboards.editing, dashboards.dashboards) { id, all -> all.firstOrNull { it.id == id } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_MS), null)
+
+    /** Questions from now on change the dashboard [id]. */
+    fun change(id: String) = dashboards.edit(id)
+
+    /** Questions from now on make new screens. */
+    fun stopChanging() = dashboards.edit(null)
+
     fun allowSharing() {
         viewModelScope.launch { chat.allowSharing() }
     }
@@ -36,9 +52,10 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
         if (trimmed.isEmpty() || mutableSending.value) return
         mutableMessages.update { it + ChatMessage(fromUser = true, text = trimmed) }
         mutableSending.value = true
+        val target = dashboards.editing.value?.let { id -> dashboards.dashboards.value.firstOrNull { it.id == id } }
         viewModelScope.launch {
             val answer = try {
-                when (val outcome = chat.send(mutableMessages.value)) {
+                when (val outcome = chat.send(mutableMessages.value, target)) {
                     is Outcome.Success -> {
                         outcome.value.dashboard?.let(dashboards::add)
                         ChatMessage(fromUser = false, text = outcome.value.text, dashboard = outcome.value.dashboard)
@@ -71,6 +88,10 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
 
             is AppError.AuthenticationRequired, is AppError.TokenExpired ->
                 "Sign in to ChatGPT again under More, ChatGPT connection (${error.code})."
+
+            is AppError.ValidationError ->
+                "ChatGPT's answer didn't pass Agentle's checks, so nothing was saved. Try asking in other words " +
+                    "(${error.codes.joinToString(", ")})."
 
             else -> "ChatGPT couldn't answer (${error.code})."
         },
