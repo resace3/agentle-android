@@ -9,6 +9,7 @@ import dev.agentle.ai.api.validation.JitaiProposalSchema
 import dev.agentle.ai.api.validation.MediaPromptSchema
 import dev.agentle.core.model.AiDataCategory
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -63,26 +64,37 @@ public object FakeAiResponses {
         else -> "{}"
     }
 
-    /** A chat answer; a request that mentions a dashboard also gets a steps dashboard, as ChatGPT would propose one. */
+    /** A chat answer; a request that mentions a dashboard or screen also gets a steps screen, as ChatGPT would design one. */
     private fun chatReply(request: AiRequestEnvelope): String {
-        val wantsDashboard = request.userText?.raw?.contains("dashboard", ignoreCase = true) == true
+        val text = request.userText?.raw.orEmpty()
+        val wantsScreen = text.contains("dashboard", ignoreCase = true) || text.contains("screen", ignoreCase = true)
         return buildJsonObject {
             put("schemaVersion", ChatReplySchema.VERSION)
-            put("reply", if (wantsDashboard) "I added a steps dashboard to the sidebar." else successText(request.purpose))
-            if (wantsDashboard) {
-                put(
-                    "dashboard",
-                    buildJsonObject {
-                        put("title", "Steps")
-                        put("metrics", buildJsonArray { add(JsonPrimitive("STEPS")) })
-                        put("days", DASHBOARD_DAYS)
-                    },
-                )
-            } else {
-                put("dashboard", JsonNull)
-            }
+            put("reply", if (wantsScreen) "I added a steps screen to the sidebar." else successText(request.purpose))
+            put("screen", if (wantsScreen) stepsScreen("Steps") else JsonNull)
         }.toString()
     }
+
+    /** A screen in A2UI's component shape: a heading, a tile and a bar chart of steps. */
+    private fun stepsScreen(title: String): JsonObject = buildJsonObject {
+        put("title", title)
+        put(
+            "components",
+            JsonArray(
+                listOf(
+                    part("root", "Column", "children" to JsonArray(listOf("title", "tile", "chart").map { JsonPrimitive(it) })),
+                    part("title", "Text", "text" to JsonPrimitive("Your steps"), "variant" to JsonPrimitive("h2")),
+                    part("tile", "MetricTile", *stepsMetric, "show" to JsonPrimitive("average")),
+                    part("chart", "TrendChart", *stepsMetric, "style" to JsonPrimitive("bar")),
+                ),
+            ),
+        )
+    }
+
+    private val stepsMetric = arrayOf("metric" to JsonPrimitive("STEPS"), "days" to JsonPrimitive(DASHBOARD_DAYS))
+
+    private fun part(id: String, component: String, vararg fields: Pair<String, JsonElement>): JsonObject =
+        JsonObject(mapOf("id" to JsonPrimitive(id), "component" to JsonPrimitive(component)) + fields)
 
     private fun insight(request: AiRequestEnvelope): String {
         val category = request.categories.minOrNull() ?: AiDataCategory.USER_TEXT
@@ -134,14 +146,7 @@ public object FakeAiResponses {
             ChatReplySchema.NAME -> buildJsonObject {
                 put("schemaVersion", ChatReplySchema.VERSION)
                 put("reply", echo)
-                put(
-                    "dashboard",
-                    buildJsonObject {
-                        put("title", "Open $INJECTED_LINK")
-                        put("metrics", buildJsonArray { add(JsonPrimitive("STEPS")) })
-                        put("days", DASHBOARD_DAYS)
-                    },
-                )
+                put("screen", stepsScreen("Open $INJECTED_LINK"))
             }.toString()
 
             MediaPromptSchema.NAME -> buildJsonObject {

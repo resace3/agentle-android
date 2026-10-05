@@ -6,7 +6,7 @@ import dev.agentle.core.common.Outcome
 
 /**
  * Error codes of AI output validation. Codes E001-E099 keep the meaning they have in the JITAI proposal validator
- * (docs/research/10-jitai-engine-design.md section 11.2), so one code means one defect in every schema; E101-E113 are
+ * (docs/research/10-jitai-engine-design.md section 11.2), so one code means one defect in every schema; E101-E119 are
  * the codes of this module's own checks. Failures are recorded as codes and JSON-pointer paths only, never with the
  * model's text.
  */
@@ -76,6 +76,24 @@ public object OutputCodes {
 
     /** A digit or number word in text generated ahead of delivery, such as pooled JITAI `ai_text` (check L13). */
     public const val NUMBER_IN_POOLED_TEXT: String = "E113"
+
+    /** Two parts of a screen share an id. */
+    public const val SCREEN_DUPLICATE_ID: String = "E114"
+
+    /** No part of a screen has the id `root`. */
+    public const val SCREEN_ROOT_MISSING: String = "E115"
+
+    /** A child id names no other part, the root or the part itself, or a part is placed twice. */
+    public const val SCREEN_BAD_REFERENCE: String = "E116"
+
+    /** A part of a screen is not inside the root. */
+    public const val SCREEN_UNREACHABLE: String = "E117"
+
+    /** A part of a screen is nested deeper than the catalog allows. */
+    public const val SCREEN_TOO_DEEP: String = "E118"
+
+    /** A tile adds up the days of a heart rate. */
+    public const val SCREEN_TOTAL_OF_RATE: String = "E119"
 }
 
 /** Pipeline stages, in order (R10 section 11.1). */

@@ -34,6 +34,11 @@ work = "2.12.0"                      # [AX:work] minSdk 24. work-runtime-ktx is 
 paging = "3.5.1"                     # [AX:paging]
 media3 = "1.11.1"                    # [AX:media3] transformer/effect for video composition (docs 03/04 decide use)
 browser = "1.10.0"                   # [AX:browser] Custom Tabs for the ChatGPT sign-in flow (doc 06)
+a2ui = "1.0.0-alpha01"               # [AX:a2ui] PRE-RELEASE, the only release (2026-09-23) of Google's A2UI renderer
+                                     # for Compose (A2UI 0.9.1). Nick chose it on 2026-10-05 for AI-made screens.
+                                     # Its compose-runtime/compose-ui need androidx.compose runtime and ui
+                                     # 1.13.0-alpha03, so those two resolve above the BOM's 1.12.1. material3-a2ui
+                                     # (material3 1.5.0-alpha28) is not used: Agentle draws its own parts.
 uiautomator = "2.4.0"                # [AX:test-uiautomator] stable 2026-07-01
 healthConnect = "1.1.0"              # [AX:health-connect] stable; 1.2.0-alpha06 only if doc 05 needs its APIs
 healthConnectTesting = "1.0.0-alpha04" # [AX:health-connect] PRE-RELEASE, test-only (FakeHealthConnectClient);
@@ -156,6 +161,9 @@ androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", versi
 androidx-media3-common = { module = "androidx.media3:media3-common", version.ref = "media3" }
 androidx-media3-ui-compose = { module = "androidx.media3:media3-ui-compose", version.ref = "media3" }
 androidx-browser = { module = "androidx.browser:browser", version.ref = "browser" }
+a2ui-model = { module = "androidx.a2ui:a2ui-model", version.ref = "a2ui" }
+a2ui-compose-runtime = { module = "androidx.a2ui.compose:compose-runtime", version.ref = "a2ui" }
+a2ui-compose-ui = { module = "androidx.a2ui.compose:compose-ui", version.ref = "a2ui" }
 androidx-health-connect-client = { module = "androidx.health.connect:connect-client", version.ref = "healthConnect" }
 androidx-health-connect-testing = { module = "androidx.health.connect:connect-testing", version.ref = "healthConnectTesting" }
 androidx-credentials = { module = "androidx.credentials:credentials", version.ref = "credentials" }

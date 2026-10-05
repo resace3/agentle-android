@@ -1,6 +1,7 @@
 package dev.agentle.ai.context
 
 import dev.agentle.ai.api.AiPurpose
+import dev.agentle.ai.api.screen.ScreenCatalog
 import dev.agentle.ai.api.validation.ChatReplySchema
 import dev.agentle.ai.api.validation.InsightSchema
 import dev.agentle.ai.api.validation.MediaPromptSchema
@@ -67,11 +68,18 @@ public class AiInstructionSet(taskOverrides: Map<AiPurpose, String> = emptyMap()
             AiPurpose.SCREEN_TIME_INSIGHT to insightTask("the user's screen time"),
             AiPurpose.GENERAL_QUESTION to
                 "Task: answer the user's question using only the data, in at most three short sentences of plain text in " +
-                "reply. If the data does not answer it, say so briefly. When the user asks for a dashboard, chart, tracker or " +
-                "view of their data, also fill dashboard: a short title, the metrics that fit the request and the number of " +
-                "days to show (7 unless the user asks for another range), and say in reply that the dashboard is in the " +
-                "sidebar. Otherwise dashboard is null. The metrics are these codes:\n" + ChatReplySchema.METRIC_GUIDE +
-                "\nReply with one JSON object that matches this JSON Schema and nothing else:\n" + ChatReplySchema.SCHEMA.jsonSchema,
+                "reply. If the data does not answer it, say so briefly. When the user asks for a dashboard, screen, chart, " +
+                "tracker or view of their data, also fill screen and say in reply that the screen is in the sidebar; " +
+                "otherwise screen is null. A screen has a short title and a flat list of parts, the component format of " +
+                "A2UI. Every part has a unique id of lowercase letters, digits and underscores and a component type. The " +
+                "part with id root is drawn first; every other part is placed by naming its id exactly once in the children " +
+                "of a Column or Row or as the child of a Card, at most four levels deep. The phone works out every number " +
+                "from the user's stored data, so a screen never contains values: titles and texts have no digits or number " +
+                "words, and each MetricTile or TrendChart names a metric code and the number of days to show (7 unless the " +
+                "user asks for another range). When the user's text describes a saved screen to change, reply with the whole " +
+                "changed screen. The parts are:\n" + ScreenCatalog.PART_LIST + "\nThe metrics are these codes:\n" +
+                ScreenCatalog.METRIC_GUIDE + "\nReply with one JSON object that matches this JSON Schema and nothing " +
+                "else:\n" + ChatReplySchema.SCHEMA.jsonSchema,
             AiPurpose.PATTERN_EXPLANATION to
                 "Task: explain the pattern described by the data in plain words, as an observation and not as a cause. " +
                 "Reply with one JSON object that matches this JSON Schema and nothing else:\n" + InsightSchema.SCHEMA.jsonSchema,
