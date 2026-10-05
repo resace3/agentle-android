@@ -3,9 +3,21 @@ package dev.agentle.ai.api.screen
 /**
  * A saved screen in plain sentences, sent with a request to change it. A chat request carries only the user's text,
  * reduced to letters, digits and a few marks before it is sent, so the layout travels as words rather than JSON. It
- * names parts and metrics only and holds no values.
+ * names the parts and metrics and repeats the screen's title and texts, which ChatGPT wrote and which passed
+ * ScreenRules' text checks when the screen was saved; it holds no values.
  */
 public object ScreenDescription {
+    /**
+     * [question] as a sentence, then the description of [screen]; null when the two do not fit in [maxChars] (the cap
+     * on the user's text), because a cut description would make ChatGPT drop the parts it never saw.
+     */
+    public fun changeRequest(question: String, screen: ScreenSpec, maxChars: Int): String? {
+        val asked = question.trim()
+        if (asked.isEmpty()) return null
+        val request = (if (asked.last() in ".?!") asked else "$asked.") + " " + describe(screen)
+        return request.takeIf { it.length <= maxChars }
+    }
+
     /**
      * For example: The saved screen Steps. Top to bottom it shows a heading Steps. Then a bar chart of steps per day over the
      * last 7 days.

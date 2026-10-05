@@ -19,6 +19,7 @@ import dev.agentle.ai.chatgpt.SiwcGraph
 import dev.agentle.ai.chatgpt.SiwcVault
 import dev.agentle.ai.chatgpt.SiwcVaultCodec
 import dev.agentle.ai.chatgpt.VaultRead
+import dev.agentle.ai.context.PurposePolicy
 import dev.agentle.app.BuildConfig
 import dev.agentle.app.shell.ChatMessage
 import dev.agentle.app.shell.ChatPort
@@ -210,8 +211,13 @@ internal class SiwcChatPort @Inject constructor(siwc: AppSiwc, private val ai: A
 
     override suspend fun send(history: List<ChatMessage>, editing: DashboardSpec?): Outcome<ChatReply> {
         val question = history.lastOrNull { it.fromUser }?.text ?: return Outcome.failure(AppError.ValidationError(listOf("empty")))
-        // A change request carries the saved screen in words (the request keeps the user's text first, so a cut keeps it).
-        val asked = editing?.let { "${sentence(question)} ${ScreenDescription.describe(it.layout())}" } ?: question
+        // A change request carries the saved screen in words, whole or not at all.
+        val asked = if (editing == null) {
+            question
+        } else {
+            ScreenDescription.changeRequest(question, editing.layout(), PurposePolicy.REQUEST_MAX_CHARS)
+                ?: return Outcome.success(ChatReply(TOO_BIG_TO_CHANGE))
+        }
         return ai.ask(asked).map { answer ->
             val dashboard = answer.screen?.let { DashboardSpec.fromScreen(editing?.id ?: UUID.randomUUID().toString(), it) }
             val unsaved = answer.screen != null && dashboard == null
@@ -219,5 +225,8 @@ internal class SiwcChatPort @Inject constructor(siwc: AppSiwc, private val ai: A
         }
     }
 
-    private fun sentence(text: String): String = text.trimEnd().let { if (it.last() in ".?!") it else "$it." }
+    private companion object {
+        const val TOO_BIG_TO_CHANGE = "This screen has too much on it to change by asking, so nothing was sent. Tap Stop and " +
+            "ask for a new screen that has the change instead, or ask with fewer words."
+    }
 }

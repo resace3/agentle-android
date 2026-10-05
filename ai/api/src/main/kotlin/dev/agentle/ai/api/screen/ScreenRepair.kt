@@ -13,11 +13,15 @@ public object ScreenRepair {
     public fun applies(issues: List<ValidationIssue>): Boolean =
         issues.isNotEmpty() && issues.all { it.path == SCREEN || it.path.startsWith("$SCREEN/") }
 
-    /** The retried request: the rules that broke first (the request is cut at its end if it gets too long), then [request]. */
-    public fun request(request: String, issues: List<ValidationIssue>): String {
+    /**
+     * The retried request: the rules that broke, then [request]; null when the two do not fit in [maxChars] (the cap on
+     * the user's text), so a retry never loses the end of the request.
+     */
+    public fun request(request: String, issues: List<ValidationIssue>, maxChars: Int): String? {
         val broken = issues.map { RULES[it.code] ?: OTHER }.distinct()
-        return "Your last screen for this request broke these rules, so design it again and change nothing else: " +
+        val retried = "Your last screen for this request broke these rules, so design it again and change nothing else: " +
             broken.joinToString(". ") + ". The request: " + request
+        return retried.takeIf { it.length <= maxChars }
     }
 
     private const val SCREEN = "/screen"

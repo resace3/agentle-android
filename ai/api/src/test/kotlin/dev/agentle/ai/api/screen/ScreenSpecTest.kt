@@ -82,9 +82,20 @@ class ScreenSpecTest {
         assertThat(ScreenRepair.applies(listOf(badChild, number))).isTrue()
         assertThat(ScreenRepair.applies(listOf(badChild, reply))).isFalse()
         assertThat(ScreenRepair.applies(emptyList())).isFalse()
-        assertThat(ScreenRepair.request("make a sleep screen", listOf(badChild, number))).isEqualTo(
+        assertThat(ScreenRepair.request("make a sleep screen", listOf(badChild, number), maxChars = 500)).isEqualTo(
             "Your last screen for this request broke these rules, so design it again and change nothing else: a child id did " +
                 "not name exactly one other part. a title or text had a number in it. The request: make a sleep screen",
         )
+        assertThat(ScreenRepair.request("make a sleep screen", listOf(badChild, number), maxChars = 150)).isNull()
+    }
+
+    @Test
+    fun `a change request carries the whole saved screen or is not sent`() {
+        val request = ScreenDescription.changeRequest("  make the chart a bar chart ", screen, maxChars = 500)
+
+        assertThat(request).isEqualTo("make the chart a bar chart. " + ScreenDescription.describe(screen))
+        assertThat(ScreenDescription.changeRequest("Bars?", screen, maxChars = 500)).startsWith("Bars? The saved screen")
+        assertThat(ScreenDescription.changeRequest("make the chart a bar chart", screen, maxChars = request!!.length - 1)).isNull()
+        assertThat(ScreenDescription.changeRequest(" ", screen, maxChars = 500)).isNull()
     }
 }

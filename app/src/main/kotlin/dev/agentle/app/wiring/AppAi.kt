@@ -90,14 +90,13 @@ internal class AppAi @Inject constructor(
 
     /**
      * ChatGPT's answer to [question], checked against ChatReplySchema: the text and, when asked for, a screen. An answer
-     * whose only problems are in its screen is asked for once more, led by the rules it broke ([ScreenRepair]).
+     * whose only problems are in its screen is asked for once more, led by the rules it broke ([ScreenRepair]), when the
+     * rules and the request fit in the user's text.
      */
     suspend fun ask(question: String): Outcome<ChatReplyOutput> = answer(question).flatMap { first ->
-        if (first is OutputValidation.Invalid && ScreenRepair.applies(first.issues)) {
-            answer(ScreenRepair.request(question, first.issues)).flatMap { it.toOutcome() }
-        } else {
-            first.toOutcome()
-        }
+        val retry = (first as? OutputValidation.Invalid)?.issues?.takeIf(ScreenRepair::applies)
+            ?.let { ScreenRepair.request(question, it, PurposePolicy.REQUEST_MAX_CHARS) }
+        if (retry != null) answer(retry).flatMap { it.toOutcome() } else first.toOutcome()
     }
 
     private suspend fun answer(question: String): Outcome<OutputValidation<ChatReplyOutput>> =
