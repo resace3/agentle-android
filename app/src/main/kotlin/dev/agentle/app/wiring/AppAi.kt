@@ -95,7 +95,7 @@ internal class AppAi @Inject constructor(
      */
     suspend fun ask(question: String): Outcome<ChatReplyOutput> = answer(question).flatMap { first ->
         val retry = (first as? OutputValidation.Invalid)?.issues?.takeIf(ScreenRepair::applies)
-            ?.let { ScreenRepair.request(question, it, PurposePolicy.REQUEST_MAX_CHARS) }
+            ?.let { ScreenRepair.request(question, it, PurposePolicy.CHAT_MAX_CHARS) }
         if (retry != null) answer(retry).flatMap { it.toOutcome() } else first.toOutcome()
     }
 

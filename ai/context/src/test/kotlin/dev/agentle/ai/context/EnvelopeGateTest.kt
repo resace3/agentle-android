@@ -131,7 +131,9 @@ class EnvelopeGateTest {
             reason(envelope(userText = UntrustedText("Hi", TextOrigin.USER_REQUEST, aiGenerated = true))),
         ).isEqualTo(GateCodes.USER_TEXT)
         assertThat(reason(envelope(userText = UntrustedText("How was {my} week", TextOrigin.USER_REQUEST)))).isEqualTo(GateCodes.VALUE)
-        assertThat(reason(envelope(userText = UntrustedText("a".repeat(501), TextOrigin.USER_REQUEST)))).isEqualTo(GateCodes.VALUE)
+        assertThat(
+            reason(envelope(userText = UntrustedText("a".repeat(PurposePolicy.CHAT_MAX_CHARS + 1), TextOrigin.USER_REQUEST))),
+        ).isEqualTo(GateCodes.VALUE)
         val sleepInsight = envelope(purpose = AiPurpose.SLEEP_INSIGHT, blocks = emptyList())
         assertThat(reason(sleepInsight, decision(purpose = AiPurpose.SLEEP_INSIGHT))).isEqualTo(GateCodes.USER_TEXT)
     }

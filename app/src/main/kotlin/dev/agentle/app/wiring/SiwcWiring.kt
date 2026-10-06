@@ -215,7 +215,7 @@ internal class SiwcChatPort @Inject constructor(siwc: AppSiwc, private val ai: A
         val asked = if (editing == null) {
             question
         } else {
-            ScreenDescription.changeRequest(question, editing.layout(), PurposePolicy.REQUEST_MAX_CHARS)
+            ScreenDescription.changeRequest(question, editing.layout(), PurposePolicy.CHAT_MAX_CHARS)
                 ?: return Outcome.success(ChatReply(TOO_BIG_TO_CHANGE))
         }
         return ai.ask(asked).map { answer ->

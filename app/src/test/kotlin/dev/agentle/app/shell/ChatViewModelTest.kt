@@ -100,6 +100,22 @@ class ChatViewModelTest {
         assertThat(asked.last()).isNull()
     }
 
+    @Test
+    fun `asking for a new dashboard while changing one makes a new one`() {
+        val store = DashboardStore(ApplicationProvider.getApplicationContext())
+        val asked = mutableListOf<DashboardSpec?>()
+        val chat = chatWith(store) { editing ->
+            asked += editing
+            Outcome.success(ChatReply("Done."))
+        }
+
+        chat.change(store.dashboards.value.first().id)
+        chat.send("make a new dashboard that has a bar plots on it")
+
+        assertThat(asked).containsExactly(null)
+        assertThat(store.editing.value).isNull()
+    }
+
     private fun chatWith(
         store: DashboardStore = DashboardStore(ApplicationProvider.getApplicationContext()),
         answer: suspend (editing: DashboardSpec?) -> Outcome<ChatReply>,

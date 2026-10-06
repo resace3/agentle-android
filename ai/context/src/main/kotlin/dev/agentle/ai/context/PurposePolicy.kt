@@ -80,6 +80,12 @@ public object PurposePolicy {
     /** At most this many characters of the user's typed request (R10 section 13.1). */
     public const val REQUEST_MAX_CHARS: Int = 500
 
+    /**
+     * At most this many characters of a chat request: the user's words plus, when changing a saved screen, the app's
+     * description of that screen (layout words only, no values), which alone can pass [REQUEST_MAX_CHARS].
+     */
+    public const val CHAT_MAX_CHARS: Int = 2_000
+
     public val specs: Map<AiPurpose, PurposeSpec> = listOf(
         insight(AiPurpose.SLEEP_INSIGHT, setOf(SLEEP, SCREEN_TIME_TOTALS, STEPS, ACTIVITY), primary = setOf(SLEEP)),
         insight(AiPurpose.ACTIVITY_INSIGHT, setOf(ACTIVITY, STEPS, HEART), primary = setOf(ACTIVITY, STEPS)),
@@ -98,7 +104,7 @@ public object PurposePolicy {
             includesToday = true,
             rawEvents = true,
             userText = UserTextRule.REQUIRED,
-            userTextMaxChars = REQUEST_MAX_CHARS,
+            userTextMaxChars = CHAT_MAX_CHARS,
             itemKinds = ItemKind.entries.toSet(),
             background = null,
             outputSchema = ChatReplySchema.SCHEMA,

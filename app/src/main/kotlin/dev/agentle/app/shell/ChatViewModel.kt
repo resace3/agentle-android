@@ -52,6 +52,8 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
         if (trimmed.isEmpty() || mutableSending.value) return
         mutableMessages.update { it + ChatMessage(fromUser = true, text = trimmed) }
         mutableSending.value = true
+        // "Make a new dashboard" while changing one starts a new screen instead.
+        if (NEW_SCREEN.containsMatchIn(trimmed)) dashboards.edit(null)
         val target = dashboards.editing.value?.let { id -> dashboards.dashboards.value.firstOrNull { it.id == id } }
         viewModelScope.launch {
             val answer = try {
@@ -104,5 +106,6 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
 
     private companion object {
         const val STOP_MS = 5_000L
+        val NEW_SCREEN = Regex("\\b(new|another)\\b", RegexOption.IGNORE_CASE)
     }
 }

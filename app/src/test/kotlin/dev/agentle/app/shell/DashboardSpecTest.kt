@@ -4,10 +4,13 @@ import com.google.common.truth.Truth.assertThat
 import dev.agentle.ai.api.screen.CardPart
 import dev.agentle.ai.api.screen.ColumnPart
 import dev.agentle.ai.api.screen.MetricTilePart
+import dev.agentle.ai.api.screen.ScreenDescription
 import dev.agentle.ai.api.screen.ScreenRules
 import dev.agentle.ai.api.screen.ScreenSpec
+import dev.agentle.ai.api.screen.TextPart
 import dev.agentle.ai.api.screen.TrendChartPart
 import dev.agentle.ai.api.validation.ChatReplySchema
+import dev.agentle.ai.context.PurposePolicy
 import org.junit.Test
 
 class DashboardSpecTest {
@@ -43,6 +46,21 @@ class DashboardSpecTest {
             TrendChartPart("chart_2", "RESTING_HEART_RATE", 14, "bar"),
         ).inOrder()
         assertThat(ScreenRules.recheck(spec.layout())).isEmpty()
+    }
+
+    @Test
+    fun `a change request for a starter or a full ChatGPT screen fits the chat cap`() {
+        val question = "make the charts line charts and add a tile with my average sleep for the last month"
+        val starter = DashboardSpec("id", "Activity Dashboard", DashboardMetric.entries.take(4), 7)
+        val tiles = DashboardMetric.entries.take(9).mapIndexed { i, m -> MetricTilePart("t$i", m.name, 30, "average") }
+        val full = ScreenSpec(
+            "Everything this month",
+            listOf(ColumnPart("root", listOf("head") + tiles.map { it.id }), TextPart("head", "Everything I track, day by day", "h2")) +
+                tiles,
+        )
+
+        assertThat(ScreenDescription.changeRequest(question, starter.layout(), PurposePolicy.CHAT_MAX_CHARS)).isNotNull()
+        assertThat(ScreenDescription.changeRequest(question, full, PurposePolicy.CHAT_MAX_CHARS)).isNotNull()
     }
 
     @Test
