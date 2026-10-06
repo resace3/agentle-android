@@ -106,6 +106,6 @@ class ChatViewModel @Inject constructor(private val chat: ChatPort, private val 
 
     private companion object {
         const val STOP_MS = 5_000L
-        val NEW_SCREEN = Regex("\\b(new|another)\\b", RegexOption.IGNORE_CASE)
+        val NEW_SCREEN = Regex("\\b(new|another)\\s+(\\w+\\s+)?(dashboard|screen)", RegexOption.IGNORE_CASE)
     }
 }

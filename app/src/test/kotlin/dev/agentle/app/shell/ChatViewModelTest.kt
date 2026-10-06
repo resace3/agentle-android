@@ -114,6 +114,12 @@ class ChatViewModelTest {
 
         assertThat(asked).containsExactly(null)
         assertThat(store.editing.value).isNull()
+
+        val target = store.dashboards.value.first()
+        chat.change(target.id)
+        chat.send("add a new tile for sleep")
+
+        assertThat(asked.last()).isEqualTo(target)
     }
 
     private fun chatWith(
